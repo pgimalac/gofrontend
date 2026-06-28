@@ -599,6 +599,14 @@ class Gogo
   Generic_function_info*
   lookup_generic_function(const std::string& name);
 
+  // Register a generic type template, keyed by its raw (source) name.
+  void
+  add_generic_type(const std::string& name, Generic_function_info*);
+
+  // Look up a generic type template by raw (source) name, or NULL.
+  Generic_function_info*
+  lookup_generic_type(const std::string& name);
+
   // While instantiating a generic function we must build the new
   // function at the top level, not nested inside whatever function is
   // currently being parsed.  These save and restore the stack of
@@ -1294,6 +1302,8 @@ class Gogo
   std::vector<Open_functions> saved_functions_;
   // Registered generic function templates, keyed by packed name.
   Unordered_map(std::string, Generic_function_info*) generic_functions_;
+  // Registered generic type templates, keyed by raw (source) name.
+  Unordered_map(std::string, Generic_function_info*) generic_types_;
   // The global binding contour.  This includes the builtin functions
   // and the package we are compiling.
   Bindings* globals_;

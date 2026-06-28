@@ -2292,6 +2292,26 @@ Gogo::lookup_generic_function(const std::string& name)
   return p->second;
 }
 
+// Register a generic type template.
+
+void
+Gogo::add_generic_type(const std::string& name, Generic_function_info* info)
+{
+  this->generic_types_[name] = info;
+}
+
+// Look up a generic type template by raw name, or return NULL.
+
+Generic_function_info*
+Gogo::lookup_generic_type(const std::string& name)
+{
+  Unordered_map(std::string, Generic_function_info*)::iterator p =
+    this->generic_types_.find(name);
+  if (p == this->generic_types_.end())
+    return NULL;
+  return p->second;
+}
+
 // Save the stack of functions currently being parsed, leaving it
 // empty, so that a generic function instance is created at top level.
 

@@ -411,6 +411,16 @@ Parse::type_name(bool issue_error)
   if (!this->qualified_ident(&name, &package))
     return Type::make_error_type();
 
+  // Generics: a "[" after a type name that refers to a generic type
+  // template is a type argument list, so instantiate the type.
+  if (package == NULL
+      && this->peek_token()->is_op(OPERATOR_LSQUARE))
+    {
+      Generic_function_info* ginfo = this->gogo_->lookup_generic_type(name);
+      if (ginfo != NULL)
+	return this->generic_type_instantiation(ginfo, location);
+    }
+
   Named_object* named_object;
   if (package == NULL)
     named_object = this->gogo_->lookup(name, NULL);
@@ -1731,6 +1741,15 @@ Parse::type_spec()
   Location location = token->location();
   token = this->advance_token();
 
+  // Generics: a "[" after the type name introduces a type parameter
+  // list.  Capture the template and return; instances are created on
+  // demand at each use site.
+  if (token->is_op(OPERATOR_LSQUARE))
+    {
+      this->generic_type_decl(name, is_exported, location);
+      return;
+    }
+
   bool is_alias = false;
   if (token->is_op(OPERATOR_EQ))
     {
@@ -2769,22 +2788,15 @@ token_key_string(const Token& t)
     }
 }
 
-// Generics: capture a generic function template.  The current token is
-// the "[" that introduces the type parameter list.  We record the type
-// parameter names and the tokens of the signature and body, then
-// register the template; no function is compiled here.
+// Generics: parse a "[name constraint, ...]" type parameter list,
+// collecting the parameter names.  The current token is "[".  For
+// simplicity each type parameter must carry its own constraint (grouped
+// "[T, U any]" is not yet supported); constraints are parsed but
+// otherwise ignored (no constraint checking yet).
 
 void
-Parse::generic_function_decl(const std::string& name, bool is_exported,
-			     Location location, unsigned int pragmas)
+Parse::type_parameter_names(std::vector<std::string>* names)
 {
-  Generic_function_info* info =
-    new Generic_function_info(name, is_exported, location);
-
-  // Parse the type parameter list to collect the parameter names.  For
-  // simplicity each type parameter must carry its own constraint
-  // (grouped "[T, U any]" is not yet supported); constraints are parsed
-  // but otherwise ignored (no constraint checking yet).
   go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
   this->advance_token();
   while (!this->peek_token()->is_op(OPERATOR_RSQUARE)
@@ -2796,7 +2808,7 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
 	  go_error_at(this->location(), "expected type parameter name");
 	  break;
 	}
-      info->type_param_names().push_back(token->identifier());
+      names->push_back(token->identifier());
       this->advance_token();
 
       // Skip the constraint up to a top-level "," or "]".
@@ -2822,6 +2834,190 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
     }
   // Consume "]".
   this->advance_token();
+}
+
+// Generics: capture a generic type template.  The current token is the
+// "[" that introduces the type parameter list.  We record the type
+// parameter names and the tokens of the type definition (up to the
+// terminating semicolon), then register the template; no type is
+// defined here.
+
+void
+Parse::generic_type_decl(const std::string& name, bool is_exported,
+			 Location location)
+{
+  Generic_function_info* info =
+    new Generic_function_info(name, is_exported, location);
+
+  this->type_parameter_names(&info->type_param_names());
+
+  // Capture the type definition tokens up to a top-level semicolon.
+  std::vector<Token>& toks = info->tokens();
+  int depth = 0;
+  while (true)
+    {
+      const Token* t = this->peek_token();
+      if (t->is_eof())
+	break;
+      if (depth == 0 && t->is_op(OPERATOR_SEMICOLON))
+	break;
+      toks.push_back(*t);
+      if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
+	  || t->is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t->is_op(OPERATOR_RPAREN) || t->is_op(OPERATOR_RSQUARE)
+	       || t->is_op(OPERATOR_RCURLY))
+	--depth;
+      this->advance_token();
+    }
+  toks.push_back(Token::make_eof_token(location));
+
+  this->gogo_->add_generic_type(name, info);
+}
+
+// Generics: instantiate a generic type template with the given type
+// arguments.  Returns the instance type (possibly a forward
+// declaration during recursive instantiation).
+
+Type*
+Parse::instantiate_generic_type(Generic_function_info* info,
+				const std::vector<std::vector<Token> >& type_args,
+				Location location)
+{
+  // Build a mangled key from the type arguments and check the cache.
+  std::string key;
+  for (size_t i = 0; i < type_args.size(); ++i)
+    {
+      key += "$";
+      for (size_t j = 0; j < type_args[i].size(); ++j)
+	key += token_key_string(type_args[i][j]);
+    }
+  Named_object* cached = info->find_instance(key);
+  if (cached != NULL)
+    {
+      if (cached->is_type_declaration())
+	return Type::make_forward_declaration(cached);
+      return cached->type_value();
+    }
+
+  if (type_args.size() != info->type_param_names().size())
+    {
+      go_error_at(location,
+		  "wrong number of type arguments for generic type %qs",
+		  Gogo::message_name(info->name()).c_str());
+      return Type::make_error_type();
+    }
+
+  // Substitute type arguments for type parameter names throughout the
+  // captured token stream.
+  std::vector<Token> substituted;
+  const std::vector<Token>& tmpl = info->tokens();
+  for (size_t i = 0; i < tmpl.size(); ++i)
+    {
+      const Token& t = tmpl[i];
+      int which = -1;
+      if (t.is_identifier())
+	{
+	  for (size_t k = 0; k < info->type_param_names().size(); ++k)
+	    if (info->type_param_names()[k] == t.identifier())
+	      {
+		which = (int) k;
+		break;
+	      }
+	}
+      if (which >= 0)
+	{
+	  const std::vector<Token>& rep = type_args[which];
+	  for (size_t j = 0; j < rep.size(); ++j)
+	    substituted.push_back(rep[j]);
+	}
+      else
+	substituted.push_back(t);
+    }
+
+  // Make a unique instance name.
+  static unsigned int count;
+  char buf[64];
+  snprintf(buf, sizeof buf, "$type%u", count);
+  ++count;
+  std::string iname = info->name() + std::string(buf);
+  std::string packed = this->gogo_->pack_hidden_name(iname, false);
+
+  this->gogo_->push_instantiation_context();
+
+  // Declare the instance type first so that recursive references to the
+  // same instantiation resolve to it.
+  Named_object* no = this->gogo_->declare_type(packed, location);
+  info->add_instance(key, no);
+
+  Parse ip(this->lex_, this->gogo_);
+  ip.set_replay_tokens(&substituted);
+  Type* underlying = ip.type();
+
+  Named_type* nt = Type::make_named_type(no, underlying, location);
+  this->gogo_->define_type(no, nt);
+
+  this->gogo_->pop_instantiation_context();
+
+  return nt;
+}
+
+// Generics: parse a "[type-args]" list at a use site of a generic type
+// and return the resulting instance type.  The current token is "[".
+
+Type*
+Parse::generic_type_instantiation(Generic_function_info* info,
+				  Location location)
+{
+  go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
+  this->advance_token();
+
+  std::vector<std::vector<Token> > type_args;
+  while (!this->peek_token()->is_op(OPERATOR_RSQUARE)
+	 && !this->peek_token()->is_eof())
+    {
+      std::vector<Token> arg;
+      int depth = 0;
+      while (true)
+	{
+	  const Token* t = this->peek_token();
+	  if (t->is_eof())
+	    break;
+	  if (depth == 0
+	      && (t->is_op(OPERATOR_COMMA) || t->is_op(OPERATOR_RSQUARE)))
+	    break;
+	  if (t->is_op(OPERATOR_LSQUARE) || t->is_op(OPERATOR_LPAREN)
+	      || t->is_op(OPERATOR_LCURLY))
+	    ++depth;
+	  else if (t->is_op(OPERATOR_RSQUARE) || t->is_op(OPERATOR_RPAREN)
+		   || t->is_op(OPERATOR_RCURLY))
+	    --depth;
+	  arg.push_back(*t);
+	  this->advance_token();
+	}
+      type_args.push_back(arg);
+      if (this->peek_token()->is_op(OPERATOR_COMMA))
+	this->advance_token();
+    }
+  // Consume "]".
+  this->advance_token();
+
+  return this->instantiate_generic_type(info, type_args, location);
+}
+
+// Generics: capture a generic function template.  The current token is
+// the "[" that introduces the type parameter list.  We record the type
+// parameter names and the tokens of the signature and body, then
+// register the template; no function is compiled here.
+
+void
+Parse::generic_function_decl(const std::string& name, bool is_exported,
+			     Location location, unsigned int pragmas)
+{
+  Generic_function_info* info =
+    new Generic_function_info(name, is_exported, location);
+
+  this->type_parameter_names(&info->type_param_names());
 
   // Capture the signature and body tokens.  The current token should be
   // "(".  We track bracket nesting and stop after the body's closing
@@ -3029,6 +3225,22 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	  }
 
 	this->advance_token();
+
+	// Generics: a generic type used in expression context, e.g. a
+	// composite literal Pair[int,string]{...} or a conversion
+	// T[int](x).  Instantiate the type and return it as a type
+	// expression; primary_expr will handle the following "{" or "(".
+	if (package == NULL
+	    && this->peek_token()->is_op(OPERATOR_LSQUARE))
+	  {
+	    Generic_function_info* ginfo =
+	      this->gogo_->lookup_generic_type(id);
+	    if (ginfo != NULL)
+	      {
+		Type* t = this->generic_type_instantiation(ginfo, location);
+		return Expression::make_type(t, location);
+	      }
+	  }
 
 	if (named_object != NULL
 	    && named_object->is_type()

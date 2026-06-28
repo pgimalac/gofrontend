@@ -233,6 +233,20 @@ class Parse
   // Parse a "[type-args]" list at a use site of a generic function and
   // return a reference to the resulting instance.
   Expression* generic_instantiation(Generic_function_info*, Location);
+  // Parse a "[name constraint, ...]" type parameter list (current token
+  // is "[") collecting the parameter names.
+  void type_parameter_names(std::vector<std::string>* names);
+  // Capture a generic type template (a type whose name is followed by a
+  // "[" type parameter list).
+  void generic_type_decl(const std::string& name, bool is_exported, Location);
+  // Instantiate a generic type template with the given type arguments
+  // (each a captured token sequence).  Returns the instance type.
+  Type* instantiate_generic_type(Generic_function_info*,
+				 const std::vector<std::vector<Token> >&,
+				 Location);
+  // Parse a "[type-args]" list at a use site of a generic type, given
+  // the template, and return the resulting instance type.
+  Type* generic_type_instantiation(Generic_function_info*, Location);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,
