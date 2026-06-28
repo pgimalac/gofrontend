@@ -118,6 +118,16 @@ go_parse_input_files(const char** filenames, unsigned int filename_count,
     ::gogo->add_linkname(p->first, p->second.is_exported, p->second.ext_name,
 			 p->second.loc);
 
+  // Generics: resolve forward references to generic types (a generic
+  // type used before its declaration).  Done after all input is parsed
+  // so every generic template is registered, and before the passes
+  // below so the resulting instances are processed normally.
+  {
+    Lex dummy_lex(NULL, NULL, ::gogo->linemap());
+    Parse generics_parse(&dummy_lex, ::gogo);
+    generics_parse.resolve_pending_generic_types();
+  }
+
   // Lower calls to builtin functions.
   ::gogo->lower_builtin_calls();
 

@@ -42,6 +42,22 @@ struct Generic_method_template
   std::vector<Token> tokens;
 };
 
+// A use of a generic type that appeared before the type's declaration
+// (a forward reference).  A placeholder type declaration stands in for
+// it during parsing; after parsing, the placeholder is made an alias of
+// the real instantiation.
+
+struct Pending_generic_type
+{
+  // The placeholder type declaration returned at the use site.
+  Named_object* placeholder;
+  // The (packed) name of the generic type being referenced.
+  std::string generic_name;
+  // The type arguments, each a captured token sequence.
+  std::vector<std::vector<Token> > type_args;
+  Location location;
+};
+
 class Generic_function_info
 {
  public:
@@ -445,14 +461,18 @@ Parse::type_name(bool issue_error)
   if (!this->qualified_ident(&name, &package))
     return Type::make_error_type();
 
-  // Generics: a "[" after a type name that refers to a generic type
-  // template is a type argument list, so instantiate the type.
+  // Generics: a "[" after a type name is a type argument list.  If the
+  // generic type is already known, instantiate now.  Otherwise, when
+  // parsing source (not re-parsing an instance), it is a forward
+  // reference: record a pending instantiation to resolve after parsing.
   if (package == NULL
       && this->peek_token()->is_op(OPERATOR_LSQUARE))
     {
       Generic_function_info* ginfo = this->gogo_->lookup_generic_type(name);
       if (ginfo != NULL)
 	return this->generic_type_instantiation(ginfo, location);
+      if (this->replay_tokens_ == NULL)
+	return this->pending_generic_type_instantiation(name, location);
     }
 
   Named_object* named_object;
@@ -3142,6 +3162,95 @@ Parse::generic_type_instantiation(Generic_function_info* info,
   this->advance_token();
 
   return this->instantiate_generic_type(info, type_args, location);
+}
+
+// Generics: a use of a generic type before its declaration.  Parse the
+// "[type-args]" list, create a placeholder type declaration, record a
+// pending instantiation, and return a forward declaration of the
+// placeholder.  The placeholder is resolved (made an alias of the real
+// instantiation) after all input is parsed.
+
+Type*
+Parse::pending_generic_type_instantiation(const std::string& name,
+					  Location location)
+{
+  go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
+  this->advance_token();
+
+  std::vector<std::vector<Token> > type_args;
+  while (!this->peek_token()->is_op(OPERATOR_RSQUARE)
+	 && !this->peek_token()->is_eof())
+    {
+      std::vector<Token> arg;
+      int depth = 0;
+      while (true)
+	{
+	  const Token* t = this->peek_token();
+	  if (t->is_eof())
+	    break;
+	  if (depth == 0
+	      && (t->is_op(OPERATOR_COMMA) || t->is_op(OPERATOR_RSQUARE)))
+	    break;
+	  if (t->is_op(OPERATOR_LSQUARE) || t->is_op(OPERATOR_LPAREN)
+	      || t->is_op(OPERATOR_LCURLY))
+	    ++depth;
+	  else if (t->is_op(OPERATOR_RSQUARE) || t->is_op(OPERATOR_RPAREN)
+		   || t->is_op(OPERATOR_RCURLY))
+	    --depth;
+	  arg.push_back(*t);
+	  this->advance_token();
+	}
+      type_args.push_back(arg);
+      if (this->peek_token()->is_op(OPERATOR_COMMA))
+	this->advance_token();
+    }
+  // Consume "]".
+  this->advance_token();
+
+  static unsigned int count;
+  char buf[64];
+  snprintf(buf, sizeof buf, ".$pendinggen%u", count);
+  ++count;
+  Named_object* placeholder = this->gogo_->declare_type(std::string(buf),
+							location);
+
+  Pending_generic_type* p = new Pending_generic_type;
+  p->placeholder = placeholder;
+  p->generic_name = name;
+  p->type_args = type_args;
+  p->location = location;
+  this->gogo_->add_pending_generic_type(p);
+
+  return Type::make_forward_declaration(placeholder);
+}
+
+// Generics: resolve all recorded forward references to generic types.
+// Called after all input has been parsed and all templates registered.
+
+void
+Parse::resolve_pending_generic_types()
+{
+  std::vector<Pending_generic_type*>& pend =
+    this->gogo_->pending_generic_types();
+  for (size_t i = 0; i < pend.size(); ++i)
+    {
+      Pending_generic_type* p = pend[i];
+      Generic_function_info* info =
+	this->gogo_->lookup_generic_type(p->generic_name);
+      if (info == NULL)
+	{
+	  go_error_at(p->location, "reference to undefined generic type");
+	  continue;
+	}
+      Type* inst = this->instantiate_generic_type(info, p->type_args,
+						  p->location);
+      // Make the placeholder an alias of the real instantiation.
+      Named_type* alias = Type::make_named_type(p->placeholder, inst,
+						p->location);
+      alias->set_is_alias();
+      this->gogo_->define_type(p->placeholder, alias);
+    }
+  this->gogo_->resolve_global_names();
 }
 
 // Generics: produce SUBSTITUTED from TMPL by replacing every identifier

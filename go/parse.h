@@ -45,6 +45,10 @@ class Parse
 						   Expression_list* args,
 						   Location);
 
+  // Resolve recorded forward references to generic types.  Called from
+  // go.cc after all input has been parsed.
+  void resolve_pending_generic_types();
+
  private:
   // Precedence values.
   enum Precedence
@@ -269,6 +273,10 @@ class Parse
   // Parse a "[type-args]" list at a use site of a generic type, given
   // the template, and return the resulting instance type.
   Type* generic_type_instantiation(Generic_function_info*, Location);
+  // A use of a generic type before its declaration: record a pending
+  // instantiation and return a placeholder type, resolved later.  NAME
+  // is the packed name of the referenced generic type.
+  Type* pending_generic_type_instantiation(const std::string& name, Location);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,

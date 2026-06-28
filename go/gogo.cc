@@ -2350,6 +2350,14 @@ Gogo::infer_marker_index(const Type* type) const
   return -1;
 }
 
+// Record a forward reference to a generic type, resolved after parsing.
+
+void
+Gogo::add_pending_generic_type(Pending_generic_type* p)
+{
+  this->pending_generic_types_.push_back(p);
+}
+
 // Save the stack of functions currently being parsed, leaving it
 // empty, so that a generic function instance is created at top level.
 

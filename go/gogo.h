@@ -38,6 +38,7 @@ class Named_type;
 class Forward_declaration_type;
 class Named_object;
 class Generic_function_info;
+class Pending_generic_type;
 class Label;
 class Translate_context;
 class Backend;
@@ -606,6 +607,16 @@ class Gogo
   // Look up a generic type template by raw (source) name, or NULL.
   Generic_function_info*
   lookup_generic_type(const std::string& name);
+
+  // Record a use of a generic type that appeared before the type's
+  // declaration (a forward reference); it is resolved after parsing.
+  void
+  add_pending_generic_type(Pending_generic_type*);
+
+  // The recorded forward references to generic types.
+  std::vector<Pending_generic_type*>&
+  pending_generic_types()
+  { return this->pending_generic_types_; }
 
   // Generics: return the I'th "marker" type, used as a stand-in for a
   // type parameter while inferring type arguments from a call's
@@ -1337,6 +1348,8 @@ class Gogo
   Unordered_map(std::string, Generic_function_info*) generic_functions_;
   // Registered generic type templates, keyed by raw (source) name.
   Unordered_map(std::string, Generic_function_info*) generic_types_;
+  // Forward references to generic types, resolved after parsing.
+  std::vector<Pending_generic_type*> pending_generic_types_;
   // Lazily-created marker types used during generic type inference.
   std::vector<Named_type*> infer_markers_;
   // True once the early compilation passes have run; generic instances
