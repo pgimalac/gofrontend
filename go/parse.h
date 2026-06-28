@@ -37,6 +37,14 @@ class Parse
   void
   program();
 
+  // Generics: infer the type arguments for a call to a generic function
+  // from the argument expression types, then instantiate.  Returns the
+  // instance Named_object, or NULL if inference fails.  Public because
+  // it is invoked from Call_expression::do_determine_type.
+  Named_object* instantiate_generic_with_inference(Generic_function_info*,
+						   Expression_list* args,
+						   Location);
+
  private:
   // Precedence values.
   enum Precedence

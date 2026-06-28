@@ -21,6 +21,7 @@
 #include "backend.h"
 #include "expressions.h"
 #include "ast-dump.h"
+#include "parse.h"
 
 // Class Expression.
 
@@ -13758,6 +13759,37 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
       this->lowered_->determine_type(gogo, context);
       return;
     }
+
+  // Generics: a call to a generic function without explicit type
+  // arguments.  Infer the type arguments from the argument types and
+  // replace the function with a reference to the instantiated function.
+  {
+    Func_expression* fe = this->fn_->func_expression();
+    if (fe != NULL)
+      {
+	Generic_function_info* gi =
+	  gogo->lookup_generic_function(fe->named_object()->name());
+	if (gi != NULL)
+	  {
+	    // The parser re-parses the instance from captured tokens; it
+	    // never reads from this lexer (it only queries it for pragmas
+	    // and embeds, which are empty here), so a dummy lexer is fine.
+	    Lex dummy_lex(NULL, NULL, gogo->linemap());
+	    Parse parse(&dummy_lex, gogo);
+	    Named_object* inst =
+	      parse.instantiate_generic_with_inference(gi, this->args_,
+						       this->location());
+	    if (inst != NULL)
+	      this->fn_ = Expression::make_func_reference(inst, NULL,
+							  this->fn_->location());
+	    else
+	      {
+		this->set_is_error();
+		return;
+	      }
+	  }
+      }
+  }
 
   this->fn_->determine_type_no_context(gogo);
 

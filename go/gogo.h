@@ -607,6 +607,16 @@ class Gogo
   Generic_function_info*
   lookup_generic_type(const std::string& name);
 
+  // Generics: return the I'th "marker" type, used as a stand-in for a
+  // type parameter while inferring type arguments from a call's
+  // argument types.  Markers are created lazily.
+  Type*
+  infer_marker_type(size_t i);
+
+  // If TYPE is one of the inference markers, return its index, else -1.
+  int
+  infer_marker_index(const Type*) const;
+
   // While instantiating a generic function we must build the new
   // function at the top level, not nested inside whatever function is
   // currently being parsed.  These save and restore the stack of
@@ -822,6 +832,18 @@ class Gogo
   // Define the predeclared global names.
   void
   define_global_names();
+
+  // Re-connect unknown references in the package block to predeclared
+  // global definitions.  Used after generic instances are created
+  // during type inference (after define_global_names has already run).
+  void
+  resolve_global_names();
+
+  // Lower builtin calls (make, len, append, ...) in a single function.
+  // Used for generic instances created during type inference, after the
+  // global lower_builtin_calls pass has run.
+  void
+  lower_builtin_calls_for(Named_object*);
 
   // Verify and complete all types.
   void
@@ -1304,6 +1326,8 @@ class Gogo
   Unordered_map(std::string, Generic_function_info*) generic_functions_;
   // Registered generic type templates, keyed by raw (source) name.
   Unordered_map(std::string, Generic_function_info*) generic_types_;
+  // Lazily-created marker types used during generic type inference.
+  std::vector<Named_type*> infer_markers_;
   // The global binding contour.  This includes the builtin functions
   // and the package we are compiling.
   Bindings* globals_;

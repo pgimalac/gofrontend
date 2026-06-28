@@ -2312,6 +2312,43 @@ Gogo::lookup_generic_type(const std::string& name)
   return p->second;
 }
 
+// Generics: return the I'th marker type used during type inference,
+// creating markers as needed.  Markers are named types at package
+// scope with names that cannot collide with user identifiers.
+
+Type*
+Gogo::infer_marker_type(size_t i)
+{
+  while (this->infer_markers_.size() <= i)
+    {
+      size_t idx = this->infer_markers_.size();
+      char buf[32];
+      snprintf(buf, sizeof buf, "$infermarker%zu", idx);
+      std::string nm(buf);
+      Location loc = Linemap::predeclared_location();
+      Named_object* no = this->declare_type(nm, loc);
+      Type* under = Type::make_empty_interface_type(loc);
+      Named_type* nt = Type::make_named_type(no, under, loc);
+      this->define_type(no, nt);
+      this->infer_markers_.push_back(nt);
+    }
+  return this->infer_markers_[i];
+}
+
+// If TYPE is one of the inference markers, return its index, else -1.
+
+int
+Gogo::infer_marker_index(const Type* type) const
+{
+  const Named_type* nt = type->named_type();
+  if (nt == NULL)
+    return -1;
+  for (size_t i = 0; i < this->infer_markers_.size(); ++i)
+    if (this->infer_markers_[i] == nt)
+      return (int) i;
+  return -1;
+}
+
 // Save the stack of functions currently being parsed, leaving it
 // empty, so that a generic function instance is created at top level.
 
@@ -2613,23 +2650,15 @@ Gogo::record_interface_type(Interface_type* itype)
   this->interface_types_.push_back(itype);
 }
 
-// Define the global names.  We do this only after parsing all the
-// input files, because the program might define the global names
-// itself.
+// Connect unknown/forward references in the package block to their
+// predeclared (global) definitions.  Factored out of
+// define_global_names so it can be re-run after generic instances are
+// created during type inference (which happens after define_global_names
+// has already run once).
 
 void
-Gogo::define_global_names()
+Gogo::resolve_global_names()
 {
-  if (this->is_main_package())
-    {
-      // Every Go program has to import the runtime package, so that
-      // it is properly initialized.  We can't use
-      // predeclared_location here as it will cause runtime functions
-      // to appear to be builtin functions.
-      this->import_package("runtime", "_", false, false,
-			   this->package_->location());
-    }
-
   for (Bindings::const_declarations_iterator p =
 	 this->globals_->begin_declarations();
        p != this->globals_->end_declarations();
@@ -2669,6 +2698,26 @@ Gogo::define_global_names()
       else if (no->is_unknown())
 	no->unknown_value()->set_real_named_object(global_no);
     }
+}
+
+// Define the global names.  We do this only after parsing all the
+// input files, because the program might define the global names
+// itself.
+
+void
+Gogo::define_global_names()
+{
+  if (this->is_main_package())
+    {
+      // Every Go program has to import the runtime package, so that
+      // it is properly initialized.  We can't use
+      // predeclared_location here as it will cause runtime functions
+      // to appear to be builtin functions.
+      this->import_package("runtime", "_", false, false,
+			   this->package_->location());
+    }
+
+  this->resolve_global_names();
 
   // Give an error if any name is defined in both the package block
   // and the file block.  For example, this can happen if one file
@@ -3573,6 +3622,19 @@ Gogo::lower_builtin_calls()
 {
   Lower_builtin_calls lbc(this);
   this->traverse(&lbc);
+}
+
+// Lower builtin calls in a single function.  Used for generic function
+// instances created during type inference, which are created after the
+// global lower_builtin_calls pass has already run.
+
+void
+Gogo::lower_builtin_calls_for(Named_object* no)
+{
+  if (!no->is_function())
+    return;
+  Lower_builtin_calls lbc(this);
+  no->func_value()->traverse(&lbc);
 }
 
 // Finalize the methods of an interface type.

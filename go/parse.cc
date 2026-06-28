@@ -32,7 +32,7 @@ class Generic_function_info
   Generic_function_info(const std::string& name, bool is_exported,
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
-      type_param_names_(), tokens_(), instances_()
+      type_param_names_(), tokens_(), instances_(), marker_signature_(NULL)
   { }
 
   // The packed name of the generic function.
@@ -73,6 +73,16 @@ class Generic_function_info
   add_instance(const std::string& key, Named_object* no)
   { this->instances_[key] = no; }
 
+  // The cached signature parsed with marker types substituted for the
+  // type parameters, used for type-argument inference.  NULL until built.
+  Function_type*
+  marker_signature() const
+  { return this->marker_signature_; }
+
+  void
+  set_marker_signature(Function_type* ft)
+  { this->marker_signature_ = ft; }
+
  private:
   std::string name_;
   bool is_exported_;
@@ -80,6 +90,7 @@ class Generic_function_info
   std::vector<std::string> type_param_names_;
   std::vector<Token> tokens_;
   Unordered_map(std::string, Named_object*) instances_;
+  Function_type* marker_signature_;
 };
 
 // Struct Parse::Enclosing_var_comparison.
@@ -3110,6 +3121,229 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
     go_warning_at(location, 0,
 		  ("ignoring magic %<//go:...%> comment before "
 		   "generic function"));
+}
+
+// Generics: structurally unify a parameter type PT (which may contain
+// inference marker types) against an argument type AT, recording the
+// solved type for each marker in SOLVED.  Handles the common forms:
+// direct T, []T, *T, map[K]V, chan T, and func(...) ... .
+
+static void
+unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
+{
+  if (pt == NULL || at == NULL)
+    return;
+  pt = pt->forwarded();
+  at = at->forwarded();
+
+  int mi = gogo->infer_marker_index(pt);
+  if (mi >= 0)
+    {
+      Type* a = at;
+      if (a->is_abstract())
+	a = a->make_non_abstract_type();
+      if ((size_t) mi < solved.size() && solved[mi] == NULL)
+	solved[mi] = a;
+      return;
+    }
+
+  if (pt->points_to() != NULL && at->points_to() != NULL)
+    {
+      unify_marker(gogo, pt->points_to(), at->points_to(), solved);
+      return;
+    }
+
+  Array_type* pat = pt->array_type();
+  Array_type* aat = at->array_type();
+  if (pat != NULL && aat != NULL
+      && pat->length() == NULL && aat->length() == NULL)
+    {
+      unify_marker(gogo, pat->element_type(), aat->element_type(), solved);
+      return;
+    }
+
+  Map_type* pmt = pt->map_type();
+  Map_type* amt = at->map_type();
+  if (pmt != NULL && amt != NULL)
+    {
+      unify_marker(gogo, pmt->key_type(), amt->key_type(), solved);
+      unify_marker(gogo, pmt->val_type(), amt->val_type(), solved);
+      return;
+    }
+
+  Function_type* pft = pt->function_type();
+  Function_type* aft = at->function_type();
+  if (pft != NULL && aft != NULL)
+    {
+      const Typed_identifier_list* pp = pft->parameters();
+      const Typed_identifier_list* ap = aft->parameters();
+      if (pp != NULL && ap != NULL)
+	{
+	  Typed_identifier_list::const_iterator i1 = pp->begin();
+	  Typed_identifier_list::const_iterator i2 = ap->begin();
+	  for (; i1 != pp->end() && i2 != ap->end(); ++i1, ++i2)
+	    unify_marker(gogo, i1->type(), i2->type(), solved);
+	}
+      const Typed_identifier_list* pr = pft->results();
+      const Typed_identifier_list* ar = aft->results();
+      if (pr != NULL && ar != NULL)
+	{
+	  Typed_identifier_list::const_iterator i1 = pr->begin();
+	  Typed_identifier_list::const_iterator i2 = ar->begin();
+	  for (; i1 != pr->end() && i2 != ar->end(); ++i1, ++i2)
+	    unify_marker(gogo, i1->type(), i2->type(), solved);
+	}
+    }
+}
+
+// Generics: emit source tokens that name the type T, for use as a type
+// argument in an instantiation.  Returns false if T cannot be expressed
+// (in which case inference fails and the user must give explicit type
+// arguments).
+
+static bool
+type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
+{
+  t = t->forwarded();
+  if (t->is_abstract())
+    t = t->make_non_abstract_type();
+
+  if (t->points_to() != NULL)
+    {
+      out.push_back(Token::make_operator_token(OPERATOR_MULT, loc));
+      return type_to_tokens(t->points_to(), out, loc);
+    }
+
+  Array_type* at = t->array_type();
+  if (at != NULL && at->length() == NULL)
+    {
+      out.push_back(Token::make_operator_token(OPERATOR_LSQUARE, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
+      return type_to_tokens(at->element_type(), out, loc);
+    }
+
+  Map_type* mt = t->map_type();
+  if (mt != NULL)
+    {
+      out.push_back(Token::make_keyword_token(KEYWORD_MAP, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_LSQUARE, loc));
+      if (!type_to_tokens(mt->key_type(), out, loc))
+	return false;
+      out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
+      return type_to_tokens(mt->val_type(), out, loc);
+    }
+
+  Named_type* nt = t->named_type();
+  if (nt != NULL)
+    {
+      const std::string& n = nt->name();
+      bool hidden = Gogo::is_hidden_name(n);
+      std::string src = hidden ? Gogo::unpack_hidden_name(n) : n;
+      // The token's "exported" flag must match how the name is normally
+      // tokenized (e.g. "int" is not exported), so that name packing and
+      // lookup are consistent.
+      bool exported = Lex::is_exported_name(src);
+      out.push_back(Token::make_identifier_token(src, exported, loc));
+      return true;
+    }
+
+  return false;
+}
+
+// Generics: infer type arguments for a call to a generic function from
+// the argument expression types, then instantiate.
+
+Named_object*
+Parse::instantiate_generic_with_inference(Generic_function_info* info,
+					  Expression_list* args,
+					  Location location)
+{
+  size_t nparams = info->type_param_names().size();
+
+  // Build (once) the signature with marker types substituted for the
+  // type parameters, so we can unify it against the argument types.
+  Function_type* gsig = info->marker_signature();
+  if (gsig == NULL)
+    {
+      std::vector<Token> subst;
+      const std::vector<Token>& tmpl = info->tokens();
+      for (size_t i = 0; i < tmpl.size(); ++i)
+	{
+	  const Token& t = tmpl[i];
+	  int which = -1;
+	  if (t.is_identifier())
+	    for (size_t k = 0; k < nparams; ++k)
+	      if (info->type_param_names()[k] == t.identifier())
+		{
+		  which = (int) k;
+		  break;
+		}
+	  if (which >= 0)
+	    {
+	      this->gogo_->infer_marker_type((size_t) which);
+	      char buf[32];
+	      snprintf(buf, sizeof buf, "$infermarker%d", which);
+	      subst.push_back(Token::make_identifier_token(std::string(buf),
+							   true, location));
+	    }
+	  else
+	    subst.push_back(t);
+	}
+
+      this->gogo_->push_instantiation_context();
+      Parse sp(this->lex_, this->gogo_);
+      sp.set_replay_tokens(&subst);
+      gsig = sp.signature(NULL, location);
+      this->gogo_->pop_instantiation_context();
+      info->set_marker_signature(gsig);
+    }
+
+  // Unify parameter types against argument types to solve each marker.
+  std::vector<Type*> solved(nparams, (Type*) NULL);
+  const Typed_identifier_list* params = (gsig == NULL
+					 ? NULL
+					 : gsig->parameters());
+  if (params != NULL && args != NULL)
+    {
+      Typed_identifier_list::const_iterator pp = params->begin();
+      Expression_list::const_iterator pa = args->begin();
+      for (; pp != params->end() && pa != args->end(); ++pp, ++pa)
+	{
+	  Type* at = (*pa)->type();
+	  if (at == NULL || at->is_error_type() || at->is_void_type())
+	    continue;
+	  unify_marker(this->gogo_, pp->type(), at, solved);
+	}
+    }
+
+  // Convert each solved type to tokens to use as a type argument.
+  std::vector<std::vector<Token> > type_args(nparams);
+  for (size_t i = 0; i < nparams; ++i)
+    {
+      if (solved[i] == NULL
+	  || !type_to_tokens(solved[i], type_args[i], location))
+	{
+	  go_error_at(location,
+		      ("cannot infer type arguments for call to generic "
+		       "function %qs; specify them explicitly, e.g. f[int]"),
+		      Gogo::message_name(info->name()).c_str());
+	  return NULL;
+	}
+    }
+
+  Named_object* inst = this->instantiate_generic_function(info, type_args,
+							  location);
+
+  // Inference runs during the determine_types pass, after global names
+  // have already been resolved once.  The freshly instantiated function
+  // may contain new references to predeclared names (int, make, ...), so
+  // resolve them and lower its builtin calls now (the global passes that
+  // normally do this have already run).
+  this->gogo_->resolve_global_names();
+  if (inst != NULL)
+    this->gogo_->lower_builtin_calls_for(inst);
+
+  return inst;
 }
 
 // Generics: instantiate a generic function template with the given type
