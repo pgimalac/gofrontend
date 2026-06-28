@@ -32,11 +32,42 @@ failure.
 | `constraint_typeset_sum.go` | constraint interface with type-set (`~int | ~float64`) |
 | `constraint_method_call.go` | calling a constraint interface method on a type-param value |
 
-## Known limitations (not covered, intentionally)
+## Additional covered features
 
-- Constraints are parsed but **not enforced** (invalid instantiations are
-  not rejected at the constraint level).
-- Generic **types** (and their methods) must be declared before first use
-  (generic functions may be forward-referenced when called with inferred
-  type arguments).
-- Cross-package export of generic templates is not implemented.
+| File | Feature |
+|------|---------|
+| `type_forward_reference.go` | generic type used before its declaration |
+| `generic_interface.go` | generic interface type as a parameter |
+| `variadic_inference.go` / `variadic_append.go` | type inference through `...T` |
+| `type_switch_param.go` | type switch on a type-parameter value (via `any`) |
+| `method_value.go` | method value of a generic instance |
+| `interface_satisfaction.go` | generic instance assigned to a plain interface |
+| `generic_func_as_value.go` | generic instance passed as a `func` value |
+| `nested_inference.go` | nested generic calls with inference |
+| `comparable_index.go` | `comparable` constraint with `==` |
+| `underlying_named_type.go` | `~int` matched by a named type (`type MyInt int`) |
+| `type_param_conversion.go` | conversion `T(x)` in a generic |
+| `generic_map_type.go` | generic defined-map type with a method |
+| `method_returns_generic.go` | generic method returning another instantiation |
+| `closure_returns_func.go` | generic returning `func(T) T` |
+| `chained_generic.go` | `Wrap(Wrap(x))` |
+| `constraint_iface_methods.go` | interface constraint methods called on type-param values |
+| `map_of_slices.go` | `map[int][]T` result, inference through `func(T) int` |
+| `reduce_two_params.go` | two type params, accumulator pattern |
+| `generic_iterator_iface.go` | generic interface dispatch (`Iter[T]`) |
+
+## Known limitations
+
+- **Constraint enforcement**: constraints are parsed (including type-sets
+  `~int | ~float64`, `comparable`, method interfaces) but satisfaction is
+  **not checked**, so an instantiation whose type argument violates the
+  constraint is not rejected if the body's operations happen to be valid
+  for that type (e.g. `Min[string]` compiles because `<` works on strings).
+- **Identifier collisions**: because instantiation is done by textual
+  substitution of the type-parameter names, a field/variable/parameter
+  name that is *identical* to a type-parameter name (e.g.
+  `type Pair[A, B any] struct{ A A }`) is mis-substituted.  Use distinct
+  names (the conventional `First`/`Second`) — see `method_returns_generic.go`.
+- **Partial type arguments**: `F[int](x)` that leaves remaining type
+  parameters to be inferred is not supported; give all or none.
+- **Cross-package** export/import of generic templates is not implemented.
