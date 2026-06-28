@@ -2272,6 +2272,46 @@ Gogo::declare_function(const std::string& name, Function_type* type,
     }
 }
 
+// Generics support: register a generic function template.
+
+void
+Gogo::add_generic_function(const std::string& name, Generic_function_info* info)
+{
+  this->generic_functions_[name] = info;
+}
+
+// Look up a generic function template by packed name, or return NULL.
+
+Generic_function_info*
+Gogo::lookup_generic_function(const std::string& name)
+{
+  Unordered_map(std::string, Generic_function_info*)::iterator p =
+    this->generic_functions_.find(name);
+  if (p == this->generic_functions_.end())
+    return NULL;
+  return p->second;
+}
+
+// Save the stack of functions currently being parsed, leaving it
+// empty, so that a generic function instance is created at top level.
+
+void
+Gogo::push_instantiation_context()
+{
+  this->saved_functions_.push_back(this->functions_);
+  this->functions_.clear();
+}
+
+// Restore the stack of functions saved by push_instantiation_context.
+
+void
+Gogo::pop_instantiation_context()
+{
+  go_assert(!this->saved_functions_.empty());
+  this->functions_ = this->saved_functions_.back();
+  this->saved_functions_.pop_back();
+}
+
 // Add a label definition.
 
 Label*
@@ -3462,6 +3502,9 @@ Gogo::create_function_descriptors()
 	  && !no->func_declaration_value()->type()->is_method()
 	  && !Linemap::is_predeclared_location(no->location())
 	  && !Gogo::is_hidden_name(no->name())
+	  // Generics: the placeholder declaration for a generic function
+	  // template is never emitted, so it needs no descriptor.
+	  && this->lookup_generic_function(no->name()) == NULL
 	  && !Create_function_descriptors::skip_descriptor(this, no))
 	fndecls.push_back(no);
     }

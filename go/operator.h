@@ -60,7 +60,8 @@ enum Operator
   OPERATOR_LCURLY,	// {
   OPERATOR_RCURLY,	// }
   OPERATOR_LSQUARE,	// [
-  OPERATOR_RSQUARE	// ]
+  OPERATOR_RSQUARE,	// ]
+  OPERATOR_TILDE	// ~
 };
 
 #endif // !defined(GO_OPERATOR_H)

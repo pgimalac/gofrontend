@@ -24,6 +24,7 @@ class Type_case_clauses;
 class Select_clauses;
 class Statement;
 class Label;
+class Generic_function_info;
 
 // Parse the program.
 
@@ -135,6 +136,11 @@ class Parse
   // Used to detect duplicate parameter/result names.
   typedef std::map<std::string, const Typed_identifier*> Names;
 
+  // Fetch the next token from the lexer or, in replay mode, from the
+  // captured token buffer.
+  Token
+  lex_next_token();
+
   // Peek at the current token from the lexer.
   const Token*
   peek_token();
@@ -211,6 +217,22 @@ class Parse
 				     bool may_be_composite_lit,
 				     Range_clause*, Type_switch*);
   void function_decl();
+  // Generics (gccgo extension).  Capture a generic function template
+  // (one whose name is followed by a "[" type parameter list).
+  void generic_function_decl(const std::string& name, bool is_exported,
+			     Location, unsigned int pragmas);
+  // Instantiate a generic function template with the given type
+  // arguments (each given as a captured token sequence).  Returns the
+  // Named_object for the (possibly cached) instance.
+  Named_object* instantiate_generic_function(Generic_function_info*,
+					     const std::vector<std::vector<Token> >&,
+					     Location);
+  // Switch this parser to read tokens from a captured token vector
+  // instead of the lexer (used when re-parsing an instance).
+  void set_replay_tokens(const std::vector<Token>* tokens);
+  // Parse a "[type-args]" list at a use site of a generic function and
+  // return a reference to the resulting instance.
+  Expression* generic_instantiation(Generic_function_info*, Location);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,
@@ -304,6 +326,12 @@ class Parse
 
   // The lexer output we are parsing.
   Lex* lex_;
+  // When non-NULL, tokens are replayed from this vector (set up by
+  // set_replay_tokens) instead of being read from the lexer.  Used
+  // when re-parsing a generic function instance.
+  const std::vector<Token>* replay_tokens_;
+  // The index of the next token to return from replay_tokens_.
+  size_t replay_index_;
   // The current token.
   Token token_;
   // A token pushed back on the input stream.

@@ -37,6 +37,7 @@ class Interface_type;
 class Named_type;
 class Forward_declaration_type;
 class Named_object;
+class Generic_function_info;
 class Label;
 class Translate_context;
 class Backend;
@@ -586,6 +587,27 @@ class Gogo
   // Declare a function.
   Named_object*
   declare_function(const std::string&, Function_type*, Location);
+
+  // Generics support (gccgo extension).  Register a generic function
+  // template, keyed by its (packed) name.  The Generic_function_info
+  // holds the captured token stream so that the function can be
+  // re-parsed for each instantiation (monomorphization).
+  void
+  add_generic_function(const std::string& name, Generic_function_info*);
+
+  // Look up a generic function template by (packed) name, or NULL.
+  Generic_function_info*
+  lookup_generic_function(const std::string& name);
+
+  // While instantiating a generic function we must build the new
+  // function at the top level, not nested inside whatever function is
+  // currently being parsed.  These save and restore the stack of
+  // functions currently being parsed.
+  void
+  push_instantiation_context();
+
+  void
+  pop_instantiation_context();
 
   // Declare a function at the package level.  This is used for
   // functions generated for a type.
@@ -1267,6 +1289,11 @@ class Gogo
   Package* package_;
   // The list of currently open functions during parsing.
   Open_functions functions_;
+  // Saved function-parsing contexts, used while instantiating a
+  // generic function so that the instance is created at the top level.
+  std::vector<Open_functions> saved_functions_;
+  // Registered generic function templates, keyed by packed name.
+  Unordered_map(std::string, Generic_function_info*) generic_functions_;
   // The global binding contour.  This includes the builtin functions
   // and the package we are compiling.
   Bindings* globals_;
