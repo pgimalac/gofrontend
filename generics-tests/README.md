@@ -58,11 +58,11 @@ failure.
 
 ## Known limitations
 
-- **Constraint enforcement**: constraints are parsed (including type-sets
-  `~int | ~float64`, `comparable`, method interfaces) but satisfaction is
-  **not checked**, so an instantiation whose type argument violates the
-  constraint is not rejected if the body's operations happen to be valid
-  for that type (e.g. `Min[string]` compiles because `<` works on strings).
+- **Constraint enforcement** is partial: inline type-sets of predeclared
+  basic types (e.g. `int | float64`, `~int | ~string`) **are** enforced
+  (see `constraint_violation_bad.go`), matching stock go.  Named type-set
+  constraints (e.g. a `Number` interface), `comparable`, and method
+  interfaces are parsed but not enforced.
 - **Identifier collisions**: because instantiation is done by textual
   substitution of the type-parameter names, a field/variable/parameter
   name that is *identical* to a type-parameter name (e.g.
