@@ -32,6 +32,7 @@ Gogo::Gogo(Backend* backend, Linemap* linemap, int, int pointer_size)
     linemap_(linemap),
     package_(NULL),
     functions_(),
+    parsing_complete_(false),
     globals_(new Bindings(NULL)),
     file_block_names_(),
     imports_(),
@@ -3760,6 +3761,10 @@ Gogo::finalize_methods_for_type(Type* type)
 void
 Gogo::determine_types()
 {
+  // Generic instances created from here on (during inference) are made
+  // after the early passes, so they need per-instance fixups.
+  this->set_parsing_complete();
+
   this->current_bindings()->determine_types(this);
 
   // Determine the types of constants in packages.

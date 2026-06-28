@@ -13765,29 +13765,55 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
   // replace the function with a reference to the instantiated function.
   {
     Func_expression* fe = this->fn_->func_expression();
-    if (fe != NULL)
+    if (fe != NULL
+	&& gogo->lookup_generic_function(fe->named_object()->name()) != NULL)
       {
 	Generic_function_info* gi =
 	  gogo->lookup_generic_function(fe->named_object()->name());
-	if (gi != NULL)
+
+	// Determine the argument types first (once) so inference can read
+	// them; some arguments (e.g. a reference to a predeclared constant
+	// such as true) have no usable type until determined.
+	if (this->args_ != NULL)
+	  for (Expression_list::iterator pa = this->args_->begin();
+	       pa != this->args_->end();
+	       ++pa)
+	    (*pa)->determine_type_no_context(gogo);
+
+	// The parser re-parses the instance from captured tokens; it never
+	// reads from this lexer (only queries pragmas/embeds, empty here),
+	// so a dummy lexer is fine.
+	Lex dummy_lex(NULL, NULL, gogo->linemap());
+	Parse parse(&dummy_lex, gogo);
+	Named_object* inst =
+	  parse.instantiate_generic_with_inference(gi, this->args_,
+						   this->location());
+	if (inst == NULL)
 	  {
-	    // The parser re-parses the instance from captured tokens; it
-	    // never reads from this lexer (it only queries it for pragmas
-	    // and embeds, which are empty here), so a dummy lexer is fine.
-	    Lex dummy_lex(NULL, NULL, gogo->linemap());
-	    Parse parse(&dummy_lex, gogo);
-	    Named_object* inst =
-	      parse.instantiate_generic_with_inference(gi, this->args_,
-						       this->location());
-	    if (inst != NULL)
-	      this->fn_ = Expression::make_func_reference(inst, NULL,
-							  this->fn_->location());
-	    else
-	      {
-		this->set_is_error();
-		return;
-	      }
+	    this->set_is_error();
+	    return;
 	  }
+	this->fn_ = Expression::make_func_reference(inst, NULL,
+						    this->fn_->location());
+	this->fn_->determine_type_no_context(gogo);
+
+	// The arguments are already determined, so set the result type
+	// from the instance's signature and stop (avoid re-determining the
+	// arguments, which is not idempotent).
+	Function_type* ift = this->get_function_type();
+	if (ift == NULL)
+	  {
+	    this->report_error(_("expected function"));
+	    return;
+	  }
+	const Typed_identifier_list* ires = ift->results();
+	if (ires == NULL || ires->empty())
+	  this->type_ = Type::make_void_type();
+	else if (ires->size() == 1)
+	  this->type_ = ires->begin()->type();
+	else
+	  this->type_ = Type::make_call_multiple_result_type();
+	return;
       }
   }
 

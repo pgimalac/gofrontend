@@ -845,6 +845,17 @@ class Gogo
   void
   lower_builtin_calls_for(Named_object*);
 
+  // True once the early passes (define_global_names, lower_builtin_calls)
+  // have run, so generic instances created afterwards need per-instance
+  // fixups.
+  bool
+  parsing_complete() const
+  { return this->parsing_complete_; }
+
+  void
+  set_parsing_complete()
+  { this->parsing_complete_ = true; }
+
   // Verify and complete all types.
   void
   verify_types();
@@ -1328,6 +1339,9 @@ class Gogo
   Unordered_map(std::string, Generic_function_info*) generic_types_;
   // Lazily-created marker types used during generic type inference.
   std::vector<Named_type*> infer_markers_;
+  // True once the early compilation passes have run; generic instances
+  // created afterwards (during inference) need per-instance fixups.
+  bool parsing_complete_;
   // The global binding contour.  This includes the builtin functions
   // and the package we are compiling.
   Bindings* globals_;

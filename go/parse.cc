@@ -26,14 +26,36 @@
 // re-parsed as an ordinary, fully concrete function.  Each distinct set
 // of type arguments produces one instance, cached by a mangled key.
 
+// A captured method declaration on a generic type, e.g.
+// "func (s *Stack[T]) Push(x T) {...}".  When the generic type is
+// instantiated, each method template is re-parsed with the receiver's
+// type parameter names substituted by the concrete type arguments,
+// producing an ordinary method on the instance.
+
+struct Generic_method_template
+{
+  // The type parameter names as written in the receiver, e.g. [T] or
+  // [K, V].  These may differ from the type's own parameter names.
+  std::vector<std::string> recv_type_param_names;
+  // The tokens of the whole method declaration, from the receiver "("
+  // through the body, EOF-terminated.
+  std::vector<Token> tokens;
+};
+
 class Generic_function_info
 {
  public:
   Generic_function_info(const std::string& name, bool is_exported,
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
-      type_param_names_(), tokens_(), instances_(), marker_signature_(NULL)
+      type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
+      methods_()
   { }
+
+  // The method templates declared on a generic type.
+  std::vector<Generic_method_template>&
+  methods()
+  { return this->methods_; }
 
   // The packed name of the generic function.
   const std::string&
@@ -91,6 +113,7 @@ class Generic_function_info
   std::vector<Token> tokens_;
   Unordered_map(std::string, Named_object*) instances_;
   Function_type* marker_signature_;
+  std::vector<Generic_method_template> methods_;
 };
 
 // Struct Parse::Enclosing_var_comparison.
@@ -1799,8 +1822,8 @@ Parse::type_spec()
 
   // Generics: a "[" after the type name introduces a type parameter
   // list.  Capture the template and return; instances are created on
-  // demand at each use site.
-  if (token->is_op(OPERATOR_LSQUARE))
+  // demand at each use site.  (Skipped when re-parsing an instance.)
+  if (token->is_op(OPERATOR_LSQUARE) && this->replay_tokens_ == NULL)
     {
       this->generic_type_decl(name, is_exported, location);
       return;
@@ -2619,8 +2642,37 @@ Parse::function_decl()
   if (token->is_op(OPERATOR_LPAREN))
     {
       expected_receiver = true;
-      rec = this->receiver();
-      token = this->peek_token();
+      // Generics: when not re-parsing an instance, detect a generic
+      // receiver (one containing a "[" type parameter list) by first
+      // capturing the receiver group.
+      if (this->replay_tokens_ == NULL)
+	{
+	  std::vector<Token> recv;
+	  this->capture_bracket_group(&recv);
+	  bool is_generic_recv = false;
+	  for (size_t i = 0; i < recv.size(); ++i)
+	    if (recv[i].is_op(OPERATOR_LSQUARE))
+	      {
+		is_generic_recv = true;
+		break;
+	      }
+	  if (is_generic_recv)
+	    {
+	      this->generic_method_decl(recv, location, pragmas);
+	      return;
+	    }
+	  // Ordinary method: parse the receiver from the captured tokens.
+	  recv.push_back(Token::make_eof_token(location));
+	  Parse rp(this->lex_, this->gogo_);
+	  rp.set_replay_tokens(&recv);
+	  rec = rp.receiver();
+	  token = this->peek_token();
+	}
+      else
+	{
+	  rec = this->receiver();
+	  token = this->peek_token();
+	}
     }
 
   if (!token->is_identifier())
@@ -2637,9 +2689,10 @@ Parse::function_decl()
 
   // Generics: a "[" after the function name introduces a type
   // parameter list.  We capture the template and return; instances are
-  // created on demand at each use site.  (Methods on generic types are
-  // not yet supported.)
-  if (this->peek_token()->is_op(OPERATOR_LSQUARE) && rec == NULL)
+  // created on demand at each use site.  (Skipped when re-parsing an
+  // instance, where the brackets hold concrete type arguments.)
+  if (this->peek_token()->is_op(OPERATOR_LSQUARE) && rec == NULL
+      && this->replay_tokens_ == NULL)
     {
       this->generic_function_decl(name, is_exported, location, pragmas);
       return;
@@ -2844,10 +2897,17 @@ token_key_string(const Token& t)
     }
 }
 
+// Forward declaration; defined below.
+static void
+substitute_type_params(const std::vector<Token>&,
+		       const std::vector<std::string>&,
+		       const std::vector<std::vector<Token> >&,
+		       std::vector<Token>&);
+
 // Generics: parse a "[name constraint, ...]" type parameter list,
-// collecting the parameter names.  The current token is "[".  For
-// simplicity each type parameter must carry its own constraint (grouped
-// "[T, U any]" is not yet supported); constraints are parsed but
+// collecting the parameter names.  The current token is "[".  Grouped
+// parameters ("[T, U any]") work because every comma-separated
+// identifier is collected as a name; constraints are parsed but
 // otherwise ignored (no constraint checking yet).
 
 void
@@ -3013,6 +3073,25 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Named_type* nt = Type::make_named_type(no, underlying, location);
   this->gogo_->define_type(no, nt);
 
+  // Instantiate the type's methods: for each method template, substitute
+  // the receiver's type parameter names with the type arguments and
+  // re-parse it as an ordinary method on this instance.
+  for (size_t m = 0; m < info->methods().size(); ++m)
+    {
+      Generic_method_template& mt = info->methods()[m];
+      std::vector<Token> msubst;
+      substitute_type_params(mt.tokens, mt.recv_type_param_names, type_args,
+			     msubst);
+      Named_object* mno = this->instantiate_generic_method(msubst, location);
+      // If this instantiation happens after the early passes (during
+      // inference), the new method needs the per-instance fixups.
+      if (mno != NULL && this->gogo_->parsing_complete())
+	{
+	  this->gogo_->resolve_global_names();
+	  this->gogo_->lower_builtin_calls_for(mno);
+	}
+    }
+
   this->gogo_->pop_instantiation_context();
 
   return nt;
@@ -3059,6 +3138,199 @@ Parse::generic_type_instantiation(Generic_function_info* info,
   this->advance_token();
 
   return this->instantiate_generic_type(info, type_args, location);
+}
+
+// Generics: produce SUBSTITUTED from TMPL by replacing every identifier
+// token that matches one of NAMES with the tokens of the corresponding
+// type argument in ARGS.
+
+static void
+substitute_type_params(const std::vector<Token>& tmpl,
+		       const std::vector<std::string>& names,
+		       const std::vector<std::vector<Token> >& args,
+		       std::vector<Token>& out)
+{
+  for (size_t i = 0; i < tmpl.size(); ++i)
+    {
+      const Token& t = tmpl[i];
+      int which = -1;
+      if (t.is_identifier())
+	for (size_t k = 0; k < names.size() && k < args.size(); ++k)
+	  if (names[k] == t.identifier())
+	    {
+	      which = (int) k;
+	      break;
+	    }
+      if (which >= 0)
+	{
+	  const std::vector<Token>& rep = args[which];
+	  for (size_t j = 0; j < rep.size(); ++j)
+	    out.push_back(rep[j]);
+	}
+      else
+	out.push_back(t);
+    }
+}
+
+// Generics: record a balanced bracket group into *OUT, including the
+// opening and closing delimiters.  The current token must be an opener
+// ("(", "[", or "{").  On return the current token is the one after the
+// matching close delimiter.
+
+void
+Parse::capture_bracket_group(std::vector<Token>* out)
+{
+  int depth = 0;
+  while (true)
+    {
+      const Token* t = this->peek_token();
+      if (t->is_eof())
+	break;
+      out->push_back(*t);
+      if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
+	  || t->is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t->is_op(OPERATOR_RPAREN) || t->is_op(OPERATOR_RSQUARE)
+	       || t->is_op(OPERATOR_RCURLY))
+	{
+	  --depth;
+	  if (depth == 0)
+	    {
+	      this->advance_token();
+	      break;
+	    }
+	}
+      this->advance_token();
+    }
+}
+
+// Generics: capture a method declaration whose receiver names a generic
+// type, e.g. "func (s *Stack[T]) Push(x T) {...}".  RECV is the already
+// captured receiver group, including its parentheses.  We record the
+// type parameter names used in the receiver and the full method tokens,
+// and attach the template to the generic type.
+
+void
+Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
+			   unsigned int pragmas)
+{
+  // Find the generic type name (the identifier just before the first
+  // "[") and the receiver's type parameter names (identifiers at depth 1
+  // inside "[...]").
+  std::string type_name;
+  std::vector<std::string> recv_params;
+  size_t lb = recv.size();
+  for (size_t i = 0; i < recv.size(); ++i)
+    if (recv[i].is_op(OPERATOR_LSQUARE))
+      {
+	lb = i;
+	break;
+      }
+  for (size_t i = lb; i > 0; --i)
+    if (recv[i - 1].is_identifier())
+      {
+	type_name = recv[i - 1].identifier();
+	break;
+      }
+  {
+    int depth = 0;
+    for (size_t i = lb; i < recv.size(); ++i)
+      {
+	const Token& t = recv[i];
+	if (t.is_op(OPERATOR_LSQUARE))
+	  ++depth;
+	else if (t.is_op(OPERATOR_RSQUARE))
+	  {
+	    --depth;
+	    if (depth == 0)
+	      break;
+	  }
+	else if (depth == 1 && t.is_identifier())
+	  recv_params.push_back(t.identifier());
+      }
+  }
+
+  // Capture the rest of the method: name, signature, and body.
+  std::vector<Token> toks = recv;
+  const Token* nt = this->peek_token();
+  if (nt->is_identifier())
+    {
+      toks.push_back(*nt);
+      this->advance_token();
+    }
+  int depth = 0;
+  bool body_started = false;
+  while (true)
+    {
+      const Token* t = this->peek_token();
+      if (t->is_eof())
+	break;
+      toks.push_back(*t);
+      if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
+	  || t->is_op(OPERATOR_LCURLY))
+	{
+	  if (t->is_op(OPERATOR_LCURLY) && depth == 0)
+	    body_started = true;
+	  ++depth;
+	}
+      else if (t->is_op(OPERATOR_RPAREN) || t->is_op(OPERATOR_RSQUARE)
+	       || t->is_op(OPERATOR_RCURLY))
+	{
+	  --depth;
+	  if (depth == 0 && body_started)
+	    {
+	      this->advance_token();
+	      break;
+	    }
+	}
+      this->advance_token();
+    }
+  toks.push_back(Token::make_eof_token(location));
+
+  Generic_function_info* info = this->gogo_->lookup_generic_type(type_name);
+  if (info != NULL)
+    {
+      Generic_method_template mt;
+      mt.recv_type_param_names = recv_params;
+      mt.tokens = toks;
+      info->methods().push_back(mt);
+    }
+  // If INFO is NULL the generic type was not declared before its method;
+  // that is an unsupported ordering, so we simply drop the method.
+
+  if (pragmas != 0)
+    go_warning_at(location, 0,
+		  ("ignoring magic %<//go:...%> comment before "
+		   "generic method"));
+}
+
+// Generics: re-parse a token-substituted method declaration (TOKS start
+// at the receiver "(") as an ordinary method on a generic type instance.
+// Returns the method's Named_object, or NULL on error.
+
+Named_object*
+Parse::instantiate_generic_method(std::vector<Token>& toks, Location location)
+{
+  Parse mp(this->lex_, this->gogo_);
+  mp.set_replay_tokens(&toks);
+
+  Typed_identifier* rec = mp.receiver();
+  if (rec == NULL)
+    return NULL;
+  const Token* nt = mp.peek_token();
+  if (!nt->is_identifier())
+    return NULL;
+  bool exported = nt->is_identifier_exported();
+  std::string mname = this->gogo_->pack_hidden_name(nt->identifier(), exported);
+  mp.advance_token();
+  Function_type* fntype = mp.signature(rec, location);
+  if (fntype == NULL)
+    return NULL;
+  Named_object* mno = this->gogo_->start_function(mname, fntype, true,
+						  location);
+  mp.block();
+  this->gogo_->finish_function(location);
+  return mno;
 }
 
 // Generics: capture a generic function template.  The current token is

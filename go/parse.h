@@ -250,6 +250,17 @@ class Parse
   // Capture a generic type template (a type whose name is followed by a
   // "[" type parameter list).
   void generic_type_decl(const std::string& name, bool is_exported, Location);
+  // Record a balanced bracket group (the current token is the opener)
+  // into *OUT, including both delimiters.
+  void capture_bracket_group(std::vector<Token>* out);
+  // Capture a method declaration with a generic receiver, e.g.
+  // "func (s *Stack[T]) Push(x T) {...}", as a template on the generic
+  // type.  RECV holds the already-captured receiver group tokens.
+  void generic_method_decl(const std::vector<Token>& recv, Location,
+			   unsigned int pragmas);
+  // Re-parse a (token-substituted) method declaration as an ordinary
+  // method on a generic type instance.  TOKS start at the receiver "(".
+  Named_object* instantiate_generic_method(std::vector<Token>& toks, Location);
   // Instantiate a generic type template with the given type arguments
   // (each a captured token sequence).  Returns the instance type.
   Type* instantiate_generic_type(Generic_function_info*,
