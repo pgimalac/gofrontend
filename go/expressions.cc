@@ -13764,13 +13764,23 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
   // arguments.  Infer the type arguments from the argument types and
   // replace the function with a reference to the instantiated function.
   {
+    // The callee may be a direct function reference, or (for a generic
+    // function used before its declaration) an as-yet-unresolved name.
+    std::string gen_name;
     Func_expression* fe = this->fn_->func_expression();
-    if (fe != NULL
-	&& gogo->lookup_generic_function(fe->named_object()->name()) != NULL)
+    if (fe != NULL)
+      gen_name = fe->named_object()->name();
+    else
       {
-	Generic_function_info* gi =
-	  gogo->lookup_generic_function(fe->named_object()->name());
-
+	Unknown_expression* ue = this->fn_->unknown_expression();
+	if (ue != NULL)
+	  gen_name = ue->named_object()->name();
+      }
+    Generic_function_info* gi = (gen_name.empty()
+				 ? NULL
+				 : gogo->lookup_generic_function(gen_name));
+    if (gi != NULL)
+      {
 	// Determine the argument types first (once) so inference can read
 	// them; some arguments (e.g. a reference to a predeclared constant
 	// such as true) have no usable type until determined.
