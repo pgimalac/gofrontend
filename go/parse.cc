@@ -3578,20 +3578,51 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
     }
 
   // Unify parameter types against argument types to solve each marker.
+  // Argument types are read from throwaway copies so that the real
+  // argument expressions are left undetermined for the normal pass.
   std::vector<Type*> solved(nparams, (Type*) NULL);
   const Typed_identifier_list* params = (gsig == NULL
 					 ? NULL
 					 : gsig->parameters());
+  bool is_varargs = (gsig != NULL && gsig->is_varargs());
   if (params != NULL && args != NULL)
     {
+      size_t nparam = params->size();
       Typed_identifier_list::const_iterator pp = params->begin();
-      Expression_list::const_iterator pa = args->begin();
-      for (; pp != params->end() && pa != args->end(); ++pp, ++pa)
+      size_t pi = 0;
+      for (Expression_list::const_iterator pa = args->begin();
+	   pa != args->end();
+	   ++pa)
 	{
-	  Type* at = (*pa)->type();
-	  if (at == NULL || at->is_error_type() || at->is_void_type())
-	    continue;
-	  unify_marker(this->gogo_, pp->type(), at, solved);
+	  if (pi >= nparam)
+	    break;
+	  Expression* copy = (*pa)->copy();
+	  copy->determine_type_no_context(this->gogo_);
+	  Type* at = copy->type();
+
+	  bool last_is_varargs = (is_varargs && pi + 1 == nparam);
+	  if (at != NULL && !at->is_error_type() && !at->is_void_type())
+	    {
+	      Type* pt = pp->type();
+	      if (last_is_varargs)
+		{
+		  // A variadic parameter "xs ...E" has type "[]E"; unify the
+		  // element type E with each trailing argument.
+		  Array_type* a = pt->array_type();
+		  Type* elem = (a != NULL ? a->element_type() : pt);
+		  unify_marker(this->gogo_, elem, at, solved);
+		}
+	      else
+		unify_marker(this->gogo_, pt, at, solved);
+	    }
+
+	  // Advance to the next parameter, but stay on a trailing variadic
+	  // parameter so it can absorb the remaining arguments.
+	  if (!last_is_varargs)
+	    {
+	      ++pp;
+	      ++pi;
+	    }
 	}
     }
 

@@ -13781,18 +13781,12 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 				 : gogo->lookup_generic_function(gen_name));
     if (gi != NULL)
       {
-	// Determine the argument types first (once) so inference can read
-	// them; some arguments (e.g. a reference to a predeclared constant
-	// such as true) have no usable type until determined.
-	if (this->args_ != NULL)
-	  for (Expression_list::iterator pa = this->args_->begin();
-	       pa != this->args_->end();
-	       ++pa)
-	    (*pa)->determine_type_no_context(gogo);
-
 	// The parser re-parses the instance from captured tokens; it never
 	// reads from this lexer (only queries pragmas/embeds, empty here),
-	// so a dummy lexer is fine.
+	// so a dummy lexer is fine.  Inference reads argument types from
+	// throwaway copies of the arguments, so the real arguments remain
+	// undetermined and are determined exactly once by the normal flow
+	// below (which also handles varargs and multiple results).
 	Lex dummy_lex(NULL, NULL, gogo->linemap());
 	Parse parse(&dummy_lex, gogo);
 	Named_object* inst =
@@ -13805,25 +13799,7 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 	  }
 	this->fn_ = Expression::make_func_reference(inst, NULL,
 						    this->fn_->location());
-	this->fn_->determine_type_no_context(gogo);
-
-	// The arguments are already determined, so set the result type
-	// from the instance's signature and stop (avoid re-determining the
-	// arguments, which is not idempotent).
-	Function_type* ift = this->get_function_type();
-	if (ift == NULL)
-	  {
-	    this->report_error(_("expected function"));
-	    return;
-	  }
-	const Typed_identifier_list* ires = ift->results();
-	if (ires == NULL || ires->empty())
-	  this->type_ = Type::make_void_type();
-	else if (ires->size() == 1)
-	  this->type_ = ires->begin()->type();
-	else
-	  this->type_ = Type::make_call_multiple_result_type();
-	return;
+	// Fall through to the normal determination using the instance.
       }
   }
 
