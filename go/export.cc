@@ -11,9 +11,11 @@
 #include "go-sha1.h"
 #include "gogo.h"
 #include "types.h"
+#include "lex.h"
 #include "expressions.h"
 #include "statements.h"
 #include "export.h"
+#include "parse.h"
 #include "go-linemap.h"
 #include "backend.h"
 
@@ -86,7 +88,8 @@ struct Export_impl {
 // Constructor.
 
 Export::Export(Stream* stream)
-    : stream_(stream), type_index_(1), packages_(), impl_(new Export_impl)
+    : stream_(stream), gogo_(NULL), type_index_(1), packages_(),
+      impl_(new Export_impl)
 {
   go_assert(Export::checksum_len == Go_sha1_helper::checksum_len);
 }
@@ -899,6 +902,24 @@ Export::export_globals(const std::string& package_name,
   // can potentially expand the exports set.
   collect.expand_exports(&check_inline_refs);
 
+  // Generics: exported generic templates are instantiated (re-parsed) in
+  // importing packages; their bodies may reference this package's own
+  // symbols, including unexported helpers.  Make sure those symbols are
+  // exported so the instantiations can resolve and link them.
+  if (this->gogo_ != NULL)
+    {
+      go_collect_generic_exports(this->gogo_, bindings, &exports);
+      // Packages referenced only by generic template bodies must still be
+      // recorded so importers can resolve those references on
+      // instantiation.
+      const Unordered_set(const Package*)& gp =
+	this->gogo_->generic_imported_packages();
+      for (Unordered_set(const Package*)::const_iterator p = gp.begin();
+	   p != gp.end();
+	   ++p)
+	all_imports.insert(*p);
+    }
+
   // Export the symbols in sorted order.  That will reduce cases where
   // irrelevant changes to the source code affect the exported
   // interface.
@@ -974,6 +995,10 @@ Export::export_globals(const std::string& package_name,
       if (!(*p)->is_type())
 	(*p)->export_named_object(this);
     }
+
+  // Generics: write out the exported generic function/type templates.
+  if (this->gogo_ != NULL)
+    go_export_generics(this, this->gogo_);
 
   std::string checksum = this->stream_->checksum();
   std::string s = "checksum ";

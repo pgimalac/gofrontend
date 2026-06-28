@@ -1831,6 +1831,71 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
 	}
     }
 
+  // Generics: while re-parsing an imported generic template, a bare name
+  // that is not otherwise in scope may refer to a package-scope symbol of
+  // the template's defining package (the template body was written in
+  // that package, where such references are unqualified).  Resolve it
+  // against that package's bindings so the reference and its linkage are
+  // correct.
+  Package* ip = this->current_instantiation_package();
+  if (ip != NULL)
+    {
+      Named_object* ret = ip->bindings()->lookup(name);
+      if (ret == NULL)
+	{
+	  // The parser has already packed an unexported name with the
+	  // importing package's pkgpath (".thispkg.name").  Recover the
+	  // bare name and look it up in the defining package, both as an
+	  // exported name and under that package's hidden-name form.
+	  std::string bare = name;
+	  if (Gogo::is_hidden_name(name))
+	    {
+	      std::string prefix = '.' + this->pkgpath() + '.';
+	      if (name.compare(0, prefix.length(), prefix) == 0)
+		bare = name.substr(prefix.length());
+	      else
+		bare.clear();
+	    }
+	  if (!bare.empty())
+	    {
+	      ret = ip->bindings()->lookup(bare);
+	      if (ret == NULL)
+		ret = ip->bindings()->lookup('.' + ip->pkgpath() + '.' + bare);
+	    }
+	}
+      if (ret != NULL)
+	return ret;
+    }
+
+  // Generics: while instantiating a template (re-parsing its body, which
+  // happens after file scope has been cleared), a qualified reference
+  // "pkg.X" needs "pkg" to resolve even though the import binding is no
+  // longer in scope.  Resolve it against the set of known packages by
+  // name.  This applies to both locally-declared and imported templates.
+  if (!this->saved_functions_.empty())
+    {
+      std::string bare = Gogo::unpack_hidden_name(name);
+      Unordered_map(std::string, Named_object*)::const_iterator c =
+	this->instantiation_package_cache_.find(bare);
+      if (c != this->instantiation_package_cache_.end())
+	return c->second;
+      for (Packages::const_iterator p = this->packages_.begin();
+	   p != this->packages_.end();
+	   ++p)
+	{
+	  if (p->second != this->package_
+	      && p->second->package_name() == bare)
+	    {
+	      // Ensure the alias exists so that note_usage (called by the
+	      // parser when it resolves a qualified reference) does not fail.
+	      p->second->add_alias(bare, Linemap::unknown_location());
+	      Named_object* no = Named_object::make_package(bare, p->second);
+	      this->instantiation_package_cache_[bare] = no;
+	      return no;
+	    }
+	}
+    }
+
   // We do not look in the global namespace.  If we did, the global
   // namespace would effectively hide names which were defined in
   // package scope which we have not yet seen.  Instead,
@@ -2288,9 +2353,38 @@ Gogo::lookup_generic_function(const std::string& name)
 {
   Unordered_map(std::string, Generic_function_info*)::iterator p =
     this->generic_functions_.find(name);
-  if (p == this->generic_functions_.end())
+  if (p != this->generic_functions_.end())
+    return p->second;
+  // While re-parsing an imported template, a bare reference to a sibling
+  // template of the defining package resolves via that pkgpath.
+  Package* ip = this->current_instantiation_package();
+  if (ip != NULL)
+    {
+      p = this->generic_functions_.find(ip->pkgpath() + '.' + name);
+      if (p != this->generic_functions_.end())
+	return p->second;
+    }
+  return NULL;
+}
+
+// Look up the generic function template referenced through NO, trying a
+// package-qualified key first for templates imported from another
+// package, then the bare name for locally-declared templates.
+
+Generic_function_info*
+Gogo::lookup_generic_function_no(Named_object* no)
+{
+  if (no == NULL)
     return NULL;
-  return p->second;
+  if (no->package() != NULL)
+    {
+      Generic_function_info* gi =
+	this->lookup_generic_function(no->package()->pkgpath() + '.'
+				      + no->name());
+      if (gi != NULL)
+	return gi;
+    }
+  return this->lookup_generic_function(no->name());
 }
 
 // Register a generic type template.
@@ -2308,9 +2402,18 @@ Gogo::lookup_generic_type(const std::string& name)
 {
   Unordered_map(std::string, Generic_function_info*)::iterator p =
     this->generic_types_.find(name);
-  if (p == this->generic_types_.end())
-    return NULL;
-  return p->second;
+  if (p != this->generic_types_.end())
+    return p->second;
+  // While re-parsing an imported template, a bare reference to a sibling
+  // generic type of the defining package resolves via that pkgpath.
+  Package* ip = this->current_instantiation_package();
+  if (ip != NULL)
+    {
+      p = this->generic_types_.find(ip->pkgpath() + '.' + name);
+      if (p != this->generic_types_.end())
+	return p->second;
+    }
+  return NULL;
 }
 
 // Generics: return the I'th marker type used during type inference,
@@ -5415,6 +5518,7 @@ Gogo::do_exports()
     init_fn_name = this->dummy_init_fn_name();
 
   Export exp(&stream);
+  exp.set_gogo(this);
   exp.register_builtin_types(this);
   exp.export_globals(this->package_name(),
 		     prefix,

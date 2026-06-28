@@ -15,6 +15,7 @@
 #include "types.h"
 #include "export.h"
 #include "import.h"
+#include "parse.h"
 
 #ifndef O_BINARY
 #define O_BINARY 0
@@ -544,6 +545,8 @@ Import::import(Gogo* gogo, const std::string& local_name,
 	    this->import_var();
 	  else if (stream->match_c_string("func "))
 	    this->import_func(this->package_);
+	  else if (stream->match_c_string("generics "))
+	    go_import_generics(this, this->gogo_, this->package_);
 	  else if (stream->match_c_string("checksum "))
 	    break;
 	  else

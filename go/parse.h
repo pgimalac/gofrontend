@@ -25,6 +25,29 @@ class Select_clauses;
 class Statement;
 class Label;
 class Generic_function_info;
+class Export;
+class Import;
+class Package;
+class Bindings;
+
+// Generics: export all exported generic function/type templates of the
+// current package into the export stream.  Defined in parse.cc, where
+// the Generic_function_info class is fully visible.
+extern void
+go_export_generics(Export*, Gogo*);
+
+// Generics: read one generic template section from import data and
+// register the template(s) in GOGO, associated with PACKAGE.
+extern void
+go_import_generics(Import*, Gogo*, Package*);
+
+// Generics: add to EXPORTS any package-scope symbols (in particular
+// unexported helpers) referenced by the bodies of exported generic
+// templates, so that importing packages can resolve and link them when
+// they instantiate those templates.
+extern void
+go_collect_generic_exports(Gogo*, const Bindings*,
+			   Unordered_set(Named_object*)* exports);
 
 // Parse the program.
 
@@ -259,6 +282,10 @@ class Parse
 			    std::vector<std::vector<Token> >* constraints = NULL);
   // Parse a captured token sequence as a type.
   Type* parse_type_from_tokens(const std::vector<Token>&);
+  // Mark as used any imported package referenced (as "pkg.X") in a
+  // captured generic template's tokens, so it is not reported as an
+  // unused import even though the body is compiled only on instantiation.
+  void note_token_package_usage(const std::vector<Token>&);
   // Capture a generic type template (a type whose name is followed by a
   // "[" type parameter list).
   void generic_type_decl(const std::string& name, bool is_exported, Location);

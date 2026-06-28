@@ -12,6 +12,8 @@
 #include "types.h"
 #include "statements.h"
 #include "expressions.h"
+#include "export.h"
+#include "import.h"
 #include "parse.h"
 
 // Generics (gccgo extension).
@@ -79,8 +81,21 @@ class Generic_function_info
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
       type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
-      methods_()
+      methods_(), defining_package_(NULL)
   { }
+
+  // The package that defined this template, if it was imported from
+  // another package; NULL for a locally-declared template.  Used so that,
+  // while re-parsing an imported template, bare references to the defining
+  // package's other symbols (generic templates and ordinary exported
+  // declarations) resolve.
+  Package*
+  defining_package() const
+  { return this->defining_package_; }
+
+  void
+  set_defining_package(Package* p)
+  { this->defining_package_ = p; }
 
   // The method templates declared on a generic type.
   std::vector<Generic_method_template>&
@@ -151,7 +166,573 @@ class Generic_function_info
   Function_type* marker_signature_;
   std::vector<Generic_method_template> methods_;
   std::vector<std::vector<Token> > constraints_;
+  Package* defining_package_;
 };
+
+// Generics: cross-package export/import of generic templates.
+//
+// Instantiation works by re-parsing a captured token stream with the
+// type-parameter names textually substituted.  To make a generic
+// function or type usable from another package we therefore serialize
+// that token stream (together with the type-parameter names and their
+// constraints, and any method templates) into the export data, and
+// reconstruct it on import.  The format is a small, self-describing
+// textual encoding; numeric and string token values are length-prefixed
+// so the data is binary-safe.
+
+// Write a length-prefixed raw byte string as "<len> <bytes>".
+
+static void
+gen_write_lenstr(Export* exp, const std::string& s)
+{
+  exp->write_int(static_cast<int>(s.length()));
+  exp->write_c_string(" ");
+  exp->write_string(s);
+}
+
+// Write a single token.
+
+static void
+gen_write_token(Export* exp, const Token& t)
+{
+  switch (t.classification())
+    {
+    case Token::TOKEN_EOF:
+      exp->write_c_string("e\n");
+      break;
+    case Token::TOKEN_KEYWORD:
+      exp->write_c_string("k ");
+      exp->write_int(static_cast<int>(t.keyword()));
+      exp->write_c_string("\n");
+      break;
+    case Token::TOKEN_OPERATOR:
+      exp->write_c_string("o ");
+      exp->write_int(static_cast<int>(t.op()));
+      exp->write_c_string("\n");
+      break;
+    case Token::TOKEN_IDENTIFIER:
+      exp->write_c_string("i ");
+      exp->write_int(t.is_identifier_exported() ? 1 : 0);
+      exp->write_c_string(" ");
+      gen_write_lenstr(exp, t.identifier());
+      exp->write_c_string("\n");
+      break;
+    case Token::TOKEN_STRING:
+      exp->write_c_string("s ");
+      gen_write_lenstr(exp, t.string_value());
+      exp->write_c_string("\n");
+      break;
+    case Token::TOKEN_INTEGER:
+    case Token::TOKEN_CHARACTER:
+      {
+	const mpz_t* val = (t.classification() == Token::TOKEN_INTEGER
+			    ? t.integer_value()
+			    : t.character_value());
+	char* s = mpz_get_str(NULL, 16, *val);
+	exp->write_c_string(t.classification() == Token::TOKEN_INTEGER
+			    ? "n " : "c ");
+	gen_write_lenstr(exp, std::string(s));
+	exp->write_c_string("\n");
+	free(s);
+      }
+      break;
+    case Token::TOKEN_FLOAT:
+    case Token::TOKEN_IMAGINARY:
+      {
+	const mpfr_t* val = (t.classification() == Token::TOKEN_FLOAT
+			     ? t.float_value()
+			     : t.imaginary_value());
+	mpfr_exp_t e;
+	char* s = mpfr_get_str(NULL, &e, 10, 0, *val, MPFR_RNDN);
+	std::string out;
+	if (*s == '-')
+	  out += '-';
+	out += "0.";
+	out += (*s == '-') ? s + 1 : s;
+	char buf[32];
+	snprintf(buf, sizeof buf, "E%ld", static_cast<long>(e));
+	out += buf;
+	mpfr_free_str(s);
+	exp->write_c_string(t.classification() == Token::TOKEN_FLOAT
+			    ? "f " : "m ");
+	gen_write_lenstr(exp, out);
+	exp->write_c_string("\n");
+      }
+      break;
+    default:
+      exp->write_c_string("v\n");
+      break;
+    }
+}
+
+// Write a token vector as "<count>\n" followed by the tokens.
+
+static void
+gen_write_tokens(Export* exp, const std::vector<Token>& toks)
+{
+  exp->write_int(static_cast<int>(toks.size()));
+  exp->write_c_string("\n");
+  for (size_t i = 0; i < toks.size(); ++i)
+    gen_write_token(exp, toks[i]);
+}
+
+// Write the body of one generic template: its type-parameter names and
+// constraints, its signature/body tokens, and any method templates.
+
+static void
+gen_write_generic_body(Export* exp, Generic_function_info* info)
+{
+  std::vector<std::string>& names = info->type_param_names();
+  std::vector<std::vector<Token> >& constraints = info->constraints();
+  exp->write_int(static_cast<int>(names.size()));
+  exp->write_c_string("\n");
+  for (size_t i = 0; i < names.size(); ++i)
+    {
+      gen_write_lenstr(exp, names[i]);
+      exp->write_c_string("\n");
+      if (i < constraints.size())
+	gen_write_tokens(exp, constraints[i]);
+      else
+	{
+	  exp->write_int(0);
+	  exp->write_c_string("\n");
+	}
+    }
+  gen_write_tokens(exp, info->tokens());
+
+  std::vector<Generic_method_template>& methods = info->methods();
+  exp->write_int(static_cast<int>(methods.size()));
+  exp->write_c_string("\n");
+  for (size_t i = 0; i < methods.size(); ++i)
+    {
+      std::vector<std::string>& rp = methods[i].recv_type_param_names;
+      exp->write_int(static_cast<int>(rp.size()));
+      exp->write_c_string("\n");
+      for (size_t j = 0; j < rp.size(); ++j)
+	{
+	  gen_write_lenstr(exp, rp[j]);
+	  exp->write_c_string("\n");
+	}
+      gen_write_tokens(exp, methods[i].tokens);
+    }
+}
+
+// Export all exported generic function and type templates of the
+// current package.
+
+void
+go_export_generics(Export* exp, Gogo* gogo)
+{
+  std::vector<std::pair<std::string, Generic_function_info*> > funcs;
+  const Unordered_map(std::string, Generic_function_info*)& gf =
+    gogo->generic_functions();
+  for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	 gf.begin();
+       p != gf.end();
+       ++p)
+    if (p->second->is_exported())
+      funcs.push_back(*p);
+
+  std::vector<std::pair<std::string, Generic_function_info*> > types;
+  const Unordered_map(std::string, Generic_function_info*)& gt =
+    gogo->generic_types();
+  for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	 gt.begin();
+       p != gt.end();
+       ++p)
+    if (p->second->is_exported())
+      types.push_back(*p);
+
+  if (funcs.empty() && types.empty())
+    return;
+
+  std::sort(funcs.begin(), funcs.end());
+  std::sort(types.begin(), types.end());
+
+  exp->write_c_string("generics ");
+  exp->write_int(static_cast<int>(funcs.size()));
+  exp->write_c_string(" ");
+  exp->write_int(static_cast<int>(types.size()));
+  exp->write_c_string("\n");
+
+  // The import paths of packages referenced by the template bodies.  An
+  // importer must fully import these so that, when it instantiates a
+  // template, qualified references such as "strings.Join" resolve.
+  const Unordered_set(const Package*)& gp = gogo->generic_imported_packages();
+  std::vector<std::string> gpaths;
+  for (Unordered_set(const Package*)::const_iterator p = gp.begin();
+       p != gp.end();
+       ++p)
+    gpaths.push_back((*p)->pkgpath());
+  std::sort(gpaths.begin(), gpaths.end());
+  exp->write_c_string("genimports ");
+  exp->write_int(static_cast<int>(gpaths.size()));
+  exp->write_c_string("\n");
+  for (size_t i = 0; i < gpaths.size(); ++i)
+    {
+      gen_write_lenstr(exp, gpaths[i]);
+      exp->write_c_string("\n");
+    }
+
+  for (size_t i = 0; i < funcs.size(); ++i)
+    {
+      exp->write_c_string("gfunc ");
+      gen_write_lenstr(exp, funcs[i].second->name());
+      exp->write_c_string("\n");
+      gen_write_generic_body(exp, funcs[i].second);
+    }
+  for (size_t i = 0; i < types.size(); ++i)
+    {
+      exp->write_c_string("gtype ");
+      gen_write_lenstr(exp, types[i].second->name());
+      exp->write_c_string("\n");
+      gen_write_generic_body(exp, types[i].second);
+    }
+}
+
+// Scan one token stream of an exported generic template and add to
+// EXPORTS any package-scope symbol it references by a bare (unqualified)
+// name.  TYPE_PARAMS are the template's own type-parameter names, which
+// are not package symbols.  Identifiers in selector position (after ".")
+// are skipped, as are universe names (which are not in package bindings).
+
+static void
+collect_refs_in_tokens(Gogo* gogo, const Bindings* bindings,
+		       const std::vector<Token>& toks,
+		       const std::vector<std::string>& type_params,
+		       Unordered_set(Named_object*)* exports)
+{
+  bool prev_dot = false;
+  for (size_t i = 0; i < toks.size(); ++i)
+    {
+      const Token& t = toks[i];
+      bool this_dot = t.is_op(OPERATOR_DOT);
+      if (!t.is_identifier())
+	{
+	  prev_dot = this_dot;
+	  continue;
+	}
+      if (prev_dot)
+	{
+	  prev_dot = false;
+	  continue;
+	}
+      prev_dot = false;
+
+      const std::string& name = t.identifier();
+
+      // Skip the template's own type parameters.
+      bool is_type_param = false;
+      for (size_t j = 0; j < type_params.size(); ++j)
+	if (type_params[j] == name)
+	  {
+	    is_type_param = true;
+	    break;
+	  }
+      if (is_type_param)
+	continue;
+
+      // Generic templates are exported through the generics section, not
+      // as ordinary symbols; their placeholder declarations must not be
+      // exported here.
+      if (gogo->lookup_generic_function(name) != NULL)
+	continue;
+
+      // Look the name up in package scope.  Locals are not found here.
+      Named_object* no =
+	bindings->lookup(gogo->pack_hidden_name(name,
+						Lex::is_exported_name(name)));
+      if (no == NULL)
+	continue;
+      // Skip universe/predeclared names (int, append, ...) and anything
+      // imported from another package; only this package's own
+      // declarations need to be added to the export set.
+      if (Linemap::is_predeclared_location(no->location())
+	  || no->package() != NULL)
+	continue;
+      if (no->is_function()
+	  || no->is_function_declaration()
+	  || no->is_type()
+	  || no->is_const()
+	  || no->is_variable())
+	{
+	  // An unexported helper would otherwise get a local (static)
+	  // symbol; mark it referenced-by-inline so the backend gives it
+	  // external linkage, allowing instantiations in other packages
+	  // to call it.
+	  if (no->is_function())
+	    no->func_value()->set_is_referenced_by_inline();
+	  else if (no->is_variable())
+	    no->var_value()->set_is_referenced_by_inline();
+	  exports->insert(no);
+	}
+    }
+}
+
+void
+go_collect_generic_exports(Gogo* gogo, const Bindings* bindings,
+			   Unordered_set(Named_object*)* exports)
+{
+  const Unordered_map(std::string, Generic_function_info*)& gf =
+    gogo->generic_functions();
+  for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	 gf.begin();
+       p != gf.end();
+       ++p)
+    {
+      if (!p->second->is_exported())
+	continue;
+      Generic_function_info* info = p->second;
+      collect_refs_in_tokens(gogo, bindings, info->tokens(),
+			     info->type_param_names(), exports);
+    }
+
+  const Unordered_map(std::string, Generic_function_info*)& gt =
+    gogo->generic_types();
+  for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	 gt.begin();
+       p != gt.end();
+       ++p)
+    {
+      if (!p->second->is_exported())
+	continue;
+      Generic_function_info* info = p->second;
+      collect_refs_in_tokens(gogo, bindings, info->tokens(),
+			     info->type_param_names(), exports);
+      for (size_t m = 0; m < info->methods().size(); ++m)
+	collect_refs_in_tokens(gogo, bindings, info->methods()[m].tokens,
+			       info->methods()[m].recv_type_param_names,
+			       exports);
+    }
+}
+
+// Read a non-negative-or-negative integer, skipping leading spaces.
+
+static int
+gen_read_int(Import* imp)
+{
+  while (imp->peek_char() == ' ')
+    imp->get_char();
+  bool neg = false;
+  if (imp->peek_char() == '-')
+    {
+      neg = true;
+      imp->get_char();
+    }
+  int v = 0;
+  while (true)
+    {
+      int c = imp->peek_char();
+      if (c >= '0' && c <= '9')
+	{
+	  v = v * 10 + (c - '0');
+	  imp->get_char();
+	}
+      else
+	break;
+    }
+  return neg ? -v : v;
+}
+
+// Consume a single trailing newline if present.
+
+static void
+gen_skip_newline(Import* imp)
+{
+  if (imp->peek_char() == '\n')
+    imp->get_char();
+}
+
+// Read a length-prefixed raw byte string written by gen_write_lenstr.
+
+static std::string
+gen_read_lenstr(Import* imp)
+{
+  int len = gen_read_int(imp);
+  if (imp->peek_char() == ' ')
+    imp->get_char();
+  std::string s;
+  if (len > 0)
+    imp->read(static_cast<size_t>(len), &s);
+  return s;
+}
+
+// Read a single token written by gen_write_token.
+
+static Token
+gen_read_token(Import* imp, Location loc)
+{
+  int code = imp->get_char();
+  switch (code)
+    {
+    case 'k':
+      {
+	int kw = gen_read_int(imp);
+	gen_skip_newline(imp);
+	return Token::make_keyword_token(static_cast<Keyword>(kw), loc);
+      }
+    case 'o':
+      {
+	int op = gen_read_int(imp);
+	gen_skip_newline(imp);
+	return Token::make_operator_token(static_cast<Operator>(op), loc);
+      }
+    case 'i':
+      {
+	int isexp = gen_read_int(imp);
+	std::string name = gen_read_lenstr(imp);
+	gen_skip_newline(imp);
+	return Token::make_identifier_token(name, isexp != 0, loc);
+      }
+    case 's':
+      {
+	std::string s = gen_read_lenstr(imp);
+	gen_skip_newline(imp);
+	return Token::make_string_token(s, loc);
+      }
+    case 'n':
+    case 'c':
+      {
+	std::string s = gen_read_lenstr(imp);
+	gen_skip_newline(imp);
+	mpz_t v;
+	mpz_init(v);
+	mpz_set_str(v, s.c_str(), 16);
+	Token t = (code == 'n'
+		   ? Token::make_integer_token(v, loc)
+		   : Token::make_character_token(v, loc));
+	mpz_clear(v);
+	return t;
+      }
+    case 'f':
+    case 'm':
+      {
+	std::string s = gen_read_lenstr(imp);
+	gen_skip_newline(imp);
+	mpfr_t v;
+	mpfr_init_set_str(v, s.c_str(), 10, MPFR_RNDN);
+	Token t = (code == 'f'
+		   ? Token::make_float_token(v, loc)
+		   : Token::make_imaginary_token(v, loc));
+	mpfr_clear(v);
+	return t;
+      }
+    case 'e':
+      gen_skip_newline(imp);
+      return Token::make_eof_token(loc);
+    default:
+      gen_skip_newline(imp);
+      return Token::make_invalid_token(loc);
+    }
+}
+
+// Read a token vector written by gen_write_tokens.
+
+static void
+gen_read_tokens(Import* imp, std::vector<Token>* out, Location loc)
+{
+  int n = gen_read_int(imp);
+  gen_skip_newline(imp);
+  for (int i = 0; i < n; ++i)
+    out->push_back(gen_read_token(imp, loc));
+}
+
+// Read the body of one generic template written by gen_write_generic_body.
+
+static void
+gen_read_generic_body(Import* imp, Generic_function_info* info, Location loc)
+{
+  int nparams = gen_read_int(imp);
+  gen_skip_newline(imp);
+  for (int i = 0; i < nparams; ++i)
+    {
+      std::string nm = gen_read_lenstr(imp);
+      gen_skip_newline(imp);
+      info->type_param_names().push_back(nm);
+      std::vector<Token> c;
+      gen_read_tokens(imp, &c, loc);
+      info->constraints().push_back(c);
+    }
+  gen_read_tokens(imp, &info->tokens(), loc);
+
+  int nmeth = gen_read_int(imp);
+  gen_skip_newline(imp);
+  for (int i = 0; i < nmeth; ++i)
+    {
+      Generic_method_template mt;
+      int nrp = gen_read_int(imp);
+      gen_skip_newline(imp);
+      for (int j = 0; j < nrp; ++j)
+	{
+	  std::string nm = gen_read_lenstr(imp);
+	  gen_skip_newline(imp);
+	  mt.recv_type_param_names.push_back(nm);
+	}
+      gen_read_tokens(imp, &mt.tokens, loc);
+      info->methods().push_back(mt);
+    }
+}
+
+// Read the "generics" section of import data and register the templates
+// in GOGO, associated with PACKAGE.
+
+void
+go_import_generics(Import* imp, Gogo* gogo, Package* package)
+{
+  Location loc = imp->location();
+  imp->require_c_string("generics ");
+  int nfunc = gen_read_int(imp);
+  int ntype = gen_read_int(imp);
+  gen_skip_newline(imp);
+
+  // Fully import the packages referenced by the template bodies, so that
+  // qualified references resolve when the templates are instantiated.
+  imp->require_c_string("genimports ");
+  int nimp = gen_read_int(imp);
+  gen_skip_newline(imp);
+  std::vector<std::string> gpaths;
+  for (int i = 0; i < nimp; ++i)
+    {
+      gpaths.push_back(gen_read_lenstr(imp));
+      gen_skip_newline(imp);
+    }
+  for (int i = 0; i < nimp; ++i)
+    gogo->import_package(gpaths[i], "_", false, false, loc);
+
+  for (int i = 0; i < nfunc; ++i)
+    {
+      imp->require_c_string("gfunc ");
+      std::string name = gen_read_lenstr(imp);
+      gen_skip_newline(imp);
+      Generic_function_info* info =
+	new Generic_function_info(name, true, loc);
+      info->set_defining_package(package);
+      gen_read_generic_body(imp, info, loc);
+      std::string key = package->pkgpath() + '.' + name;
+      if (gogo->lookup_generic_function(key) == NULL)
+	{
+	  gogo->add_generic_function(key, info);
+	  // A placeholder declaration so that "pkg.Name" resolves; it is
+	  // never compiled, every use is rewritten to an instance.
+	  Function_type* placeholder =
+	    Type::make_function_type(NULL, NULL, NULL, loc);
+	  package->add_function_declaration(name, placeholder, loc);
+	}
+    }
+  for (int i = 0; i < ntype; ++i)
+    {
+      imp->require_c_string("gtype ");
+      std::string name = gen_read_lenstr(imp);
+      gen_skip_newline(imp);
+      Generic_function_info* info =
+	new Generic_function_info(name, true, loc);
+      info->set_defining_package(package);
+      gen_read_generic_body(imp, info, loc);
+      std::string key = package->pkgpath() + '.' + name;
+      if (gogo->lookup_generic_type(key) == NULL)
+	gogo->add_generic_type(key, info);
+    }
+}
 
 // Struct Parse::Enclosing_var_comparison.
 
@@ -494,6 +1075,18 @@ Parse::type_name(bool issue_error)
 	return this->generic_type_instantiation(ginfo, location);
       if (this->replay_tokens_ == NULL)
 	return this->pending_generic_type_instantiation(name, location);
+    }
+
+  // Generics: a "[" after a qualified type name "pkg.T" instantiates a
+  // generic type imported from another package.
+  if (package != NULL
+      && this->peek_token()->is_op(OPERATOR_LSQUARE))
+    {
+      Generic_function_info* ginfo =
+	this->gogo_->lookup_generic_type(package->package_value()->pkgpath()
+					 + '.' + name);
+      if (ginfo != NULL)
+	return this->generic_type_instantiation(ginfo, location);
     }
 
   Named_object* named_object;
@@ -3040,6 +3633,7 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
+  this->note_token_package_usage(toks);
 
   // Register under the packed name so that lookups in type context
   // (which pack the name) match, including for unexported types.
@@ -3099,6 +3693,9 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   std::string packed = this->gogo_->pack_hidden_name(iname, false);
 
   this->gogo_->push_instantiation_context();
+  bool imported = info->defining_package() != NULL;
+  if (imported)
+    this->gogo_->push_instantiation_package(info->defining_package());
 
   // Declare the instance type first so that recursive references to the
   // same instantiation resolve to it.
@@ -3131,6 +3728,15 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 	}
     }
 
+  // When the type is instantiated during a late pass (e.g. type-argument
+  // inference), the global finalize_methods pass has already run, so build
+  // this instance's method table now; otherwise a following method call
+  // would not find the freshly added methods.
+  if (this->gogo_->parsing_complete() && !info->methods().empty())
+    nt->finalize_methods(this->gogo_);
+
+  if (imported)
+    this->gogo_->pop_instantiation_package();
   this->gogo_->pop_instantiation_context();
 
   return nt;
@@ -3586,6 +4192,7 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
+  this->note_token_package_usage(toks);
 
   // The generic types are registered under their packed names.
   Generic_function_info* info =
@@ -3682,6 +4289,7 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
+  this->note_token_package_usage(toks);
 
   this->gogo_->add_generic_function(name, info);
 
@@ -3698,15 +4306,48 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
 		   "generic function"));
 }
 
+// Generics: mark as used any imported package referenced by a "pkg.X"
+// selector in a captured generic template, since the template body is
+// compiled only when instantiated (possibly in another package) and so
+// the normal use-tracking in operand() never sees it here.
+
+void
+Parse::note_token_package_usage(const std::vector<Token>& toks)
+{
+  bool prev_dot = false;
+  for (size_t i = 0; i + 1 < toks.size(); ++i)
+    {
+      bool was_dot = prev_dot;
+      prev_dot = toks[i].is_op(OPERATOR_DOT);
+      if (was_dot || !toks[i].is_identifier())
+	continue;
+      if (!toks[i + 1].is_op(OPERATOR_DOT))
+	continue;
+      std::string packed =
+	this->gogo_->pack_hidden_name(toks[i].identifier(),
+				      toks[i].is_identifier_exported());
+      Named_object* no = this->gogo_->lookup(packed, NULL);
+      if (no != NULL && no->is_package())
+	{
+	  no->package_value()->note_usage(toks[i].identifier());
+	  this->gogo_->add_generic_imported_package(no->package_value());
+	}
+    }
+}
+
 // Generics: structurally unify a parameter type PT (which may contain
 // inference marker types) against an argument type AT, recording the
 // solved type for each marker in SOLVED.  Handles the common forms:
-// direct T, []T, *T, map[K]V, chan T, and func(...) ... .
+// direct T, []T, *T, map[K]V, chan T, func(...) ..., and the fields of a
+// (named or literal) struct, which covers a parameter whose type is an
+// instantiation of another generic type, e.g. func F[T any](b Box[T]).
+// DEPTH bounds the recursion so that recursive generic types terminate.
 
 static void
-unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
+unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
+	     int depth)
 {
-  if (pt == NULL || at == NULL)
+  if (pt == NULL || at == NULL || depth > 24)
     return;
   pt = pt->forwarded();
   at = at->forwarded();
@@ -3724,7 +4365,7 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
 
   if (pt->points_to() != NULL && at->points_to() != NULL)
     {
-      unify_marker(gogo, pt->points_to(), at->points_to(), solved);
+      unify_marker(gogo, pt->points_to(), at->points_to(), solved, depth + 1);
       return;
     }
 
@@ -3733,7 +4374,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
   if (pat != NULL && aat != NULL
       && pat->length() == NULL && aat->length() == NULL)
     {
-      unify_marker(gogo, pat->element_type(), aat->element_type(), solved);
+      unify_marker(gogo, pat->element_type(), aat->element_type(), solved,
+		   depth + 1);
       return;
     }
 
@@ -3741,8 +4383,17 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
   Map_type* amt = at->map_type();
   if (pmt != NULL && amt != NULL)
     {
-      unify_marker(gogo, pmt->key_type(), amt->key_type(), solved);
-      unify_marker(gogo, pmt->val_type(), amt->val_type(), solved);
+      unify_marker(gogo, pmt->key_type(), amt->key_type(), solved, depth + 1);
+      unify_marker(gogo, pmt->val_type(), amt->val_type(), solved, depth + 1);
+      return;
+    }
+
+  Channel_type* pct = pt->channel_type();
+  Channel_type* act = at->channel_type();
+  if (pct != NULL && act != NULL)
+    {
+      unify_marker(gogo, pct->element_type(), act->element_type(), solved,
+		   depth + 1);
       return;
     }
 
@@ -3757,7 +4408,7 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
 	  Typed_identifier_list::const_iterator i1 = pp->begin();
 	  Typed_identifier_list::const_iterator i2 = ap->begin();
 	  for (; i1 != pp->end() && i2 != ap->end(); ++i1, ++i2)
-	    unify_marker(gogo, i1->type(), i2->type(), solved);
+	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
 	}
       const Typed_identifier_list* pr = pft->results();
       const Typed_identifier_list* ar = aft->results();
@@ -3766,7 +4417,31 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved)
 	  Typed_identifier_list::const_iterator i1 = pr->begin();
 	  Typed_identifier_list::const_iterator i2 = ar->begin();
 	  for (; i1 != pr->end() && i2 != ar->end(); ++i1, ++i2)
-	    unify_marker(gogo, i1->type(), i2->type(), solved);
+	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
+	}
+      return;
+    }
+
+  // Two struct types (typically two instantiations of the same generic
+  // type, e.g. Box[T] vs Box[string]): unify corresponding fields.  We
+  // match by field name and position to avoid unifying coincidentally
+  // similar but unrelated structs.
+  Struct_type* pst = pt->struct_type();
+  Struct_type* ast = at->struct_type();
+  if (pst != NULL && ast != NULL)
+    {
+      const Struct_field_list* pf = pst->fields();
+      const Struct_field_list* af = ast->fields();
+      if (pf != NULL && af != NULL && pf->size() == af->size())
+	{
+	  Struct_field_list::const_iterator i1 = pf->begin();
+	  Struct_field_list::const_iterator i2 = af->begin();
+	  for (; i1 != pf->end() && i2 != af->end(); ++i1, ++i2)
+	    {
+	      if (i1->field_name() != i2->field_name())
+		return;
+	      unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
+	    }
 	}
     }
 }
@@ -3866,9 +4541,14 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	}
 
       this->gogo_->push_instantiation_context();
+      bool imported_sig = info->defining_package() != NULL;
+      if (imported_sig)
+	this->gogo_->push_instantiation_package(info->defining_package());
       Parse sp(this->lex_, this->gogo_);
       sp.set_replay_tokens(&subst);
       gsig = sp.signature(NULL, location);
+      if (imported_sig)
+	this->gogo_->pop_instantiation_package();
       this->gogo_->pop_instantiation_context();
       info->set_marker_signature(gsig);
     }
@@ -3906,10 +4586,10 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		  // element type E with each trailing argument.
 		  Array_type* a = pt->array_type();
 		  Type* elem = (a != NULL ? a->element_type() : pt);
-		  unify_marker(this->gogo_, elem, at, solved);
+		  unify_marker(this->gogo_, elem, at, solved, 0);
 		}
 	      else
-		unify_marker(this->gogo_, pt, at, solved);
+		unify_marker(this->gogo_, pt, at, solved, 0);
 	    }
 
 	  // Advance to the next parameter, but stay on a trailing variadic
@@ -4025,6 +4705,9 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // a top-level declaration rather than a function nested in whatever
   // function is currently being parsed.
   this->gogo_->push_instantiation_context();
+  bool imported = info->defining_package() != NULL;
+  if (imported)
+    this->gogo_->push_instantiation_package(info->defining_package());
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
@@ -4040,6 +4723,8 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   info->add_instance(key, ino);
   ip.block();
   this->gogo_->finish_function(location);
+  if (imported)
+    this->gogo_->pop_instantiation_package();
   this->gogo_->pop_instantiation_context();
 
   return ino;
@@ -4124,6 +4809,20 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	  {
 	    Generic_function_info* ginfo =
 	      this->gogo_->lookup_generic_type(packed);
+	    if (ginfo != NULL)
+	      {
+		Type* t = this->generic_type_instantiation(ginfo, location);
+		return Expression::make_type(t, location);
+	      }
+	  }
+
+	// Generics: a generic type imported from another package used in
+	// expression context, e.g. mylib.Pair[int]{...}.
+	if (package != NULL
+	    && this->peek_token()->is_op(OPERATOR_LSQUARE))
+	  {
+	    Generic_function_info* ginfo =
+	      this->gogo_->lookup_generic_type(package->pkgpath() + '.' + id);
 	    if (ginfo != NULL)
 	      {
 		Type* t = this->generic_type_instantiation(ginfo, location);
@@ -4774,7 +5473,7 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 	  Func_expression* fe = ret->func_expression();
 	  if (fe != NULL)
 	    ginfo =
-	      this->gogo_->lookup_generic_function(fe->named_object()->name());
+	      this->gogo_->lookup_generic_function_no(fe->named_object());
 	  if (ginfo != NULL)
 	    ret = this->generic_instantiation(ginfo, ret->location());
 	  else

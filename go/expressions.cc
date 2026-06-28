@@ -13766,19 +13766,19 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
   {
     // The callee may be a direct function reference, or (for a generic
     // function used before its declaration) an as-yet-unresolved name.
-    std::string gen_name;
+    Named_object* gen_no = NULL;
     Func_expression* fe = this->fn_->func_expression();
     if (fe != NULL)
-      gen_name = fe->named_object()->name();
+      gen_no = fe->named_object();
     else
       {
 	Unknown_expression* ue = this->fn_->unknown_expression();
 	if (ue != NULL)
-	  gen_name = ue->named_object()->name();
+	  gen_no = ue->named_object();
       }
-    Generic_function_info* gi = (gen_name.empty()
+    Generic_function_info* gi = (gen_no == NULL
 				 ? NULL
-				 : gogo->lookup_generic_function(gen_name));
+				 : gogo->lookup_generic_function_no(gen_no));
     if (gi != NULL)
       {
 	// The parser re-parses the instance from captured tokens; it never

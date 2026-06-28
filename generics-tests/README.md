@@ -13,6 +13,34 @@ Run them against a GCC build tree that built this frontend:
 compares the output to the golden `*.out` file.  It exits non-zero on any
 failure.
 
+## Cross-package generics
+
+`crosspkg/` holds cross-package tests: each `crosspkg/case_<name>/` is a
+small multi-package program (a library package in `.../lib/lib.go`, an
+optional deeper package in `.../base/base.go`, and a `main.go` that
+imports them).  The golden `expected.out` files are produced with the
+upstream `go` tool (the sources form a module, see `crosspkg/go.mod`).
+Run them with:
+
+    cd crosspkg && ./run.sh /path/to/gcc-build
+
+Generic function and type templates are serialized into a package's export
+data (a `generics` section) and re-instantiated in importing packages.
+Bodies may reference the defining package's own symbols — exported or
+unexported helpers (which are given external linkage), sibling generic
+templates, package-level types/consts, and other imported packages (e.g.
+`fmt`, `strings`), which are pulled in automatically.  Covered cases:
+
+| Case | Feature |
+|------|---------|
+| `case_funcs` | generic functions across packages, inference + explicit args, constraints |
+| `case_types` | generic types with methods, composite literals, multiple type params |
+| `case_helpers` | generic body calling exported + unexported helpers and sibling generics |
+| `case_external` | generic body using another imported package (`fmt`, `strings`) |
+| `case_pkgtype` | generic type referencing a package type and const |
+| `case_infer` | inferring a type parameter from a named generic-type argument |
+| `case_transitive` | a generic chain across three packages (`main` → `lib` → `base`) |
+
 ## Coverage
 
 | File | Feature |
@@ -76,4 +104,7 @@ failure.
   field name different from the type-parameter name in that case.
 - **Partial type arguments**: `F[int](x)` that leaves remaining type
   parameters to be inferred is not supported; give all or none.
-- **Cross-package** export/import of generic templates is not implemented.
+- **Nested generic type as a result type**: a function returning a doubly
+  instantiated type, e.g. `func F[T any](v T) Box[Box[T]]`, is not yet
+  supported (the inner instance is not resolved in the signature).  A
+  single level (`Box[T]`) works, including across packages.

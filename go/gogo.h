@@ -601,6 +601,56 @@ class Gogo
   Generic_function_info*
   lookup_generic_function(const std::string& name);
 
+  // Look up the generic function template referenced through the named
+  // object NO.  Handles both locally-declared templates (keyed by bare
+  // name) and templates imported from another package (keyed by
+  // "pkgpath.name").  Returns NULL if NO is not a generic function.
+  Generic_function_info*
+  lookup_generic_function_no(Named_object* no);
+
+  // While re-parsing an imported generic template, its defining package
+  // is pushed here, so that bare references to that package's other
+  // symbols (generic templates and ordinary exported declarations)
+  // resolve against it.
+  void
+  push_instantiation_package(Package* p)
+  { this->instantiation_package_.push_back(p); }
+
+  void
+  pop_instantiation_package()
+  { this->instantiation_package_.pop_back(); }
+
+  // The defining package of the template currently being instantiated,
+  // or NULL if none.
+  Package*
+  current_instantiation_package() const
+  {
+    return (this->instantiation_package_.empty()
+	    ? NULL
+	    : this->instantiation_package_.back());
+  }
+
+  // Record that an imported package is referenced by a generic template
+  // body; such packages must appear in this package's export data so that
+  // importers can resolve the reference when they instantiate the
+  // template.
+  void
+  add_generic_imported_package(const Package* p)
+  { this->generic_imported_packages_.insert(p); }
+
+  const Unordered_set(const Package*)&
+  generic_imported_packages() const
+  { return this->generic_imported_packages_; }
+
+  // The registries of generic templates, used by the export code.
+  const Unordered_map(std::string, Generic_function_info*)&
+  generic_functions() const
+  { return this->generic_functions_; }
+
+  const Unordered_map(std::string, Generic_function_info*)&
+  generic_types() const
+  { return this->generic_types_; }
+
   // Register a generic type template, keyed by its raw (source) name.
   void
   add_generic_type(const std::string& name, Generic_function_info*);
@@ -1344,6 +1394,16 @@ class Gogo
   update_init_priority(Import_init* ii,
                        std::set<const Import_init *>* visited);
 
+  // Stack of defining packages of imported generic templates currently
+  // being re-parsed for instantiation; see push_instantiation_package.
+  std::vector<Package*> instantiation_package_;
+  // Imported packages referenced by generic template bodies, which must
+  // be recorded in this package's export data.
+  Unordered_set(const Package*) generic_imported_packages_;
+  // Cache of package Named_objects synthesized while resolving qualified
+  // references in instantiated template bodies (whose file-scoped imports
+  // are no longer in scope by the time of instantiation).
+  mutable Unordered_map(std::string, Named_object*) instantiation_package_cache_;
   // The backend generator.
   Backend* backend_;
   // The object used to keep track of file names and line numbers.

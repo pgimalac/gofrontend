@@ -140,6 +140,17 @@ class Export : public String_dump
   void
   register_builtin_types(Gogo*);
 
+  // Record the Gogo we are exporting, so that the generic-template
+  // export code can reach the generic registries.
+  void
+  set_gogo(Gogo* gogo)
+  { this->gogo_ = gogo; }
+
+  // The Gogo being exported, or NULL.
+  Gogo*
+  gogo() const
+  { return this->gogo_; }
+
   // Export the identifiers in BINDINGS which are marked for export.
   // The exporting is done via a series of calls to THIS->STREAM_.  If
   // is nothing to export, this->stream_->write will not be called.
@@ -272,6 +283,8 @@ class Export : public String_dump
 
   // The stream to which we are writing data.
   Stream* stream_;
+  // The Gogo being exported, or NULL.  Used by the generics export.
+  Gogo* gogo_;
   // Index number of next type.
   int type_index_;
   // Packages we have written out.
