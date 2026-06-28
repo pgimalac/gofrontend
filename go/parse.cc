@@ -58,6 +58,20 @@ struct Pending_generic_type
   Location location;
 };
 
+// A recorded obligation that a type argument satisfy its type
+// parameter's constraint, checked after types are determined.
+
+struct Constraint_obligation
+{
+  // The type argument, as a captured token sequence.
+  std::vector<Token> arg;
+  // The constraint, as a captured token sequence.
+  std::vector<Token> constraint;
+  // The displayed name of the generic being instantiated.
+  std::string what;
+  Location location;
+};
+
 class Generic_function_info
 {
  public:
@@ -72,6 +86,12 @@ class Generic_function_info
   std::vector<Generic_method_template>&
   methods()
   { return this->methods_; }
+
+  // The constraint tokens for each type parameter (parallel to
+  // type_param_names()).  An empty entry means no recorded constraint.
+  std::vector<std::vector<Token> >&
+  constraints()
+  { return this->constraints_; }
 
   // The packed name of the generic function.
   const std::string&
@@ -130,6 +150,7 @@ class Generic_function_info
   Unordered_map(std::string, Named_object*) instances_;
   Function_type* marker_signature_;
   std::vector<Generic_method_template> methods_;
+  std::vector<std::vector<Token> > constraints_;
 };
 
 // Struct Parse::Enclosing_var_comparison.
@@ -2917,12 +2938,16 @@ token_key_string(const Token& t)
     }
 }
 
-// Forward declaration; defined below.
+// Forward declarations; defined below.
 static void
 substitute_type_params(const std::vector<Token>&,
 		       const std::vector<std::string>&,
 		       const std::vector<std::vector<Token> >&,
 		       std::vector<Token>&);
+static void
+record_constraint_obligations(Gogo*, Generic_function_info*,
+			      const std::vector<std::vector<Token> >&,
+			      const std::string&, Location);
 
 // Generics: parse a "[name constraint, ...]" type parameter list,
 // collecting the parameter names.  The current token is "[".  Grouped
@@ -2931,7 +2956,8 @@ substitute_type_params(const std::vector<Token>&,
 // otherwise ignored (no constraint checking yet).
 
 void
-Parse::type_parameter_names(std::vector<std::string>* names)
+Parse::type_parameter_names(std::vector<std::string>* names,
+			    std::vector<std::vector<Token> >* constraints)
 {
   go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
   this->advance_token();
@@ -2947,7 +2973,11 @@ Parse::type_parameter_names(std::vector<std::string>* names)
       names->push_back(token->identifier());
       this->advance_token();
 
-      // Skip the constraint up to a top-level "," or "]".
+      // Capture the constraint tokens up to a top-level "," or "]".
+      // (For grouped parameters "[T, U C]" only the last name in the
+      // group gets the constraint; the others get an empty one, which
+      // simply means no constraint check for them.)
+      std::vector<Token> constraint;
       int cdepth = 0;
       while (true)
 	{
@@ -2963,8 +2993,11 @@ Parse::type_parameter_names(std::vector<std::string>* names)
 	  else if (t->is_op(OPERATOR_RSQUARE) || t->is_op(OPERATOR_RPAREN)
 		   || t->is_op(OPERATOR_RCURLY))
 	    --cdepth;
+	  constraint.push_back(*t);
 	  this->advance_token();
 	}
+      if (constraints != NULL)
+	constraints->push_back(constraint);
       if (this->peek_token()->is_op(OPERATOR_COMMA))
 	this->advance_token();
     }
@@ -2985,7 +3018,7 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
   Generic_function_info* info =
     new Generic_function_info(name, is_exported, location);
 
-  this->type_parameter_names(&info->type_param_names());
+  this->type_parameter_names(&info->type_param_names(), &info->constraints());
 
   // Capture the type definition tokens up to a top-level semicolon.
   std::vector<Token>& toks = info->tokens();
@@ -3047,6 +3080,9 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 		  Gogo::message_name(info->name()).c_str());
       return Type::make_error_type();
     }
+
+  record_constraint_obligations(this->gogo_, info, type_args,
+				Gogo::message_name(info->name()), location);
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
@@ -3251,6 +3287,131 @@ Parse::resolve_pending_generic_types()
       this->gogo_->define_type(p->placeholder, alias);
     }
   this->gogo_->resolve_global_names();
+}
+
+// Generics: parse a captured token sequence as a type (used to evaluate
+// constraints after types are determined).  Returns NULL on failure.
+
+Type*
+Parse::parse_type_from_tokens(const std::vector<Token>& toks)
+{
+  std::vector<Token> t = toks;
+  t.push_back(Token::make_eof_token(Linemap::unknown_location()));
+  Parse p(this->lex_, this->gogo_);
+  p.set_replay_tokens(&t);
+  if (!p.type_may_start_here())
+    return NULL;
+  return p.type();
+}
+
+// Generics: check recorded constraint obligations.  Conservative: only
+// enforces constraints that are a type-set of predeclared basic types
+// (each optionally "~"), e.g. "int | float64" or "~int | ~string".  Any
+// other constraint (a named interface, comparable, any, a structural or
+// type-parameter-dependent constraint) is left unchecked, so this never
+// rejects valid code.
+
+void
+Parse::check_generic_constraints()
+{
+  static const char* const basics[] = {
+    "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+    "float32", "float64", "complex64", "complex128",
+    "string", "bool", "byte", "rune", NULL
+  };
+
+  std::vector<Constraint_obligation*>& obs =
+    this->gogo_->constraint_obligations();
+  for (size_t oi = 0; oi < obs.size(); ++oi)
+    {
+      Constraint_obligation* o = obs[oi];
+      const std::vector<Token>& c = o->constraint;
+
+      // Parse the constraint into terms: optional "~" then a basic type
+      // name, separated by "|".  Bail out (skip) on anything else.
+      std::vector<std::pair<std::string, bool> > terms;
+      bool checkable = true;
+      size_t i = 0;
+      while (i < c.size())
+	{
+	  bool approx = false;
+	  if (c[i].is_op(OPERATOR_TILDE))
+	    {
+	      approx = true;
+	      ++i;
+	    }
+	  if (i >= c.size() || !c[i].is_identifier())
+	    {
+	      checkable = false;
+	      break;
+	    }
+	  std::string nm = c[i].identifier();
+	  bool isbasic = false;
+	  for (int b = 0; basics[b] != NULL; ++b)
+	    if (nm == basics[b])
+	      {
+		isbasic = true;
+		break;
+	      }
+	  if (!isbasic)
+	    {
+	      checkable = false;
+	      break;
+	    }
+	  terms.push_back(std::make_pair(nm, approx));
+	  ++i;
+	  if (i < c.size())
+	    {
+	      if (c[i].is_op(OPERATOR_OR))
+		++i;
+	      else
+		{
+		  checkable = false;
+		  break;
+		}
+	    }
+	}
+      if (!checkable || terms.empty())
+	continue;
+
+      Type* argType = this->parse_type_from_tokens(o->arg);
+      if (argType == NULL || argType->is_error_type())
+	continue;
+      Type* argBase = argType->base();
+      if (argBase == NULL || argBase->is_error_type())
+	continue;
+
+      bool ok = false;
+      for (size_t t = 0; t < terms.size() && !ok; ++t)
+	{
+	  std::vector<Token> tt;
+	  tt.push_back(Token::make_identifier_token(terms[t].first, false,
+						    o->location));
+	  Type* termType = this->parse_type_from_tokens(tt);
+	  if (termType == NULL || termType->is_error_type())
+	    continue;
+	  if (terms[t].second)
+	    {
+	      // "~B": the argument's underlying type must be B.
+	      if (Type::are_identical(argBase, termType->base(),
+				      Type::COMPARE_ERRORS, NULL))
+		ok = true;
+	    }
+	  else
+	    {
+	      // "B": the argument must be exactly B.
+	      if (Type::are_identical(argType, termType,
+				      Type::COMPARE_ERRORS, NULL))
+		ok = true;
+	    }
+	}
+
+      if (!ok)
+	go_error_at(o->location,
+		    "type argument does not satisfy constraint of %qs",
+		    o->what.c_str());
+    }
 }
 
 // Generics: produce SUBSTITUTED from TMPL by replacing every identifier
@@ -3461,7 +3622,7 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
   Generic_function_info* info =
     new Generic_function_info(name, is_exported, location);
 
-  this->type_parameter_names(&info->type_param_names());
+  this->type_parameter_names(&info->type_param_names(), &info->constraints());
 
   // Capture the signature and body tokens.  The current token should be
   // "(".  We track bracket nesting and stop after the body's closing
@@ -3765,6 +3926,28 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   return inst;
 }
 
+// Generics: record obligations that each type argument satisfy its type
+// parameter's constraint.  Checked after types are determined.
+
+static void
+record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
+			      const std::vector<std::vector<Token> >& type_args,
+			      const std::string& what, Location location)
+{
+  std::vector<std::vector<Token> >& cons = info->constraints();
+  for (size_t i = 0; i < type_args.size() && i < cons.size(); ++i)
+    {
+      if (cons[i].empty())
+	continue;
+      Constraint_obligation* o = new Constraint_obligation;
+      o->arg = type_args[i];
+      o->constraint = cons[i];
+      o->what = what;
+      o->location = location;
+      gogo->add_constraint_obligation(o);
+    }
+}
+
 // Generics: instantiate a generic function template with the given type
 // arguments (each a captured token sequence).  Returns the Named_object
 // for the (possibly cached) instance, or NULL on error.
@@ -3793,6 +3976,9 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 		  Gogo::message_name(info->name()).c_str());
       return NULL;
     }
+
+  record_constraint_obligations(this->gogo_, info, type_args,
+				Gogo::message_name(info->name()), location);
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.

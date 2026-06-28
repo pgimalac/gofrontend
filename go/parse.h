@@ -49,6 +49,10 @@ class Parse
   // go.cc after all input has been parsed.
   void resolve_pending_generic_types();
 
+  // Check recorded generic instantiations against their type parameter
+  // constraints.  Called from go.cc after determine_types.
+  void check_generic_constraints();
+
  private:
   // Precedence values.
   enum Precedence
@@ -249,8 +253,12 @@ class Parse
   // return a reference to the resulting instance.
   Expression* generic_instantiation(Generic_function_info*, Location);
   // Parse a "[name constraint, ...]" type parameter list (current token
-  // is "[") collecting the parameter names.
-  void type_parameter_names(std::vector<std::string>* names);
+  // is "[") collecting the parameter names and, if requested, the
+  // constraint tokens of each parameter.
+  void type_parameter_names(std::vector<std::string>* names,
+			    std::vector<std::vector<Token> >* constraints = NULL);
+  // Parse a captured token sequence as a type.
+  Type* parse_type_from_tokens(const std::vector<Token>&);
   // Capture a generic type template (a type whose name is followed by a
   // "[" type parameter list).
   void generic_type_decl(const std::string& name, bool is_exported, Location);

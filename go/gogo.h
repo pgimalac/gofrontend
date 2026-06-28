@@ -39,6 +39,7 @@ class Forward_declaration_type;
 class Named_object;
 class Generic_function_info;
 class Pending_generic_type;
+class Constraint_obligation;
 class Label;
 class Translate_context;
 class Backend;
@@ -617,6 +618,16 @@ class Gogo
   std::vector<Pending_generic_type*>&
   pending_generic_types()
   { return this->pending_generic_types_; }
+
+  // Record an obligation that a type argument satisfy a constraint,
+  // checked after types are determined.
+  void
+  add_constraint_obligation(Constraint_obligation* o)
+  { this->constraint_obligations_.push_back(o); }
+
+  std::vector<Constraint_obligation*>&
+  constraint_obligations()
+  { return this->constraint_obligations_; }
 
   // Generics: return the I'th "marker" type, used as a stand-in for a
   // type parameter while inferring type arguments from a call's
@@ -1350,6 +1361,8 @@ class Gogo
   Unordered_map(std::string, Generic_function_info*) generic_types_;
   // Forward references to generic types, resolved after parsing.
   std::vector<Pending_generic_type*> pending_generic_types_;
+  // Constraint-satisfaction obligations, checked after determine_types.
+  std::vector<Constraint_obligation*> constraint_obligations_;
   // Lazily-created marker types used during generic type inference.
   std::vector<Named_type*> infer_markers_;
   // True once the early compilation passes have run; generic instances

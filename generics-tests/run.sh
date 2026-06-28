@@ -51,6 +51,22 @@ for src in *.go; do
   base="${src%.go}"
   exp="$base.out"
   bin="$tmp/$base"
+
+  # Files named *_bad.go are negative tests: they must FAIL to compile.
+  case "$base" in
+    *_bad)
+      if "$GCCGO" -B"$GCCDIR" -I"$LIBGODIR" -L"$LIBGODIR" -L"$LIBGO" \
+	   -static-libgo -o "$bin" "$src" > "$tmp/$base.cerr" 2>&1; then
+	echo "FAIL  $src (expected a compile error, but it compiled)"
+	fail=$((fail + 1))
+      else
+	echo "PASS  $src (rejected as expected)"
+	pass=$((pass + 1))
+      fi
+      continue
+      ;;
+  esac
+
   if ! "$GCCGO" -B"$GCCDIR" -I"$LIBGODIR" -L"$LIBGODIR" -L"$LIBGO" \
        -static-libgo -o "$bin" "$src" > "$tmp/$base.cerr" 2>&1; then
     echo "FAIL  $src (compile)"

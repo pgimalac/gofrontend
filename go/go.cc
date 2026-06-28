@@ -144,6 +144,14 @@ go_parse_input_files(const char** filenames, unsigned int filename_count,
   // Work out types of unspecified constants and variables.
   ::gogo->determine_types();
 
+  // Generics: now that all instantiations exist and their types are
+  // determined, check that type arguments satisfy their constraints.
+  {
+    Lex dummy_lex(NULL, NULL, ::gogo->linemap());
+    Parse generics_parse(&dummy_lex, ::gogo);
+    generics_parse.check_generic_constraints();
+  }
+
   // Now that we have seen all the names, verify that types are
   // correct.
   ::gogo->verify_types();
