@@ -185,6 +185,9 @@ class Parse
   Location block();
   Type* interface_type(bool record);
   void method_spec(Typed_identifier_list*);
+  // Generics: parse and discard a constraint type element (used in
+  // interface constraints), e.g. "~int" or "int | ~float64".
+  void skip_constraint_term();
   void declaration();
   bool declaration_may_start_here();
   void decl(void (Parse::*)());

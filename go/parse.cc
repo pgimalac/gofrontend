@@ -1360,6 +1360,17 @@ void
 Parse::method_spec(Typed_identifier_list* methods)
 {
   const Token* token = this->peek_token();
+
+  // Generics: a constraint type element that starts with "~" or with a
+  // non-identifier type (e.g. "~int", "[]byte").  Parse and ignore it;
+  // we do not yet enforce constraints.
+  if (token->is_op(OPERATOR_TILDE)
+      || (!token->is_identifier() && this->type_may_start_here()))
+    {
+      this->skip_constraint_term();
+      return;
+    }
+
   if (!token->is_identifier())
     {
       go_error_at(this->location(), "expected identifier");
@@ -1387,6 +1398,21 @@ Parse::method_spec(Typed_identifier_list* methods)
       this->unget_token(Token::make_identifier_token(name, is_exported,
 						     location));
       Type* type = this->type_name(false);
+
+      // Generics: a union constraint whose first term is a type name,
+      // e.g. "int | ~float64".  Parse and ignore the remaining terms.
+      if (this->peek_token()->is_op(OPERATOR_OR))
+	{
+	  while (this->peek_token()->is_op(OPERATOR_OR))
+	    {
+	      this->advance_token();
+	      if (this->peek_token()->is_op(OPERATOR_TILDE))
+		this->advance_token();
+	      this->type();
+	    }
+	  return;
+	}
+
       if (type->is_error_type()
 	  || (!this->peek_token()->is_op(OPERATOR_SEMICOLON)
 	      && !this->peek_token()->is_op(OPERATOR_RCURLY)))
@@ -1408,6 +1434,25 @@ Parse::method_spec(Typed_identifier_list* methods)
       // We check it and pull out the methods in
       // Interface_type::do_verify.
       methods->push_back(Typed_identifier("", type, location));
+    }
+}
+
+// Generics: parse and discard a constraint type element, e.g. "~int"
+// or "int | ~float64 | ~string".  Constraints are not yet enforced; we
+// only need them to parse.
+
+void
+Parse::skip_constraint_term()
+{
+  if (this->peek_token()->is_op(OPERATOR_TILDE))
+    this->advance_token();
+  this->type();
+  while (this->peek_token()->is_op(OPERATOR_OR))
+    {
+      this->advance_token();
+      if (this->peek_token()->is_op(OPERATOR_TILDE))
+	this->advance_token();
+      this->type();
     }
 }
 
