@@ -63,11 +63,17 @@ failure.
   (see `constraint_violation_bad.go`), matching stock go.  Named type-set
   constraints (e.g. a `Number` interface), `comparable`, and method
   interfaces are parsed but not enforced.
-- **Identifier collisions**: because instantiation is done by textual
-  substitution of the type-parameter names, a field/variable/parameter
-  name that is *identical* to a type-parameter name (e.g.
-  `type Pair[A, B any] struct{ A A }`) is mis-substituted.  Use distinct
-  names (the conventional `First`/`Second`) — see `method_returns_generic.go`.
+- **Identifier collisions**: instantiation is textual substitution of the
+  type-parameter names.  The substitution is context-aware and skips the
+  positions where a type can never appear, so an identifier spelled like a
+  type parameter is handled correctly as a **struct field name**
+  (`collision_field_name.go`), a **field/method selector**
+  (`collision_selector.go`, `collision_method_call.go`).  The one
+  remaining case is a **composite-literal key** that matches a type
+  parameter name, e.g. `Pair[A, B]{A: x}` where the field is also named
+  `A`; this is left unsubstituted-incorrectly because a token-level key
+  cannot be distinguished safely from a type-switch `case T:`.  Use a
+  field name different from the type-parameter name in that case.
 - **Partial type arguments**: `F[int](x)` that leaves remaining type
   parameters to be inferred is not supported; give all or none.
 - **Cross-package** export/import of generic templates is not implemented.

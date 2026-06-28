@@ -3087,29 +3087,8 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
   std::vector<Token> substituted;
-  const std::vector<Token>& tmpl = info->tokens();
-  for (size_t i = 0; i < tmpl.size(); ++i)
-    {
-      const Token& t = tmpl[i];
-      int which = -1;
-      if (t.is_identifier())
-	{
-	  for (size_t k = 0; k < info->type_param_names().size(); ++k)
-	    if (info->type_param_names()[k] == t.identifier())
-	      {
-		which = (int) k;
-		break;
-	      }
-	}
-      if (which >= 0)
-	{
-	  const std::vector<Token>& rep = type_args[which];
-	  for (size_t j = 0; j < rep.size(); ++j)
-	    substituted.push_back(rep[j]);
-	}
-      else
-	substituted.push_back(t);
-    }
+  substitute_type_params(info->tokens(), info->type_param_names(), type_args,
+			 substituted);
 
   // Make a unique instance name.
   static unsigned int count;
@@ -3417,6 +3396,14 @@ Parse::check_generic_constraints()
 // Generics: produce SUBSTITUTED from TMPL by replacing every identifier
 // token that matches one of NAMES with the tokens of the corresponding
 // type argument in ARGS.
+//
+// The replacement is textual, so it must skip identifiers that appear in
+// positions where a type can never appear (otherwise an unrelated
+// identifier that happens to be spelled like a type parameter would be
+// rewritten).  Those positions are syntactically unambiguous:
+//   * an identifier immediately after "." (a field/method selector, or a
+//     qualified name) is never a type parameter;
+//   * a struct field name (the identifier(s) before the field type).
 
 static void
 substitute_type_params(const std::vector<Token>& tmpl,
@@ -3424,17 +3411,30 @@ substitute_type_params(const std::vector<Token>& tmpl,
 		       const std::vector<std::vector<Token> >& args,
 		       std::vector<Token>& out)
 {
+  bool prev_dot = false;
+  bool prev_struct_kw = false;
+  // For each currently-open "{", whether it is a struct type body.
+  std::vector<bool> struct_brace;
+  // When directly inside a struct body, whether the next identifier is a
+  // field name (rather than part of a field type).
+  bool at_field_name = false;
+
   for (size_t i = 0; i < tmpl.size(); ++i)
     {
       const Token& t = tmpl[i];
+      bool in_struct = !struct_brace.empty() && struct_brace.back();
+
+      bool skip = prev_dot || (in_struct && at_field_name && t.is_identifier());
+
       int which = -1;
-      if (t.is_identifier())
+      if (t.is_identifier() && !skip)
 	for (size_t k = 0; k < names.size() && k < args.size(); ++k)
 	  if (names[k] == t.identifier())
 	    {
 	      which = (int) k;
 	      break;
 	    }
+
       if (which >= 0)
 	{
 	  const std::vector<Token>& rep = args[which];
@@ -3443,6 +3443,32 @@ substitute_type_params(const std::vector<Token>& tmpl,
 	}
       else
 	out.push_back(t);
+
+      // Update context for the next token.
+      if (in_struct && at_field_name && t.is_identifier())
+	{
+	  // A field-name identifier stays in field-name mode only if a
+	  // comma follows (a name list); otherwise the field type begins.
+	  if (i + 1 >= tmpl.size() || !tmpl[i + 1].is_op(OPERATOR_COMMA))
+	    at_field_name = false;
+	}
+
+      if (t.is_op(OPERATOR_LCURLY))
+	{
+	  struct_brace.push_back(prev_struct_kw);
+	  at_field_name = prev_struct_kw;
+	}
+      else if (t.is_op(OPERATOR_RCURLY))
+	{
+	  if (!struct_brace.empty())
+	    struct_brace.pop_back();
+	  at_field_name = !struct_brace.empty() && struct_brace.back();
+	}
+      else if (t.is_op(OPERATOR_SEMICOLON) && in_struct)
+	at_field_name = true;
+
+      prev_dot = t.is_op(OPERATOR_DOT);
+      prev_struct_kw = t.is_keyword(KEYWORD_STRUCT);
     }
 }
 
@@ -3983,29 +4009,8 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
   std::vector<Token> substituted;
-  const std::vector<Token>& tmpl = info->tokens();
-  for (size_t i = 0; i < tmpl.size(); ++i)
-    {
-      const Token& t = tmpl[i];
-      int which = -1;
-      if (t.is_identifier())
-	{
-	  for (size_t k = 0; k < info->type_param_names().size(); ++k)
-	    if (info->type_param_names()[k] == t.identifier())
-	      {
-		which = (int) k;
-		break;
-	      }
-	}
-      if (which >= 0)
-	{
-	  const std::vector<Token>& rep = type_args[which];
-	  for (size_t j = 0; j < rep.size(); ++j)
-	    substituted.push_back(rep[j]);
-	}
-      else
-	substituted.push_back(t);
-    }
+  substitute_type_params(info->tokens(), info->type_param_names(), type_args,
+			 substituted);
 
   // Make a unique instance name.
   static unsigned int count;
