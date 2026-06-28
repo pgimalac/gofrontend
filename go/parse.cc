@@ -2988,7 +2988,11 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
     }
   toks.push_back(Token::make_eof_token(location));
 
-  this->gogo_->add_generic_type(name, info);
+  // Register under the packed name so that lookups in type context
+  // (which pack the name) match, including for unexported types.
+  this->gogo_->add_generic_type(this->gogo_->pack_hidden_name(name,
+							      is_exported),
+				info);
 }
 
 // Generics: instantiate a generic type template with the given type
@@ -3287,7 +3291,10 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
     }
   toks.push_back(Token::make_eof_token(location));
 
-  Generic_function_info* info = this->gogo_->lookup_generic_type(type_name);
+  // The generic types are registered under their packed names.
+  Generic_function_info* info =
+    this->gogo_->lookup_generic_type(this->gogo_->pack_hidden_name(type_name,
+								   Lex::is_exported_name(type_name)));
   if (info != NULL)
     {
       Generic_method_template mt;
@@ -3785,7 +3792,7 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	    && this->peek_token()->is_op(OPERATOR_LSQUARE))
 	  {
 	    Generic_function_info* ginfo =
-	      this->gogo_->lookup_generic_type(id);
+	      this->gogo_->lookup_generic_type(packed);
 	    if (ginfo != NULL)
 	      {
 		Type* t = this->generic_type_instantiation(ginfo, location);
