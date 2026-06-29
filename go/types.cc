@@ -3508,7 +3508,26 @@ Type::uncommon_type_constructor(Gogo* gogo, Type* uncommon_type,
   else
     {
       Named_object* no = name->named_object();
-      std::string n = Gogo::unpack_hidden_name(no->name());
+      std::string n;
+      // A generic type instance reflects its name as "Base[arg0,arg1,...]"
+      // (each argument by its own reflection), matching the gc compiler,
+      // rather than the internal mangled instance name ("Base$typeN").
+      if (!name->generic_type_args().empty()
+	  && !name->generic_base_name().empty())
+	{
+	  n = name->generic_base_name();
+	  n.push_back('[');
+	  const std::vector<Type*>& targs = name->generic_type_args();
+	  for (size_t i = 0; i < targs.size(); ++i)
+	    {
+	      if (i > 0)
+		n.push_back(',');
+	      n.append(targs[i]->reflection(gogo));
+	    }
+	  n.push_back(']');
+	}
+      else
+	n = Gogo::unpack_hidden_name(no->name());
       Expression* s = Expression::make_string(n, bloc);
       vals->push_back(Expression::make_unary(OPERATOR_AND, s, bloc));
 
