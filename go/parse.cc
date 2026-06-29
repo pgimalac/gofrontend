@@ -6426,8 +6426,14 @@ Parse::composite_lit(Type* type, int depth, Location location)
 	}
     }
 
-  return Expression::make_composite_literal(type, depth, has_keys, vals,
-					    all_are_names, location);
+  Expression* cl =
+    Expression::make_composite_literal(type, depth, has_keys, vals,
+				       all_are_names, location);
+  // In a generic instantiation, map keys that coincide after type-argument
+  // substitution must not be reported as duplicates.
+  if (this->replay_tokens_ != NULL && cl->complit() != NULL)
+    cl->complit()->set_is_instantiated();
+  return cl;
 }
 
 // FunctionLit = "func" Signature Block .

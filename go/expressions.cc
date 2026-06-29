@@ -19039,7 +19039,7 @@ Composite_literal_expression::lower_map(Gogo* gogo, Named_object* function,
 		      std::string s;
 		      bool ok = (*lit)->string_constant_value(&s);
 		      go_assert(ok);
-		      if (s == sval)
+		      if (s == sval && !this->is_instantiated_)
 			{
 			  go_error_at((*p)->location(), ("duplicate key "
 				      "in map literal"));
@@ -19076,7 +19076,7 @@ Composite_literal_expression::lower_map(Gogo* gogo, Named_object* function,
 		      Numeric_constant rval;
 		      bool ok = (*lit)->numeric_constant_value(&rval);
 		      go_assert(ok);
-		      if (nval.equals(rval))
+		      if (nval.equals(rval) && !this->is_instantiated_)
 			{
 			  go_error_at((*p)->location(),
 				      "duplicate key in map literal");
@@ -19089,7 +19089,7 @@ Composite_literal_expression::lower_map(Gogo* gogo, Named_object* function,
 	    }
 	  else if ((*p)->boolean_constant_value(&bval))
 	    {
-	      if ((bval && saw_true) || (!bval && saw_false))
+	      if (((bval && saw_true) || (!bval && saw_false)) && !this->is_instantiated_)
 		{
 		  go_error_at((*p)->location(),
 			      "duplicate key in map literal");
@@ -19120,6 +19120,8 @@ Composite_literal_expression::do_copy()
 				     this->all_are_names_,
 				     this->location());
   ret->key_path_ = this->key_path_;
+  if (this->is_instantiated_)
+    ret->set_is_instantiated();
   return ret;
 }
 

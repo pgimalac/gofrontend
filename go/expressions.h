@@ -3937,7 +3937,8 @@ class Composite_literal_expression : public Parser_expression
 			       Location location)
     : Parser_expression(EXPRESSION_COMPOSITE_LITERAL, location),
       type_(type), depth_(depth), vals_(vals), has_keys_(has_keys),
-      all_are_names_(all_are_names), key_path_(std::vector<bool>(depth)),
+      all_are_names_(all_are_names), is_instantiated_(false),
+      key_path_(std::vector<bool>(depth)),
       traverse_order_(NULL)
   {}
 
@@ -3949,6 +3950,13 @@ class Composite_literal_expression : public Parser_expression
     go_assert(depth < this->key_path_.size());
     this->key_path_[depth] = true;
   }
+
+  // Generics: mark this literal as produced by instantiating a generic, so
+  // that map keys that coincide after type-argument substitution are not
+  // reported as duplicates.
+  void
+  set_is_instantiated()
+  { this->is_instantiated_ = true; }
 
  protected:
   int
@@ -4004,6 +4012,8 @@ class Composite_literal_expression : public Parser_expression
   // If this is true, then HAS_KEYS_ is true, and every key is a
   // simple identifier.
   bool all_are_names_;
+  // Whether this literal came from a generic instantiation.
+  bool is_instantiated_;
   // A complement to DEPTH that indicates for each level starting from 0 to
   // DEPTH-1 whether or not this composite literal is nested inside of key or
   // a value.  This is used to decide which type to use when given a map literal
