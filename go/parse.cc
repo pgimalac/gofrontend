@@ -1133,6 +1133,22 @@ Parse::type_name(bool issue_error)
 	}
     }
 
+  // Generics: while re-parsing an instantiated template, a predeclared
+  // named type (such as "error") used only via a type argument may not be
+  // connected to its universe definition by the global name-resolution
+  // pass, leaving it an unresolved unknown.  Resolve it directly from the
+  // global bindings here.  Restricted to re-parse (replay) mode so normal
+  // forward references are unaffected.
+  if (named_object == NULL
+      && package == NULL
+      && this->replay_tokens_ != NULL)
+    {
+      Named_object* g =
+	this->gogo_->lookup_global(Gogo::unpack_hidden_name(name).c_str());
+      if (g != NULL && (g->is_type() || g->is_type_declaration()))
+	named_object = g;
+    }
+
   bool ok = true;
   if (named_object == NULL)
     {
