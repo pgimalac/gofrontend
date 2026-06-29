@@ -4706,11 +4706,43 @@ Parse::check_generic_constraints()
 	  it->finalize_methods();
 	  if (!it->is_empty())
 	    {
-	      std::string reason;
-	      if (!it->implements_interface(argType, &reason))
-		go_error_at(o->location,
-			    "type argument does not satisfy constraint of %qs",
-			    o->what.c_str());
+	      // The argument may itself be an interface (e.g. one embedding the
+	      // constraint interface).  implements_interface only consults the
+	      // methods of named and struct types, so for an interface argument
+	      // check directly that the constraint's method set is a subset of
+	      // the argument's.
+	      Interface_type* ait = argType->interface_type();
+	      if (ait != NULL)
+		{
+		  ait->finalize_methods();
+		  bool ok = true;
+		  const Typed_identifier_list* ims = it->methods();
+		  if (ims != NULL)
+		    {
+		      for (Typed_identifier_list::const_iterator pm = ims->begin();
+			   pm != ims->end() && ok; ++pm)
+			{
+			  const Typed_identifier* am =
+			    ait->find_method(pm->name());
+			  if (am == NULL
+			      || !Type::are_identical(am->type(), pm->type(),
+						      Type::COMPARE_TAGS, NULL))
+			    ok = false;
+			}
+		    }
+		  if (!ok)
+		    go_error_at(o->location,
+				"type argument does not satisfy constraint of %qs",
+				o->what.c_str());
+		}
+	      else
+		{
+		  std::string reason;
+		  if (!it->implements_interface(argType, &reason))
+		    go_error_at(o->location,
+				"type argument does not satisfy constraint of %qs",
+				o->what.c_str());
+		}
 	    }
 	}
     }
