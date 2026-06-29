@@ -68,7 +68,8 @@ class Parse
 						   Expression_list* args,
 						   Location,
 						   const std::vector<std::vector<Token> >* partial = NULL,
-						   bool call_is_spread = false);
+						   bool call_is_spread = false,
+						   bool quiet = false);
 
   // If EXPR is a use of a generic function with a partial type-argument
   // list ("F[int]" where F has more than one type parameter), return the

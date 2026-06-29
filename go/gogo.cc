@@ -2445,10 +2445,17 @@ Gogo::infer_marker_type(size_t i)
       snprintf(buf, sizeof buf, "$infermarker%zu", idx);
       std::string nm(buf);
       Location loc = Linemap::predeclared_location();
-      Named_object* no = this->declare_type(nm, loc);
+      // Markers must live at package scope: inference may run during parsing
+      // (e.g. completing a partial instantiation "f[byte]" inside a function
+      // body), and using the current bindings would otherwise declare the
+      // marker as a function-local type that the instance sub-parser cannot
+      // resolve, leaving an unresolved forward declaration in the cached
+      // marker signature.  Bind directly into the package bindings.
+      Bindings* pkg = this->package_->bindings();
+      Named_object* no = pkg->add_type_declaration(nm, NULL, loc);
       Type* under = Type::make_empty_interface_type(loc);
       Named_type* nt = Type::make_named_type(no, under, loc);
-      this->define_type(no, nt);
+      pkg->define_type(no, nt);
       this->infer_markers_.push_back(nt);
     }
   return this->infer_markers_[i];

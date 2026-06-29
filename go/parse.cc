@@ -5602,7 +5602,8 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 					  Expression_list* args,
 					  Location location,
 					  const std::vector<std::vector<Token> >* partial,
-					  bool call_is_spread)
+					  bool call_is_spread,
+					  bool quiet)
 {
   size_t nparams = info->type_param_names().size();
 
@@ -5852,10 +5853,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
       if (solved[i] == NULL
 	  || !type_to_tokens(solved[i], type_args[i], location))
 	{
-	  go_error_at(location,
-		      ("cannot infer type arguments for call to generic "
-		       "function %qs; specify them explicitly, e.g. f[int]"),
-		      Gogo::message_name(info->name()).c_str());
+	  if (!quiet)
+	    go_error_at(location,
+			("cannot infer type arguments for call to generic "
+			 "function %qs; specify them explicitly, e.g. f[int]"),
+			Gogo::message_name(info->name()).c_str());
 	  return NULL;
 	}
     }
@@ -6987,12 +6989,30 @@ Parse::generic_instantiation(Generic_function_info* info, Expression* fn,
   // Consume "]".
   this->advance_token();
 
-  // A partial type-argument list (fewer arguments than type parameters)
-  // leaves the remaining parameters to be inferred from the call.  Record
-  // the explicit arguments and return the generic function reference
-  // unchanged; the call expression seeds inference with them.
+  // A partial type-argument list (fewer arguments than type parameters).
+  // The remaining parameters may be determined by constraint type inference
+  // alone (e.g. "f2[byte]" where the second parameter's constraint is
+  // "interface{ []A }", giving []byte).
   if (type_args.size() < info->type_param_names().size() && fn != NULL)
     {
+      // When a call follows ("F[int](args)"), the remaining parameters can be
+      // inferred from the call arguments, which is more reliable; record the
+      // explicit arguments and return the generic function reference unchanged
+      // for the call expression to finish.  Completing here would also force a
+      // premature resolve_global_names() mid-parse.  But when the partial
+      // instantiation is used as a value ("f := f2[byte]") there is no call to
+      // recover the arguments from, so try to complete it now from the
+      // remaining parameters' own constraints.
+      if (!this->peek_token()->is_op(OPERATOR_LPAREN))
+	{
+	  Expression_list no_args;
+	  Named_object* ino =
+	    this->instantiate_generic_with_inference(info, &no_args, location,
+						     &type_args, false,
+						     /*quiet=*/true);
+	  if (ino != NULL)
+	    return Expression::make_func_reference(ino, NULL, location);
+	}
       partial_generic_type_args[fn] = type_args;
       return fn;
     }
