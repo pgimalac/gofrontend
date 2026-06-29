@@ -4007,6 +4007,19 @@ Parse::pending_generic_type_instantiation(const std::string& name,
   // Consume "]".
   this->advance_token();
 
+  return this->make_pending_generic_type(name, type_args, location);
+}
+
+// Generics: create a placeholder type and record a pending instantiation
+// of generic type NAME with the given (already-parsed) TYPE_ARGS, to be
+// resolved after all input is parsed.  Returns a forward declaration of
+// the placeholder.
+
+Type*
+Parse::make_pending_generic_type(const std::string& name,
+				 const std::vector<std::vector<Token> >& type_args,
+				 Location location)
+{
   static unsigned int count;
   char buf[64];
   snprintf(buf, sizeof buf, ".$pendinggen%u", count);
@@ -6220,11 +6233,22 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 	      // it and let the call resolve it, otherwise treat it as an
 	      // ordinary index/slice.
 	      Location bl = ret->location();
+	      std::string uname = ret->unknown_expression()->name();
 	      std::vector<std::vector<Token> > groups;
 	      std::vector<Token> rawb;
 	      this->capture_bracketed_type_args(&groups, &rawb);
 	      bool call_follows = this->peek_token()->is_op(OPERATOR_LPAREN);
-	      if (groups.size() > 1 || call_follows)
+	      bool brace_follows = this->peek_token()->is_op(OPERATOR_LCURLY);
+	      if (brace_follows && may_be_composite_lit)
+		{
+		  // "F[args]{...}" where F is a generic type declared later:
+		  // a composite literal of the (forward-referenced) generic
+		  // type instance F[args].
+		  Type* t = this->make_pending_generic_type(
+		    Gogo::unpack_hidden_name(uname), groups, bl);
+		  ret = this->composite_lit(t, 0, bl);
+		}
+	      else if (groups.size() > 1 || call_follows)
 		partial_generic_type_args[ret] = groups;
 	      else
 		{

@@ -348,6 +348,9 @@ class Parse
   // instantiation and return a placeholder type, resolved later.  NAME
   // is the packed name of the referenced generic type.
   Type* pending_generic_type_instantiation(const std::string& name, Location);
+  Type* make_pending_generic_type(const std::string& name,
+				   const std::vector<std::vector<Token> >& type_args,
+				   Location);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,
