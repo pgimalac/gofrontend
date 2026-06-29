@@ -3974,6 +3974,18 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   if (this->gogo_->parsing_complete() && !info->methods().empty())
     nt->finalize_methods(this->gogo_);
 
+  // A generic interface instance (e.g. Iterator[int]) has its method set
+  // in the interface body rather than as method templates, so the block
+  // above does not cover it.  When created during a late pass, finalize
+  // its method set now so that a later method lookup (find_method, which
+  // asserts the methods are finalized) does not crash.
+  if (this->gogo_->parsing_complete())
+    {
+      Interface_type* uit = underlying->interface_type();
+      if (uit != NULL)
+	uit->finalize_methods();
+    }
+
   if (imported)
     this->gogo_->pop_instantiation_package();
   this->gogo_->pop_instantiation_context();
