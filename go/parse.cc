@@ -3531,6 +3531,17 @@ token_key_string(const Token& t)
     }
 }
 
+// Generics: the canonical spelling (as a token sequence) of each generic
+// type instance, e.g. the instance named "Box$type0" maps to the tokens
+// "Box [ int ]".  When type inference needs to express an already-created
+// instance as a type argument, emitting this spelling (rather than the
+// generated instance name) makes the instance-cache key match the one
+// produced when the same type is written out directly, so a single
+// instance is shared.  Keyed by the instance's Named_object; valid for
+// the lifetime of the (single-package) compilation.
+static std::map<const Named_object*, std::vector<Token> >
+  generic_instance_spelling;
+
 // Forward declarations; defined below.
 static void
 substitute_type_params(const std::vector<Token>&,
@@ -3652,13 +3663,7 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 				Location location)
 {
   // Build a mangled key from the type arguments and check the cache.
-  std::string key;
-  for (size_t i = 0; i < type_args.size(); ++i)
-    {
-      key += "$";
-      for (size_t j = 0; j < type_args[i].size(); ++j)
-	key += token_key_string(type_args[i][j]);
-    }
+  std::string key = this->instance_key(type_args);
   Named_object* cached = info->find_instance(key);
   if (cached != NULL)
     {
@@ -3708,6 +3713,31 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
   this->gogo_->define_type(no, nt);
+
+  // Record this instance's canonical spelling ("Name[arg, ...]") so that
+  // type inference can express it as a type argument in a way that hashes
+  // to the same instance as writing the type out directly.  The type
+  // arguments are already canonical: written-out args are source tokens,
+  // and inferred args come from type_to_tokens, which emits the recorded
+  // spelling for any instance.
+  {
+    std::vector<Token> spelling;
+    spelling.push_back(
+      Token::make_identifier_token(info->name(),
+				   Lex::is_exported_name(info->name()),
+				   location));
+    spelling.push_back(Token::make_operator_token(OPERATOR_LSQUARE, location));
+    for (size_t i = 0; i < type_args.size(); ++i)
+      {
+	if (i > 0)
+	  spelling.push_back(Token::make_operator_token(OPERATOR_COMMA,
+							location));
+	for (size_t j = 0; j < type_args[i].size(); ++j)
+	  spelling.push_back(type_args[i][j]);
+      }
+    spelling.push_back(Token::make_operator_token(OPERATOR_RSQUARE, location));
+    generic_instance_spelling[no] = spelling;
+  }
 
   // Instantiate the type's methods: for each method template, substitute
   // the receiver's type parameter names with the type arguments and
@@ -3887,6 +3917,25 @@ Parse::parse_type_from_tokens(const std::vector<Token>& toks)
   if (!p.type_may_start_here())
     return NULL;
   return p.type();
+}
+
+// Generics: build the instance cache key for a set of type arguments.
+// Each argument is resolved to a type and keyed by canonical type
+// identity when possible, so that two spellings of the same type (for
+// example "Box[int]" and the inferred instance name "Box$typeN") select
+// the same instance; otherwise the argument's token spelling is used.
+
+std::string
+Parse::instance_key(const std::vector<std::vector<Token> >& type_args)
+{
+  std::string key;
+  for (size_t i = 0; i < type_args.size(); ++i)
+    {
+      key += "$";
+      for (size_t j = 0; j < type_args[i].size(); ++j)
+	key += token_key_string(type_args[i][j]);
+    }
+  return key;
 }
 
 // Generics: check recorded constraint obligations.  Conservative: only
@@ -4486,13 +4535,25 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
   Named_type* nt = t->named_type();
   if (nt != NULL)
     {
+      // If this is a generic instance, emit its canonical spelling
+      // ("Name[arg, ...]") so the instantiation it is fed into hashes to
+      // the same instance as the type written out directly.
+      std::map<const Named_object*, std::vector<Token> >::const_iterator sp =
+	generic_instance_spelling.find(nt->named_object());
+      if (sp != generic_instance_spelling.end())
+	{
+	  for (size_t i = 0; i < sp->second.size(); ++i)
+	    out.push_back(sp->second[i]);
+	  return true;
+	}
+
       const std::string& n = nt->name();
       bool hidden = Gogo::is_hidden_name(n);
       std::string src = hidden ? Gogo::unpack_hidden_name(n) : n;
       // The token's "exported" flag must match how the name is normally
       // tokenized (e.g. "int" is not exported), so that name packing and
       // lookup are consistent.
-      bool exported = Lex::is_exported_name(src);
+      bool exported = hidden ? false : Lex::is_exported_name(src);
       out.push_back(Token::make_identifier_token(src, exported, loc));
       return true;
     }
@@ -4664,13 +4725,7 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 				    Location location)
 {
   // Build a mangled key from the type arguments and check the cache.
-  std::string key;
-  for (size_t i = 0; i < type_args.size(); ++i)
-    {
-      key += "$";
-      for (size_t j = 0; j < type_args[i].size(); ++j)
-	key += token_key_string(type_args[i][j]);
-    }
+  std::string key = this->instance_key(type_args);
   Named_object* cached = info->find_instance(key);
   if (cached != NULL)
     return cached;

@@ -282,6 +282,10 @@ class Parse
 			    std::vector<std::vector<Token> >* constraints = NULL);
   // Parse a captured token sequence as a type.
   Type* parse_type_from_tokens(const std::vector<Token>&);
+  // Build a cache key for a generic instantiation from its type
+  // arguments, canonicalized by resolved type identity where possible so
+  // that different spellings of the same type map to one instance.
+  std::string instance_key(const std::vector<std::vector<Token> >&);
   // Mark as used any imported package referenced (as "pkg.X") in a
   // captured generic template's tokens, so it is not reported as an
   // unused import even though the body is compiled only on instantiation.
