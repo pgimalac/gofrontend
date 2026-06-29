@@ -5474,6 +5474,8 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   if (imported)
     this->gogo_->push_instantiation_package(info->defining_package());
 
+  size_t defs_mark = this->gogo_->package_definitions_mark();
+
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
 
@@ -5491,6 +5493,18 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   if (imported)
     this->gogo_->pop_instantiation_package();
   this->gogo_->pop_instantiation_context();
+
+  // When this instance is created during a late pass (e.g. type-argument
+  // inference, which may nest further explicit instantiations such as a
+  // generic function value Abs[T] passed as an argument), the global
+  // name-resolution and builtin-lowering passes have already run.  The
+  // fresh body may reference predeclared names and builtin calls (make,
+  // complex, ...), so resolve and lower them now.
+  if (this->gogo_->parsing_complete())
+    {
+      this->gogo_->resolve_global_names();
+      this->gogo_->lower_builtin_calls_since(defs_mark);
+    }
 
   return ino;
 }

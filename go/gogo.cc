@@ -3764,6 +3764,37 @@ Gogo::lower_builtin_calls_for(Named_object* no)
   no->func_value()->traverse(&lbc);
 }
 
+// The number of definitions currently in the package bindings.  Used to
+// mark a point before a generic instantiation so the functions it adds
+// (the instance and any closures it lifts to package scope) can be found
+// afterwards.
+
+size_t
+Gogo::package_definitions_mark() const
+{
+  return this->package_->bindings()->size_definitions();
+}
+
+// Lower builtin calls in every function added to the package bindings
+// since MARK.  Generic instances created during a late pass (type-argument
+// inference) lift their closures to package scope; those closures are not
+// reachable by traversing the instance's body, so lower them directly.
+
+void
+Gogo::lower_builtin_calls_since(size_t mark)
+{
+  Lower_builtin_calls lbc(this);
+  Bindings* b = this->package_->bindings();
+  size_t i = 0;
+  for (Bindings::const_definitions_iterator p = b->begin_definitions();
+       p != b->end_definitions();
+       ++p, ++i)
+    {
+      if (i >= mark && (*p)->is_function())
+	(*p)->func_value()->traverse(&lbc);
+    }
+}
+
 // Finalize the methods of an interface type.
 
 int

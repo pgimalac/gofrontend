@@ -917,6 +917,16 @@ class Gogo
   void
   lower_builtin_calls_for(Named_object*);
 
+  // Snapshot the number of package-level definitions, and lower builtin
+  // calls in every function added since such a snapshot.  Used so that a
+  // late generic instance and the closures it lifts to package scope all
+  // get their builtin calls lowered.
+  size_t
+  package_definitions_mark() const;
+
+  void
+  lower_builtin_calls_since(size_t mark);
+
   // True once the early passes (define_global_names, lower_builtin_calls)
   // have run, so generic instances created afterwards need per-instance
   // fixups.
