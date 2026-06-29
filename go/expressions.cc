@@ -19321,7 +19321,8 @@ Type_guard_expression::do_check_types(Gogo*)
 	this->report_error(_("type assertion only valid for interface types"));
       this->set_is_error();
     }
-  else if (this->type_->interface_type() == NULL)
+  else if (this->type_->interface_type() == NULL
+	   && !this->is_instantiated_)
     {
       std::string reason;
       if (!expr_type->interface_type()->implements_interface(this->type_,
@@ -19348,9 +19349,13 @@ Type_guard_expression::do_check_types(Gogo*)
 Expression*
 Type_guard_expression::do_copy()
 {
-  return new Type_guard_expression(this->expr_->copy(),
-				   this->type_->copy_expressions(),
-				   this->location());
+  Type_guard_expression* ret =
+    new Type_guard_expression(this->expr_->copy(),
+			      this->type_->copy_expressions(),
+			      this->location());
+  if (this->is_instantiated_)
+    ret->set_is_instantiated();
+  return ret;
 }
 
 // Return the backend representation for a type guard expression.

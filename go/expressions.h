@@ -4329,7 +4329,7 @@ class Type_guard_expression : public Expression
  public:
   Type_guard_expression(Expression* expr, Type* type, Location location)
     : Expression(EXPRESSION_TYPE_GUARD, location),
-      expr_(expr), type_(type)
+      expr_(expr), type_(type), is_instantiated_(false)
   { }
 
   // Return the expression to convert.
@@ -4341,6 +4341,17 @@ class Type_guard_expression : public Expression
   Type*
   type()
   { return this->type_; }
+
+  // Generics: mark this assertion as produced by instantiating a generic
+  // function, so the static "impossible type assertion" check (which Go
+  // does not apply when a type parameter is involved) is skipped.
+  void
+  set_is_instantiated()
+  { this->is_instantiated_ = true; }
+
+  bool
+  is_instantiated() const
+  { return this->is_instantiated_; }
 
  protected:
   int
@@ -4374,6 +4385,8 @@ class Type_guard_expression : public Expression
   Expression* expr_;
   // The type to which to convert.
   Type* type_;
+  // Whether this assertion came from a generic instantiation.
+  bool is_instantiated_;
 };
 
 // Class Heap_expression.

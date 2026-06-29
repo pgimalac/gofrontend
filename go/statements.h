@@ -2074,7 +2074,7 @@ class Type_case_clauses
 
   // Check types.
   bool
-  check_types(Type*);
+  check_types(Type*, bool is_instantiated);
 
   // Lower to if and goto statements.
   void
@@ -2131,7 +2131,7 @@ class Type_case_clauses
 
     // Check types.
     bool
-    check_types(Type*);
+    check_types(Type*, bool is_instantiated);
 
     // Lower to if and goto statements.
     void

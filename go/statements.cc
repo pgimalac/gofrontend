@@ -4963,13 +4963,18 @@ Type_case_clauses::Type_case_clause::determine_types(Gogo* gogo)
 }
 
 bool
-Type_case_clauses::Type_case_clause::check_types(Type* switch_val_type)
+Type_case_clauses::Type_case_clause::check_types(Type* switch_val_type,
+						 bool is_instantiated)
 {
   if (!this->is_default_)
     {
       Type* type = this->type_;
       std::string reason;
-      if (switch_val_type->interface_type() != NULL
+      // In a generic instantiation a case type derived from a type
+      // parameter may not implement the switched-on interface; Go does not
+      // reject this statically (the case simply never matches at run time).
+      if (!is_instantiated
+	  && switch_val_type->interface_type() != NULL
 	  && !type->is_nil_constant_as_type()
 	  && type->interface_type() == NULL
 	  && !switch_val_type->interface_type()->implements_interface(type,
@@ -5168,14 +5173,14 @@ Type_case_clauses::determine_types(Gogo* gogo)
 }
 
 bool
-Type_case_clauses::check_types(Type* switch_val_type)
+Type_case_clauses::check_types(Type* switch_val_type, bool is_instantiated)
 {
   bool ret = true;
   for (Type_clauses::iterator p = this->clauses_.begin();
        p != this->clauses_.end();
        ++p)
     {
-      if (!p->check_types(switch_val_type))
+      if (!p->check_types(switch_val_type, is_instantiated))
 	ret = false;
     }
   return ret;
@@ -5304,7 +5309,7 @@ Type_switch_statement::do_check_types(Gogo*)
       this->set_is_error();
     }
 
-  if (!this->clauses_->check_types(expr_type))
+  if (!this->clauses_->check_types(expr_type, this->is_instantiated_))
     this->set_is_error();
 }
 

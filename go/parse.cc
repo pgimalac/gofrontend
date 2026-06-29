@@ -6724,7 +6724,13 @@ Parse::selector(Expression* left, bool* is_type_switch)
 	this->advance_token();
       if (is_type_switch != NULL && *is_type_switch)
 	return left;
-      return Expression::make_type_guard(left, type, location);
+      Expression* tg = Expression::make_type_guard(left, type, location);
+      // In a generic instantiation, an assertion target derived from a type
+      // parameter must not be statically rejected as impossible.
+      if (this->replay_tokens_ != NULL
+	  && tg->type_guard_expression() != NULL)
+	tg->type_guard_expression()->set_is_instantiated();
+      return tg;
     }
   else
     {
@@ -8333,6 +8339,9 @@ Parse::type_case_clause(const std::string& var_name, Expression* init,
 	    {
 	      type = types.front();
 	      init = Expression::make_type_guard(init, type, location);
+	      if (this->replay_tokens_ != NULL
+		  && init->type_guard_expression() != NULL)
+		init->type_guard_expression()->set_is_instantiated();
 	    }
 
 	  Variable* v = new Variable(type, init, false, false, false,
