@@ -13795,7 +13795,8 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 	  Parse::partial_type_args_for(this->fn_);
 	Named_object* inst =
 	  parse.instantiate_generic_with_inference(gi, this->args_,
-						   this->location(), partial);
+						   this->location(), partial,
+						   this->is_varargs_);
 	if (inst == NULL)
 	  {
 	    this->set_is_error();

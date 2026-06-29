@@ -5094,7 +5094,8 @@ Named_object*
 Parse::instantiate_generic_with_inference(Generic_function_info* info,
 					  Expression_list* args,
 					  Location location,
-					  const std::vector<std::vector<Token> >* partial)
+					  const std::vector<std::vector<Token> >* partial,
+					  bool call_is_spread)
 {
   size_t nparams = info->type_param_names().size();
 
@@ -5168,7 +5169,13 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  if (at != NULL && !at->is_error_type() && !at->is_void_type())
 	    {
 	      Type* pt = pp->type();
-	      if (last_is_varargs)
+	      if (last_is_varargs && call_is_spread)
+		{
+		  // A spread call "f(s...)" passes the slice directly, so the
+		  // argument type unifies with the whole "[]E" parameter.
+		  unify_marker(this->gogo_, pt, at, solved, 0);
+		}
+	      else if (last_is_varargs)
 		{
 		  // A variadic parameter "xs ...E" has type "[]E"; unify the
 		  // element type E with each trailing argument.
