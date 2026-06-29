@@ -235,6 +235,10 @@ class Parse
   // Generics: parse and discard a constraint type element (used in
   // interface constraints), e.g. "~int" or "int | ~float64".
   void skip_constraint_term();
+  // Capture the tokens of one constraint type-set element (an optional
+  // "~" followed by a type), stopping at a top-level "|", ",", ";", "}"
+  // or "]".
+  void capture_constraint_element(std::vector<Token>* out);
   void declaration();
   bool declaration_may_start_here();
   void decl(void (Parse::*)());
@@ -297,6 +301,11 @@ class Parse
 			    std::vector<std::vector<Token> >* constraints = NULL);
   // Parse a captured token sequence as a type.
   Type* parse_type_from_tokens(const std::vector<Token>&);
+  // Resolve a constraint type-set element's type without emitting errors,
+  // resolving predeclared and package-global names through the global
+  // bindings (which a throwaway re-parse cannot do for a name used only in
+  // the constraint).  Returns NULL if it cannot be resolved.
+  Type* resolve_constraint_type(const std::vector<Token>&);
   // Build a cache key for a generic instantiation from its type
   // arguments, canonicalized by resolved type identity where possible so
   // that different spellings of the same type map to one instance.
@@ -447,6 +456,13 @@ class Parse
   // References from the local function to variables defined in
   // enclosing functions.
   Enclosing_vars enclosing_vars_;
+  // Generics: while parsing an interface type, the constraint type-set
+  // elements seen so far (each entry the tokens of one element, possibly
+  // beginning with "~").  Method elements are not recorded here.
+  std::vector<std::vector<Token> > iface_terms_;
+  // The constraint type-set elements of the most recently parsed
+  // interface type, for type_spec to associate with a named constraint.
+  std::vector<std::vector<Token> > last_iface_terms_;
 };
 
 

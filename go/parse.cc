@@ -772,7 +772,9 @@ Parse::Parse(Lex* lex, Gogo* gogo)
     gogo_(gogo),
     break_stack_(NULL),
     continue_stack_(NULL),
-    enclosing_vars_()
+    enclosing_vars_(),
+    iface_terms_(),
+    last_iface_terms_()
 {
 }
 
@@ -1959,6 +1961,13 @@ Parse::block()
   return ret;
 }
 
+// Generics: the type-set elements of each named constraint interface,
+// e.g. "type Ordered interface { ~int | ~string }" maps its (packed)
+// name "Ordered" to the elements [ "~int", "~string" ].  Used to enforce
+// named type-set constraints by expanding them to their elements.
+static std::map<std::string, std::vector<std::vector<Token> > >
+  named_constraint_type_sets;
+
 // InterfaceType      = "interface" "{" [ MethodSpecList ] "}" .
 // MethodSpecList     = MethodSpec { ";" MethodSpec } [ ";" ] .
 
@@ -1967,6 +1976,11 @@ Parse::interface_type(bool record)
 {
   go_assert(this->peek_token()->is_keyword(KEYWORD_INTERFACE));
   Location location = this->location();
+
+  // Generics: collect this interface's constraint type-set elements,
+  // saving and restoring any outer interface's accumulator for nesting.
+  std::vector<std::vector<Token> > saved_iface_terms;
+  saved_iface_terms.swap(this->iface_terms_);
 
   if (!this->advance_token()->is_op(OPERATOR_LCURLY))
     {
@@ -2017,6 +2031,11 @@ Parse::interface_type(bool record)
     ret = Type::make_interface_type(methods, location);
   if (record)
     this->gogo_->record_interface_type(ret);
+
+  // Hand this interface's collected type-set elements to type_spec, and
+  // restore the enclosing interface's accumulator.
+  this->last_iface_terms_.swap(this->iface_terms_);
+  this->iface_terms_.swap(saved_iface_terms);
   return ret;
 }
 
@@ -2030,12 +2049,21 @@ Parse::method_spec(Typed_identifier_list* methods)
   const Token* token = this->peek_token();
 
   // Generics: a constraint type element that starts with "~" or with a
-  // non-identifier type (e.g. "~int", "[]byte").  Parse and ignore it;
-  // we do not yet enforce constraints.
+  // non-identifier type (e.g. "~int", "[]byte").  Record each element's
+  // tokens so a named type-set constraint can be enforced later.
   if (token->is_op(OPERATOR_TILDE)
       || (!token->is_identifier() && this->type_may_start_here()))
     {
-      this->skip_constraint_term();
+      std::vector<Token> el;
+      this->capture_constraint_element(&el);
+      this->iface_terms_.push_back(el);
+      while (this->peek_token()->is_op(OPERATOR_OR))
+	{
+	  this->advance_token();
+	  std::vector<Token> e2;
+	  this->capture_constraint_element(&e2);
+	  this->iface_terms_.push_back(e2);
+	}
       return;
     }
 
@@ -2068,15 +2096,23 @@ Parse::method_spec(Typed_identifier_list* methods)
       Type* type = this->type_name(false);
 
       // Generics: a union constraint whose first term is a type name,
-      // e.g. "int | ~float64".  Parse and ignore the remaining terms.
+      // e.g. "int | ~float64".  Record each term so a named type-set
+      // constraint can be enforced later.  The first term's tokens are
+      // reconstructed from its (simple) name; if it was something more
+      // complex it will simply fail to resolve at check time and the
+      // whole constraint is then skipped, never wrongly rejected.
       if (this->peek_token()->is_op(OPERATOR_OR))
 	{
+	  std::vector<Token> first;
+	  first.push_back(Token::make_identifier_token(name, is_exported,
+						       location));
+	  this->iface_terms_.push_back(first);
 	  while (this->peek_token()->is_op(OPERATOR_OR))
 	    {
 	      this->advance_token();
-	      if (this->peek_token()->is_op(OPERATOR_TILDE))
-		this->advance_token();
-	      this->type();
+	      std::vector<Token> e;
+	      this->capture_constraint_element(&e);
+	      this->iface_terms_.push_back(e);
 	    }
 	  return;
 	}
@@ -2108,6 +2144,39 @@ Parse::method_spec(Typed_identifier_list* methods)
 // Generics: parse and discard a constraint type element, e.g. "~int"
 // or "int | ~float64 | ~string".  Constraints are not yet enforced; we
 // only need them to parse.
+
+// Capture the tokens of one constraint type-set element: an optional "~"
+// followed by a type, stopping at a top-level "|", ",", ";", "}" or "]".
+
+void
+Parse::capture_constraint_element(std::vector<Token>* out)
+{
+  if (this->peek_token()->is_op(OPERATOR_TILDE))
+    {
+      out->push_back(*this->peek_token());
+      this->advance_token();
+    }
+  int depth = 0;
+  while (true)
+    {
+      const Token* t = this->peek_token();
+      if (t->is_eof())
+	break;
+      if (depth == 0
+	  && (t->is_op(OPERATOR_OR) || t->is_op(OPERATOR_COMMA)
+	      || t->is_op(OPERATOR_SEMICOLON) || t->is_op(OPERATOR_RCURLY)
+	      || t->is_op(OPERATOR_RSQUARE)))
+	break;
+      if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
+	  || t->is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t->is_op(OPERATOR_RPAREN) || t->is_op(OPERATOR_RSQUARE)
+	       || t->is_op(OPERATOR_RCURLY))
+	--depth;
+      out->push_back(*t);
+      this->advance_token();
+    }
+}
 
 void
 Parse::skip_constraint_term()
@@ -2480,6 +2549,8 @@ Parse::type_spec()
       named_type = this->gogo_->declare_type(name, location);
     }
 
+  this->last_iface_terms_.clear();
+
   Type* type;
   if (name == "_" && token->is_keyword(KEYWORD_INTERFACE))
     {
@@ -2495,6 +2566,13 @@ Parse::type_spec()
 		  "unexpected semicolon or newline in type declaration");
       type = Type::make_error_type();
     }
+
+  // Generics: if this type is a constraint interface with a type-set,
+  // record its elements under its name so that uses of it as a type
+  // parameter constraint can be enforced.
+  if (name != "_" && !this->last_iface_terms_.empty())
+    named_constraint_type_sets[name] = this->last_iface_terms_;
+  this->last_iface_terms_.clear();
 
   if (type->is_error_type())
     {
@@ -3937,6 +4015,36 @@ Parse::parse_type_from_tokens(const std::vector<Token>& toks)
   return p.type();
 }
 
+// Generics: resolve a constraint type-set element to a type, looking
+// predeclared and package-global names up in the global bindings so that
+// a name used only inside a constraint (and therefore not connected by a
+// throwaway re-parse) still resolves.  Does not emit errors.
+
+Type*
+Parse::resolve_constraint_type(const std::vector<Token>& toks)
+{
+  if (toks.size() == 1 && toks[0].is_identifier())
+    {
+      // Resolve a single name quietly (never via a throwaway re-parse,
+      // which would emit a spurious "undefined type" error for a name that
+      // belongs to another package).  Try the global bindings (for
+      // predeclared types such as a "float64" used only in a constraint)
+      // and the package bindings (for package-level named types).
+      const std::string& nm = toks[0].identifier();
+      std::string packed =
+	this->gogo_->pack_hidden_name(nm, Lex::is_exported_name(nm));
+      Named_object* no = this->gogo_->lookup_global(nm.c_str());
+      if (no == NULL)
+	no = this->gogo_->lookup_global(packed.c_str());
+      if (no == NULL)
+	no = this->gogo_->lookup(packed, NULL);
+      if (no != NULL && no->is_type())
+	return no->type_value();
+      return NULL;
+    }
+  return this->parse_type_from_tokens(toks);
+}
+
 // Generics: build the instance cache key for a set of type arguments.
 // Each argument is resolved to a type and keyed by canonical type
 // identity when possible, so that two spellings of the same type (for
@@ -3963,8 +4071,43 @@ Parse::instance_key(const std::vector<std::vector<Token> >& type_args)
 // type-parameter-dependent constraint) is left unchecked, so this never
 // rejects valid code.
 
-void
-Parse::check_generic_constraints()
+// Generics: split a token sequence into groups separated by a top-level
+// (bracket-depth-zero) occurrence of operator OP.
+
+static std::vector<std::vector<Token> >
+split_top_level(const std::vector<Token>& toks, Operator op)
+{
+  std::vector<std::vector<Token> > out;
+  std::vector<Token> cur;
+  int depth = 0;
+  for (size_t i = 0; i < toks.size(); ++i)
+    {
+      const Token& t = toks[i];
+      if (t.is_op(OPERATOR_LPAREN) || t.is_op(OPERATOR_LSQUARE)
+	  || t.is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t.is_op(OPERATOR_RPAREN) || t.is_op(OPERATOR_RSQUARE)
+	       || t.is_op(OPERATOR_RCURLY))
+	--depth;
+      if (depth == 0 && t.is_op(op))
+	{
+	  out.push_back(cur);
+	  cur.clear();
+	  continue;
+	}
+      cur.push_back(t);
+    }
+  out.push_back(cur);
+  return out;
+}
+
+// Generics: flatten one constraint type-set element (an optional "~"
+// followed by a type) into the term list TERMS, expanding a named type-set
+// constraint if the element names one.  Returns false if the element is
+// not an enforceable type-set element.
+
+static bool
+is_basic_type_name(const std::string& n)
 {
   static const char* const basics[] = {
     "int", "int8", "int16", "int32", "int64",
@@ -3972,89 +4115,190 @@ Parse::check_generic_constraints()
     "float32", "float64", "complex64", "complex128",
     "string", "bool", "byte", "rune", NULL
   };
+  for (int b = 0; basics[b] != NULL; ++b)
+    if (n == basics[b])
+      return true;
+  return false;
+}
 
+static bool
+flatten_constraint_element(Gogo* gogo, const std::vector<Token>& elem,
+			   std::vector<std::pair<bool, std::vector<Token> > >* terms,
+			   int depth)
+{
+  if (depth > 16 || elem.empty())
+    return false;
+  size_t i = 0;
+  bool approx = false;
+  if (elem[0].is_op(OPERATOR_TILDE))
+    {
+      approx = true;
+      i = 1;
+    }
+  if (i >= elem.size())
+    return false;
+  std::vector<Token> rest(elem.begin() + i, elem.end());
+
+  if (rest.size() == 1 && rest[0].is_identifier())
+    {
+      const std::string& nm = rest[0].identifier();
+      if (nm == "any" || nm == "comparable")
+	return false;
+      std::string packed =
+	gogo->pack_hidden_name(nm, Lex::is_exported_name(nm));
+      std::map<std::string, std::vector<std::vector<Token> > >::const_iterator
+	it = named_constraint_type_sets.find(packed);
+      if (it != named_constraint_type_sets.end())
+	{
+	  // A named type-set constraint; "~" is not allowed on it.
+	  if (approx)
+	    return false;
+	  for (size_t k = 0; k < it->second.size(); ++k)
+	    if (!flatten_constraint_element(gogo, it->second[k], terms,
+					    depth + 1))
+	      return false;
+	  return true;
+	}
+      // A bare (non-"~") single name that is neither a basic predeclared
+      // type nor a known type-set constraint is most likely a named
+      // constraint interface we cannot expand here (for example one
+      // imported from another package).  Do not enforce it, rather than
+      // wrongly treating it as an exact-type term.
+      if (!approx && !is_basic_type_name(nm))
+	return false;
+    }
+
+  terms->push_back(std::make_pair(approx, rest));
+  return true;
+}
+
+// Generics: flatten a whole constraint (the tokens between a type
+// parameter name and the next "," or "]") into a list of type-set terms.
+// Returns false if the constraint is not a pure, enforceable type-set
+// (e.g. it contains methods, or names "any"/"comparable"), in which case
+// the caller does not enforce it.
+
+static bool
+flatten_constraint(Gogo* gogo, const std::vector<Token>& c,
+		   std::vector<std::pair<bool, std::vector<Token> > >* terms,
+		   int depth)
+{
+  if (depth > 16 || c.empty())
+    return false;
+
+  // "interface { ... }" wrapper.
+  if (c[0].is_keyword(KEYWORD_INTERFACE))
+    {
+      if (c.size() < 2 || !c[1].is_op(OPERATOR_LCURLY))
+	return false;
+      int d = 1;
+      size_t j = 2;
+      for (; j < c.size(); ++j)
+	{
+	  if (c[j].is_op(OPERATOR_LCURLY))
+	    ++d;
+	  else if (c[j].is_op(OPERATOR_RCURLY))
+	    {
+	      --d;
+	      if (d == 0)
+		break;
+	    }
+	}
+      std::vector<Token> inner(c.begin() + 2, c.begin() + j);
+      std::vector<std::vector<Token> > segs =
+	split_top_level(inner, OPERATOR_SEMICOLON);
+      for (size_t s = 0; s < segs.size(); ++s)
+	{
+	  if (segs[s].empty())
+	    continue;
+	  // A method element is "name ( ... )"; we cannot enforce method
+	  // sets here, so skip the whole constraint.
+	  if (segs[s].size() >= 2
+	      && segs[s][0].is_identifier()
+	      && segs[s][1].is_op(OPERATOR_LPAREN))
+	    return false;
+	  std::vector<std::vector<Token> > parts =
+	    split_top_level(segs[s], OPERATOR_OR);
+	  for (size_t p = 0; p < parts.size(); ++p)
+	    if (!flatten_constraint_element(gogo, parts[p], terms, depth + 1))
+	      return false;
+	}
+      return !terms->empty();
+    }
+
+  // Otherwise a "|"-separated list of elements (or a single element,
+  // which may name another constraint).
+  std::vector<std::vector<Token> > parts = split_top_level(c, OPERATOR_OR);
+  for (size_t p = 0; p < parts.size(); ++p)
+    if (!flatten_constraint_element(gogo, parts[p], terms, depth + 1))
+      return false;
+  return !terms->empty();
+}
+
+// Generics: check recorded instantiations against their type-parameter
+// constraints.  A constraint is enforced when it is a pure type-set
+// (inline like "int | ~float64", or a named constraint interface such as
+// "type Ordered interface { ~int | ~string }", possibly embedding other
+// type-set constraints).  Constraints involving methods, "comparable" or
+// "any", or any term that does not resolve to a concrete type, are left
+// to be checked when the instance body is compiled, so this never rejects
+// valid code.
+
+void
+Parse::check_generic_constraints()
+{
   std::vector<Constraint_obligation*>& obs =
     this->gogo_->constraint_obligations();
   for (size_t oi = 0; oi < obs.size(); ++oi)
     {
       Constraint_obligation* o = obs[oi];
-      const std::vector<Token>& c = o->constraint;
 
-      // Parse the constraint into terms: optional "~" then a basic type
-      // name, separated by "|".  Bail out (skip) on anything else.
-      std::vector<std::pair<std::string, bool> > terms;
-      bool checkable = true;
-      size_t i = 0;
-      while (i < c.size())
-	{
-	  bool approx = false;
-	  if (c[i].is_op(OPERATOR_TILDE))
-	    {
-	      approx = true;
-	      ++i;
-	    }
-	  if (i >= c.size() || !c[i].is_identifier())
-	    {
-	      checkable = false;
-	      break;
-	    }
-	  std::string nm = c[i].identifier();
-	  bool isbasic = false;
-	  for (int b = 0; basics[b] != NULL; ++b)
-	    if (nm == basics[b])
-	      {
-		isbasic = true;
-		break;
-	      }
-	  if (!isbasic)
-	    {
-	      checkable = false;
-	      break;
-	    }
-	  terms.push_back(std::make_pair(nm, approx));
-	  ++i;
-	  if (i < c.size())
-	    {
-	      if (c[i].is_op(OPERATOR_OR))
-		++i;
-	      else
-		{
-		  checkable = false;
-		  break;
-		}
-	    }
-	}
-      if (!checkable || terms.empty())
+      std::vector<std::pair<bool, std::vector<Token> > > terms;
+      if (!flatten_constraint(this->gogo_, o->constraint, &terms, 0)
+	  || terms.empty())
 	continue;
 
-      Type* argType = this->parse_type_from_tokens(o->arg);
+      Type* argType = this->resolve_constraint_type(o->arg);
       if (argType == NULL || argType->is_error_type())
 	continue;
       Type* argBase = argType->base();
       if (argBase == NULL || argBase->is_error_type())
 	continue;
 
-      bool ok = false;
-      for (size_t t = 0; t < terms.size() && !ok; ++t)
+      // Resolve every term to a concrete type.  If any term is an
+      // interface (a method-set embedding) or fails to resolve, do not
+      // enforce this constraint.
+      std::vector<std::pair<bool, Type*> > resolved;
+      bool enforceable = true;
+      for (size_t t = 0; t < terms.size(); ++t)
 	{
-	  std::vector<Token> tt;
-	  tt.push_back(Token::make_identifier_token(terms[t].first, false,
-						    o->location));
-	  Type* termType = this->parse_type_from_tokens(tt);
-	  if (termType == NULL || termType->is_error_type())
-	    continue;
-	  if (terms[t].second)
+	  Type* tt = this->resolve_constraint_type(terms[t].second);
+	  if (tt == NULL || tt->is_error_type()
+	      || tt->interface_type() != NULL)
+	    {
+	      enforceable = false;
+	      break;
+	    }
+	  resolved.push_back(std::make_pair(terms[t].first, tt));
+	}
+      if (!enforceable)
+	continue;
+
+      bool ok = false;
+      for (size_t t = 0; t < resolved.size() && !ok; ++t)
+	{
+	  Type* tt = resolved[t].second;
+	  if (resolved[t].first)
 	    {
 	      // "~B": the argument's underlying type must be B.
-	      if (Type::are_identical(argBase, termType->base(),
+	      if (Type::are_identical(argBase, tt->base(),
 				      Type::COMPARE_ERRORS, NULL))
 		ok = true;
 	    }
 	  else
 	    {
 	      // "B": the argument must be exactly B.
-	      if (Type::are_identical(argType, termType,
-				      Type::COMPARE_ERRORS, NULL))
+	      if (Type::are_identical(argType, tt, Type::COMPARE_ERRORS, NULL))
 		ok = true;
 	    }
 	}

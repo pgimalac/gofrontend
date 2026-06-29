@@ -84,27 +84,33 @@ templates, package-level types/consts, and other imported packages (e.g.
 | `reduce_two_params.go` | two type params, accumulator pattern |
 | `generic_iterator_iface.go` | generic interface dispatch (`Iter[T]`) |
 
-## Known limitations
+## Constraint enforcement
 
-- **Constraint enforcement** is partial: inline type-sets of predeclared
-  basic types (e.g. `int | float64`, `~int | ~string`) **are** enforced
-  (see `constraint_violation_bad.go`), matching stock go.  Named type-set
-  constraints (e.g. a `Number` interface), `comparable`, and method
-  interfaces are parsed but not enforced.
-- **Identifier collisions**: instantiation is textual substitution of the
-  type-parameter names.  The substitution is context-aware and skips the
-  positions where a type can never appear, so an identifier spelled like a
-  type parameter is handled correctly as a **struct field name**
-  (`collision_field_name.go`), a **field/method selector**
-  (`collision_selector.go`, `collision_method_call.go`).  The one
-  remaining case is a **composite-literal key** that matches a type
-  parameter name, e.g. `Pair[A, B]{A: x}` where the field is also named
-  `A`; this is left unsubstituted-incorrectly because a token-level key
-  cannot be distinguished safely from a type-switch `case T:`.  Use a
-  field name different from the type-parameter name in that case.
-- **Partial type arguments**: `F[int](x)` that leaves remaining type
-  parameters to be inferred is not supported; give all or none.
-- **Nested generic type as a result type**: a function returning a doubly
-  instantiated type, e.g. `func F[T any](v T) Box[Box[T]]`, is not yet
-  supported (the inner instance is not resolved in the signature).  A
-  single level (`Box[T]`) works, including across packages.
+Type-set constraints are enforced and a violating type argument is
+rejected, matching stock go: inline type-sets of predeclared basic types
+(`int | float64`, `~int | ~string`, see `constraint_violation_bad.go`),
+exact-vs-`~` matching (`constraint_violation_named_bad.go`), and **named**
+type-set constraints, including ones that embed other type-set
+constraints (`constraint_named.go`, `constraint_named_typeset_bad.go`).
+
+`comparable`, method-set (interface-method) constraints, and named
+constraints imported from another package are not checked at the
+constraint itself; a type argument that violates them is instead rejected
+when the instance body is compiled (a missing method or an invalid
+operation fails there), so valid programs are accepted and most invalid
+ones are still rejected, only with a different message.
+
+## Notes
+
+- **Identifier collisions** are handled: an identifier spelled like a type
+  parameter works as a struct field name (`collision_field_name.go`), a
+  field/method selector (`collision_selector.go`,
+  `collision_method_call.go`), and a composite-literal key
+  (`Pair[A, B]{A: x}` where the field is named `A`).
+- **Partial type arguments** (`F[int](x)`, inferring the rest) and
+  **forward references with explicit type arguments** (`F[int](x)` before
+  `F` is declared) are supported (`partial_type_args.go`,
+  `forward_explicit_args.go`).
+- **Nested instantiation** through a type argument that is itself a
+  generic instance works, including a doubly instantiated result type
+  `func F[T any](v T) Box[Box[T]]` and `Wrap(Wrap(x))` (`infer_nested.go`).
