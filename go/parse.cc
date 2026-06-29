@@ -3982,8 +3982,11 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // When the type is instantiated during a late pass (e.g. type-argument
   // inference), the global finalize_methods pass has already run, so build
   // this instance's method table now; otherwise a following method call
-  // would not find the freshly added methods.
-  if (this->gogo_->parsing_complete() && !info->methods().empty())
+  // would not find the freshly added methods.  This is needed not only when
+  // the generic has its own methods but also when its underlying is a struct
+  // that promotes methods from an embedded (possibly generic) field.
+  if (this->gogo_->parsing_complete()
+      && (!info->methods().empty() || underlying->struct_type() != NULL))
     nt->finalize_methods(this->gogo_);
 
   // A generic interface instance (e.g. Iterator[int]) has its method set
