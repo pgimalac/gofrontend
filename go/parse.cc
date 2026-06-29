@@ -1647,6 +1647,16 @@ Parse::parameter_list(bool* is_varargs)
 	      // a type name.
 	      parameters_have_names = false;
 	    }
+	  else if (token->is_op(OPERATOR_LSQUARE)
+		   && this->gogo_->lookup_generic_type(
+			this->gogo_->pack_hidden_name(name, is_exported))
+		      != NULL)
+	    {
+	      // Generics: "Foo[...]" where Foo is a generic type is an
+	      // unnamed parameter of a generic-type instantiation, not a
+	      // parameter name followed by an array type.
+	      parameters_have_names = false;
+	    }
 	  else
 	    {
 	      // An identifier followed by something other than a
@@ -3688,10 +3698,10 @@ Parse::type_parameter_names(std::vector<std::string>* names,
       names->push_back(token->identifier());
       this->advance_token();
 
-      // Capture the constraint tokens up to a top-level "," or "]".
-      // (For grouped parameters "[T, U C]" only the last name in the
-      // group gets the constraint; the others get an empty one, which
-      // simply means no constraint check for them.)
+      // Capture the constraint tokens up to a top-level "," or "]".  In a
+      // group "[A, B, C cons]" only the last name is followed by the
+      // constraint; the earlier ones get an empty one (so their constraint
+      // is not separately enforced, which never rejects valid code).
       std::vector<Token> constraint;
       int cdepth = 0;
       while (true)
