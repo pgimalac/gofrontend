@@ -66,7 +66,15 @@ class Parse
   // it is invoked from Call_expression::do_determine_type.
   Named_object* instantiate_generic_with_inference(Generic_function_info*,
 						   Expression_list* args,
-						   Location);
+						   Location,
+						   const std::vector<std::vector<Token> >* partial = NULL);
+
+  // If EXPR is a use of a generic function with a partial type-argument
+  // list ("F[int]" where F has more than one type parameter), return the
+  // explicit type arguments; otherwise NULL.  Used by the call expression
+  // to seed type inference.  Static because it consults file-scoped state.
+  static const std::vector<std::vector<Token> >*
+  partial_type_args_for(const Expression*);
 
   // Resolve recorded forward references to generic types.  Called from
   // go.cc after all input has been parsed.
@@ -274,7 +282,14 @@ class Parse
   void set_replay_tokens(const std::vector<Token>* tokens);
   // Parse a "[type-args]" list at a use site of a generic function and
   // return a reference to the resulting instance.
-  Expression* generic_instantiation(Generic_function_info*, Location);
+  Expression* generic_instantiation(Generic_function_info*, Expression* fn,
+				    Location);
+  // Capture a bracketed list "[a, b, ...]" (current token is "[") into
+  // comma-separated token groups, and also the raw "[...]" token sequence
+  // (including the brackets).  Used to defer the index-versus-type-args
+  // decision for a forward reference to a generic function.
+  void capture_bracketed_type_args(std::vector<std::vector<Token> >* groups,
+				   std::vector<Token>* raw);
   // Parse a "[name constraint, ...]" type parameter list (current token
   // is "[") collecting the parameter names and, if requested, the
   // constraint tokens of each parameter.

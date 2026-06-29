@@ -13789,9 +13789,13 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 	// below (which also handles varargs and multiple results).
 	Lex dummy_lex(NULL, NULL, gogo->linemap());
 	Parse parse(&dummy_lex, gogo);
+	// A partial type-argument list ("F[int]" where F has more type
+	// parameters) seeds inference with the explicit arguments.
+	const std::vector<std::vector<Token> >* partial =
+	  Parse::partial_type_args_for(this->fn_);
 	Named_object* inst =
 	  parse.instantiate_generic_with_inference(gi, this->args_,
-						   this->location());
+						   this->location(), partial);
 	if (inst == NULL)
 	  {
 	    this->set_is_error();

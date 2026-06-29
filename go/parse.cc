@@ -3542,6 +3542,24 @@ token_key_string(const Token& t)
 static std::map<const Named_object*, std::vector<Token> >
   generic_instance_spelling;
 
+// Generics: the explicit type arguments of a partial instantiation of a
+// generic function, e.g. "F[int]" where F has more than one type
+// parameter and the rest are to be inferred from the call arguments.
+// Keyed by the function-reference expression so the call expression can
+// recover them and seed inference.
+static std::map<const Expression*, std::vector<std::vector<Token> > >
+  partial_generic_type_args;
+
+const std::vector<std::vector<Token> >*
+Parse::partial_type_args_for(const Expression* expr)
+{
+  std::map<const Expression*, std::vector<std::vector<Token> > >::const_iterator
+    p = partial_generic_type_args.find(expr);
+  if (p == partial_generic_type_args.end())
+    return NULL;
+  return &p->second;
+}
+
 // Forward declarations; defined below.
 static void
 substitute_type_params(const std::vector<Token>&,
@@ -4567,7 +4585,8 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 Named_object*
 Parse::instantiate_generic_with_inference(Generic_function_info* info,
 					  Expression_list* args,
-					  Location location)
+					  Location location,
+					  const std::vector<std::vector<Token> >* partial)
 {
   size_t nparams = info->type_param_names().size();
 
@@ -4663,10 +4682,17 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	}
     }
 
-  // Convert each solved type to tokens to use as a type argument.
+  // Convert each solved type to tokens to use as a type argument.  Type
+  // parameters supplied explicitly in a partial instantiation use those
+  // tokens directly; the rest come from inference.
   std::vector<std::vector<Token> > type_args(nparams);
   for (size_t i = 0; i < nparams; ++i)
     {
+      if (partial != NULL && i < partial->size())
+	{
+	  type_args[i] = (*partial)[i];
+	  continue;
+	}
       if (solved[i] == NULL
 	  || !type_to_tokens(solved[i], type_args[i], location))
 	{
@@ -5530,7 +5556,31 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 	    ginfo =
 	      this->gogo_->lookup_generic_function_no(fe->named_object());
 	  if (ginfo != NULL)
-	    ret = this->generic_instantiation(ginfo, ret->location());
+	    ret = this->generic_instantiation(ginfo, ret, ret->location());
+	  else if (ret->unknown_expression() != NULL
+		   && this->replay_tokens_ == NULL)
+	    {
+	      // A forward reference to a generic function used with explicit
+	      // type arguments ("F[int](x)" where F is declared later) is not
+	      // yet known to be generic.  Capture the bracket; if it is a
+	      // type-argument list (it has a comma, or a call follows) defer
+	      // it and let the call resolve it, otherwise treat it as an
+	      // ordinary index/slice.
+	      Location bl = ret->location();
+	      std::vector<std::vector<Token> > groups;
+	      std::vector<Token> rawb;
+	      this->capture_bracketed_type_args(&groups, &rawb);
+	      bool call_follows = this->peek_token()->is_op(OPERATOR_LPAREN);
+	      if (groups.size() > 1 || call_follows)
+		partial_generic_type_args[ret] = groups;
+	      else
+		{
+		  rawb.push_back(Token::make_eof_token(bl));
+		  Parse ip(this->lex_, this->gogo_);
+		  ip.set_replay_tokens(&rawb);
+		  ret = ip.index(this->verify_not_sink(ret));
+		}
+	    }
 	  else
 	    ret = this->index(this->verify_not_sink(ret));
 	}
@@ -5544,12 +5594,60 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
   return ret;
 }
 
+// Generics: capture a bracketed "[a, b, ...]" list (current token is
+// "[") into comma-separated token groups and the raw bracket tokens.
+
+void
+Parse::capture_bracketed_type_args(std::vector<std::vector<Token> >* groups,
+				   std::vector<Token>* raw)
+{
+  go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
+  raw->push_back(*this->peek_token());
+  this->advance_token();
+
+  while (!this->peek_token()->is_op(OPERATOR_RSQUARE)
+	 && !this->peek_token()->is_eof())
+    {
+      std::vector<Token> arg;
+      int depth = 0;
+      while (true)
+	{
+	  const Token* t = this->peek_token();
+	  if (t->is_eof())
+	    break;
+	  if (depth == 0
+	      && (t->is_op(OPERATOR_COMMA) || t->is_op(OPERATOR_RSQUARE)))
+	    break;
+	  if (t->is_op(OPERATOR_LSQUARE) || t->is_op(OPERATOR_LPAREN)
+	      || t->is_op(OPERATOR_LCURLY))
+	    ++depth;
+	  else if (t->is_op(OPERATOR_RSQUARE) || t->is_op(OPERATOR_RPAREN)
+		   || t->is_op(OPERATOR_RCURLY))
+	    --depth;
+	  arg.push_back(*t);
+	  raw->push_back(*t);
+	  this->advance_token();
+	}
+      groups->push_back(arg);
+      if (this->peek_token()->is_op(OPERATOR_COMMA))
+	{
+	  raw->push_back(*this->peek_token());
+	  this->advance_token();
+	}
+    }
+  if (this->peek_token()->is_op(OPERATOR_RSQUARE))
+    raw->push_back(*this->peek_token());
+  // Consume "]".
+  this->advance_token();
+}
+
 // Generics: parse a "[type-args]" list at a use site of a generic
 // function and return a reference to the resulting instance.  The
 // current token is "[".
 
 Expression*
-Parse::generic_instantiation(Generic_function_info* info, Location location)
+Parse::generic_instantiation(Generic_function_info* info, Expression* fn,
+			     Location location)
 {
   go_assert(this->peek_token()->is_op(OPERATOR_LSQUARE));
   this->advance_token();
@@ -5583,6 +5681,16 @@ Parse::generic_instantiation(Generic_function_info* info, Location location)
     }
   // Consume "]".
   this->advance_token();
+
+  // A partial type-argument list (fewer arguments than type parameters)
+  // leaves the remaining parameters to be inferred from the call.  Record
+  // the explicit arguments and return the generic function reference
+  // unchanged; the call expression seeds inference with them.
+  if (type_args.size() < info->type_param_names().size() && fn != NULL)
+    {
+      partial_generic_type_args[fn] = type_args;
+      return fn;
+    }
 
   Named_object* ino = this->instantiate_generic_function(info, type_args,
 							 location);
