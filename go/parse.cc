@@ -1081,16 +1081,21 @@ Parse::type_name(bool issue_error)
     return Type::make_error_type();
 
   // Generics: a "[" after a type name is a type argument list.  If the
-  // generic type is already known, instantiate now.  Otherwise, when
-  // parsing source (not re-parsing an instance), it is a forward
-  // reference: record a pending instantiation to resolve after parsing.
+  // generic type is already known, instantiate now.  Otherwise it is a
+  // forward reference: record a pending instantiation to resolve after
+  // parsing.  This also applies while re-parsing an instance during the
+  // parse phase (e.g. an instance whose signature names a generic type
+  // declared later in the file); such pending instantiations are resolved
+  // by the post-parse pass.  It does not apply once parsing is complete,
+  // because that pass has already run -- but then every generic type is
+  // registered, so the lookup above succeeds and we never reach here.
   if (package == NULL
       && this->peek_token()->is_op(OPERATOR_LSQUARE))
     {
       Generic_function_info* ginfo = this->gogo_->lookup_generic_type(name);
       if (ginfo != NULL)
 	return this->generic_type_instantiation(ginfo, location);
-      if (this->replay_tokens_ == NULL)
+      if (!this->gogo_->parsing_complete())
 	return this->pending_generic_type_instantiation(name, location);
     }
 
