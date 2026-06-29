@@ -4060,6 +4060,94 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks)
   return this->parse_type_from_tokens(toks);
 }
 
+// Generics: see the declaration.  For constraint type inference, return
+// the single structural type element of a constraint with type-parameter
+// names replaced by inference markers, or NULL.
+
+Type*
+Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
+					 const std::vector<std::string>& names)
+{
+  if (c.empty())
+    return NULL;
+
+  // The element tokens: strip an "interface { ... }" wrapper.
+  std::vector<Token> elem;
+  if (c[0].is_keyword(KEYWORD_INTERFACE))
+    {
+      if (c.size() < 2 || !c[1].is_op(OPERATOR_LCURLY))
+	return NULL;
+      int d = 1;
+      size_t j = 2;
+      for (; j < c.size(); ++j)
+	{
+	  if (c[j].is_op(OPERATOR_LCURLY))
+	    ++d;
+	  else if (c[j].is_op(OPERATOR_RCURLY))
+	    {
+	      --d;
+	      if (d == 0)
+		break;
+	    }
+	}
+      elem.assign(c.begin() + 2, c.begin() + j);
+    }
+  else
+    elem = c;
+
+  // Must be a single element: no top-level "|", ";" or method.
+  int depth = 0;
+  for (size_t i = 0; i < elem.size(); ++i)
+    {
+      const Token& t = elem[i];
+      if (t.is_op(OPERATOR_LPAREN) || t.is_op(OPERATOR_LSQUARE)
+	  || t.is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t.is_op(OPERATOR_RPAREN) || t.is_op(OPERATOR_RSQUARE)
+	       || t.is_op(OPERATOR_RCURLY))
+	--depth;
+      else if (depth == 0
+	       && (t.is_op(OPERATOR_OR) || t.is_op(OPERATOR_SEMICOLON)))
+	return NULL;
+    }
+
+  size_t k = 0;
+  if (!elem.empty() && elem[0].is_op(OPERATOR_TILDE))
+    k = 1;
+  if (k >= elem.size())
+    return NULL;
+  // A bare type name (e.g. just "T" or "int") carries no structure to
+  // unify against, so it is useless for constraint type inference.
+  if (elem.size() - k == 1 && elem[k].is_identifier())
+    return NULL;
+
+  // Substitute type-parameter names with inference markers.
+  std::vector<Token> subst;
+  for (size_t i = k; i < elem.size(); ++i)
+    {
+      const Token& t = elem[i];
+      int which = -1;
+      if (t.is_identifier())
+	for (size_t n = 0; n < names.size(); ++n)
+	  if (names[n] == t.identifier())
+	    {
+	      which = static_cast<int>(n);
+	      break;
+	    }
+      if (which >= 0)
+	{
+	  this->gogo_->infer_marker_type((size_t) which);
+	  char buf[32];
+	  snprintf(buf, sizeof buf, "$infermarker%d", which);
+	  subst.push_back(Token::make_identifier_token(std::string(buf), true,
+						       t.location()));
+	}
+      else
+	subst.push_back(t);
+    }
+  return this->parse_type_from_tokens(subst);
+}
+
 // Generics: build the instance cache key for a set of type arguments.
 // Each argument is resolved to a type and keyed by canonical type
 // identity when possible, so that two spellings of the same type (for
@@ -5055,6 +5143,43 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	    }
 	}
     }
+
+  // Constraint type inference: a type parameter may appear only in the
+  // constraint of another parameter (e.g. K and V in
+  // "[M ~map[K]V, K comparable, V any]").  For each solved parameter whose
+  // constraint is a single structural type element, unify that element
+  // (with the other type parameters as markers) against the solved type to
+  // solve them.  Iterate to a fixpoint, since one constraint may depend on
+  // a parameter solved by another.
+  {
+    std::vector<std::vector<Token> >& cons = info->constraints();
+    bool progress = true;
+    while (progress)
+      {
+	progress = false;
+	for (size_t i = 0; i < nparams && i < cons.size(); ++i)
+	  {
+	    if (solved[i] == NULL || cons[i].empty())
+	      continue;
+	    Type* core =
+	      this->constraint_core_type_with_markers(cons[i],
+						      info->type_param_names());
+	    if (core == NULL || core->is_error_type())
+	      continue;
+	    size_t before = 0;
+	    for (size_t s = 0; s < nparams; ++s)
+	      if (solved[s] != NULL)
+		++before;
+	    unify_marker(this->gogo_, core, solved[i], solved, 0);
+	    size_t after = 0;
+	    for (size_t s = 0; s < nparams; ++s)
+	      if (solved[s] != NULL)
+		++after;
+	    if (after > before)
+	      progress = true;
+	  }
+      }
+  }
 
   // Convert each solved type to tokens to use as a type argument.  Type
   // parameters supplied explicitly in a partial instantiation use those

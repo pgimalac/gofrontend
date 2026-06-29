@@ -306,6 +306,13 @@ class Parse
   // bindings (which a throwaway re-parse cannot do for a name used only in
   // the constraint).  Returns NULL if it cannot be resolved.
   Type* resolve_constraint_type(const std::vector<Token>&);
+  // For constraint type inference: if constraint C is a single structural
+  // type element (e.g. "~map[K]V"), return that type parsed with the
+  // generic's type-parameter NAMES replaced by inference markers, so it
+  // can be unified against a solved type argument to solve the other
+  // parameters.  Returns NULL if C is not a single structural element.
+  Type* constraint_core_type_with_markers(const std::vector<Token>& c,
+					  const std::vector<std::string>& names);
   // Build a cache key for a generic instantiation from its type
   // arguments, canonicalized by resolved type identity where possible so
   // that different spellings of the same type map to one instance.
