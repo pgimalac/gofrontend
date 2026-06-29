@@ -4154,6 +4154,16 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
     k = 1;
   if (k >= elem.size())
     return NULL;
+  // A method-set element (e.g. "M()") is not a structural type term, so
+  // it carries nothing to unify against for constraint type inference.
+  // An identifier immediately followed by "(" can only be a method spec
+  // here -- a structural term is a bare name, "Name[args]", or a
+  // composite type (which begins with a keyword or operator, never
+  // "identifier (").
+  if (elem.size() - k >= 2
+      && elem[k].is_identifier()
+      && elem[k + 1].is_op(OPERATOR_LPAREN))
+    return NULL;
   // A bare type name (e.g. just "T" or "int") carries no structure to
   // unify against, so it is useless for constraint type inference.
   if (elem.size() - k == 1 && elem[k].is_identifier())
