@@ -4702,7 +4702,12 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
       if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
 	  || t->is_op(OPERATOR_LCURLY))
 	{
-	  if (t->is_op(OPERATOR_LCURLY) && depth == 0)
+	  // A "{" at depth 0 starts the body, unless it opens a "struct{...}"
+	  // or "interface{...}" result type, whose "{" follows the keyword.
+	  if (t->is_op(OPERATOR_LCURLY) && depth == 0
+	      && !(toks.size() >= 2
+		   && (toks[toks.size() - 2].is_keyword(KEYWORD_STRUCT)
+		       || toks[toks.size() - 2].is_keyword(KEYWORD_INTERFACE))))
 	    body_started = true;
 	  ++depth;
 	}
@@ -4799,7 +4804,12 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
       if (t->is_op(OPERATOR_LPAREN) || t->is_op(OPERATOR_LSQUARE)
 	  || t->is_op(OPERATOR_LCURLY))
 	{
-	  if (t->is_op(OPERATOR_LCURLY) && depth == 0)
+	  // A "{" at depth 0 starts the body, unless it opens a "struct{...}"
+	  // or "interface{...}" result type, whose "{" follows the keyword.
+	  if (t->is_op(OPERATOR_LCURLY) && depth == 0
+	      && !(toks.size() >= 2
+		   && (toks[toks.size() - 2].is_keyword(KEYWORD_STRUCT)
+		       || toks[toks.size() - 2].is_keyword(KEYWORD_INTERFACE))))
 	    body_started = true;
 	  ++depth;
 	}
