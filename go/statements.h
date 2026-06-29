@@ -2177,7 +2177,8 @@ class Type_switch_statement : public Statement
  public:
   Type_switch_statement(Expression* expr, Location location)
     : Statement(STATEMENT_TYPE_SWITCH, location),
-      expr_(expr), clauses_(NULL), break_label_(NULL)
+      expr_(expr), clauses_(NULL), break_label_(NULL),
+      is_instantiated_(false)
   { }
 
   // Add the clauses.
@@ -2187,6 +2188,14 @@ class Type_switch_statement : public Statement
     go_assert(this->clauses_ == NULL);
     this->clauses_ = clauses;
   }
+
+  // Generics: mark this type switch as produced by instantiating a generic
+  // function, so that case types that coincide after type-argument
+  // substitution (e.g. "case T" and "case int" with T = int) are not
+  // reported as duplicates.
+  void
+  set_is_instantiated()
+  { this->is_instantiated_ = true; }
 
   // Return the break label for this type switch statement.
   Unnamed_label*
@@ -2222,6 +2231,8 @@ class Type_switch_statement : public Statement
   Type_case_clauses* clauses_;
   // The break label, if needed.
   Unnamed_label* break_label_;
+  // Whether this type switch came from a generic instantiation.
+  bool is_instantiated_;
 };
 
 #endif // !defined(GO_STATEMENTS_H)

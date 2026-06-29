@@ -5275,6 +5275,12 @@ Gogo::build_interface_method_tables()
        pi != this->interface_types_.end();
        ++pi)
     {
+      // An interface recorded while instantiating a generic after the
+      // global finalize-methods pass (e.g. an inline "interface{ M() }"
+      // substituted for a type parameter in a type switch case) may not
+      // have been finalized; methods() requires it.  finalize_methods is
+      // idempotent.
+      (*pi)->finalize_methods();
       const Typed_identifier_list* methods = (*pi)->methods();
       if (methods == NULL)
 	continue;

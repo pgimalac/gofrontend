@@ -5289,7 +5289,11 @@ Type_switch_statement::do_determine_types(Gogo* gogo)
 void
 Type_switch_statement::do_check_types(Gogo*)
 {
-  if (this->clauses_ != NULL)
+  // In a generic instantiation, two cases may become identical after
+  // type-argument substitution (e.g. "case T" and "case int" with T = int);
+  // Go permits this, with the first matching case winning, so the duplicate
+  // check is skipped.
+  if (this->clauses_ != NULL && !this->is_instantiated_)
     this->clauses_->check_duplicates();
 
   Type* expr_type = this->expr_->type();

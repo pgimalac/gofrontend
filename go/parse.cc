@@ -8221,6 +8221,11 @@ Parse::type_switch_body(Label* label, const Type_switch& type_switch,
 
   Type_switch_statement* statement =
       Statement::make_type_switch_statement(init, location);
+  // In a generic instantiation (re-parsed from captured tokens), a case
+  // type that is a type parameter may coincide with another case after
+  // substitution; that is permitted, so suppress the duplicate-case check.
+  if (this->replay_tokens_ != NULL)
+    statement->set_is_instantiated();
   this->push_break_statement(statement, label);
 
   Type_case_clauses* case_clauses = new Type_case_clauses();
