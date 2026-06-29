@@ -313,7 +313,8 @@ class Parse
   // can be unified against a solved type argument to solve the other
   // parameters.  Returns NULL if C is not a single structural element.
   Type* constraint_core_type_with_markers(const std::vector<Token>& c,
-					  const std::vector<std::string>& names);
+					  const std::vector<std::string>& names,
+					  const std::vector<Type*>* solved = NULL);
   // Build a cache key for a generic instantiation from its type
   // arguments, canonicalized by resolved type identity where possible so
   // that different spellings of the same type map to one instance.

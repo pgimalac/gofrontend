@@ -3701,6 +3701,8 @@ static void
 record_constraint_obligations(Gogo*, Generic_function_info*,
 			      const std::vector<std::vector<Token> >&,
 			      const std::string&, Location);
+static bool
+type_to_tokens(Type*, std::vector<Token>&, Location);
 
 // Generics: parse a "[name constraint, ...]" type parameter list,
 // collecting the parameter names.  The current token is "[".  Grouped
@@ -4175,7 +4177,8 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks)
 
 Type*
 Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
-					 const std::vector<std::string>& names)
+					 const std::vector<std::string>& names,
+					 const std::vector<Type*>* solved)
 {
   if (c.empty())
     return NULL;
@@ -4290,7 +4293,7 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 	      std::vector<Token> sub;
 	      substitute_type_params(gi->tokens(), gi->type_param_names(),
 				     gargs, sub);
-	      return this->constraint_core_type_with_markers(sub, names);
+	      return this->constraint_core_type_with_markers(sub, names, solved);
 	    }
 	}
     }
@@ -4310,11 +4313,22 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 	    }
       if (which >= 0)
 	{
-	  this->gogo_->infer_marker_type((size_t) which);
-	  char buf[32];
-	  snprintf(buf, sizeof buf, "$infermarker%d", which);
-	  subst.push_back(Token::make_identifier_token(std::string(buf), true,
-						       t.location()));
+	  // A parameter already solved is emitted as its concrete type, so
+	  // the core type can become fully concrete (used to infer a
+	  // parameter from its own constraint); an unsolved one becomes an
+	  // inference marker to unify against a solved type.
+	  if (solved != NULL && (size_t) which < solved->size()
+	      && (*solved)[which] != NULL
+	      && type_to_tokens((*solved)[which], subst, t.location()))
+	    ;
+	  else
+	    {
+	      this->gogo_->infer_marker_type((size_t) which);
+	      char buf[32];
+	      snprintf(buf, sizeof buf, "$infermarker%d", which);
+	      subst.push_back(Token::make_identifier_token(std::string(buf),
+							   true, t.location()));
+	    }
 	}
       else
 	subst.push_back(t);
@@ -5048,6 +5062,60 @@ Parse::note_token_package_usage(const std::vector<Token>& toks)
     }
 }
 
+// Generics: whether TYPE still contains an inference marker anywhere in
+// its structure (i.e. it is not yet fully concrete).  DEPTH bounds the
+// recursion so that recursive generic types terminate.
+
+static bool
+type_has_infer_marker(Gogo* gogo, Type* type, int depth)
+{
+  if (type == NULL || depth > 24)
+    return false;
+  type = type->forwarded();
+  if (gogo->infer_marker_index(type) >= 0)
+    return true;
+  if (type->points_to() != NULL)
+    return type_has_infer_marker(gogo, type->points_to(), depth + 1);
+  Array_type* at = type->array_type();
+  if (at != NULL)
+    return type_has_infer_marker(gogo, at->element_type(), depth + 1);
+  Map_type* mt = type->map_type();
+  if (mt != NULL)
+    return (type_has_infer_marker(gogo, mt->key_type(), depth + 1)
+	    || type_has_infer_marker(gogo, mt->val_type(), depth + 1));
+  Channel_type* ct = type->channel_type();
+  if (ct != NULL)
+    return type_has_infer_marker(gogo, ct->element_type(), depth + 1);
+  Struct_type* st = type->struct_type();
+  if (st != NULL && st->fields() != NULL)
+    {
+      for (Struct_field_list::const_iterator p = st->fields()->begin();
+	   p != st->fields()->end();
+	   ++p)
+	if (type_has_infer_marker(gogo, p->type(), depth + 1))
+	  return true;
+      return false;
+    }
+  Function_type* ft = type->function_type();
+  if (ft != NULL)
+    {
+      if (ft->parameters() != NULL)
+	for (Typed_identifier_list::const_iterator p = ft->parameters()->begin();
+	     p != ft->parameters()->end();
+	     ++p)
+	  if (type_has_infer_marker(gogo, p->type(), depth + 1))
+	    return true;
+      if (ft->results() != NULL)
+	for (Typed_identifier_list::const_iterator p = ft->results()->begin();
+	     p != ft->results()->end();
+	     ++p)
+	  if (type_has_infer_marker(gogo, p->type(), depth + 1))
+	    return true;
+      return false;
+    }
+  return false;
+}
+
 // Generics: structurally unify a parameter type PT (which may contain
 // inference marker types) against an argument type AT, recording the
 // solved type for each marker in SOLVED.  Handles the common forms:
@@ -5436,13 +5504,25 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	}
     }
 
+  // Seed the solved set with any explicitly-supplied (partial) type
+  // arguments, so constraint type inference can use them to solve the
+  // remaining parameters.
+  if (partial != NULL)
+    for (size_t i = 0; i < nparams && i < partial->size(); ++i)
+      if (solved[i] == NULL)
+	{
+	  Type* pt = this->parse_type_from_tokens((*partial)[i]);
+	  if (pt != NULL && !pt->is_error_type())
+	    solved[i] = pt;
+	}
+
   // Constraint type inference: a type parameter may appear only in the
   // constraint of another parameter (e.g. K and V in
-  // "[M ~map[K]V, K comparable, V any]").  For each solved parameter whose
-  // constraint is a single structural type element, unify that element
-  // (with the other type parameters as markers) against the solved type to
-  // solve them.  Iterate to a fixpoint, since one constraint may depend on
-  // a parameter solved by another.
+  // "[M ~map[K]V, K comparable, V any]"), or a parameter may be determined
+  // by its own constraint's core type (e.g. "PT Setter[T]" where
+  // "Setter[B] interface{ Set(string); *B }" gives PT = *T).  Iterate to a
+  // fixpoint, since one constraint may depend on a parameter solved by
+  // another.
   {
     std::vector<std::vector<Token> >& cons = info->constraints();
     bool progress = true;
@@ -5451,24 +5531,46 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	progress = false;
 	for (size_t i = 0; i < nparams && i < cons.size(); ++i)
 	  {
-	    if (solved[i] == NULL || cons[i].empty())
+	    if (cons[i].empty())
 	      continue;
-	    Type* core =
-	      this->constraint_core_type_with_markers(cons[i],
-						      info->type_param_names());
-	    if (core == NULL || core->is_error_type())
-	      continue;
-	    size_t before = 0;
-	    for (size_t s = 0; s < nparams; ++s)
-	      if (solved[s] != NULL)
-		++before;
-	    unify_marker(this->gogo_, core, solved[i], solved, 0);
-	    size_t after = 0;
-	    for (size_t s = 0; s < nparams; ++s)
-	      if (solved[s] != NULL)
-		++after;
-	    if (after > before)
-	      progress = true;
+
+	    if (solved[i] != NULL)
+	      {
+		// Use this solved parameter's constraint core type to solve
+		// the other parameters appearing in it.
+		Type* core =
+		  this->constraint_core_type_with_markers(
+		    cons[i], info->type_param_names(), &solved);
+		if (core == NULL || core->is_error_type())
+		  continue;
+		size_t before = 0;
+		for (size_t s = 0; s < nparams; ++s)
+		  if (solved[s] != NULL)
+		    ++before;
+		unify_marker(this->gogo_, core, solved[i], solved, 0);
+		size_t after = 0;
+		for (size_t s = 0; s < nparams; ++s)
+		  if (solved[s] != NULL)
+		    ++after;
+		if (after > before)
+		  progress = true;
+	      }
+	    else
+	      {
+		// Solve this parameter from its own constraint's core type if
+		// that core type is now fully concrete (all other parameters
+		// it mentions are solved).
+		Type* core =
+		  this->constraint_core_type_with_markers(
+		    cons[i], info->type_param_names(), &solved);
+		if (core == NULL || core->is_error_type())
+		  continue;
+		if (!type_has_infer_marker(this->gogo_, core, 0))
+		  {
+		    solved[i] = core;
+		    progress = true;
+		  }
+	      }
 	  }
       }
   }
