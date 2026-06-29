@@ -155,6 +155,21 @@ Gogo::Gogo(Backend* backend, Linemap* linemap, int, int pointer_size)
     this->add_named_type(nt);
   }
 
+  // Generics: "comparable" is a predeclared constraint.  This frontend
+  // does not model constraint type-sets in the type system, so for the
+  // purpose of letting it appear wherever a type/constraint is written
+  // (e.g. "type C comparable", "interface { comparable }", "[T
+  // comparable]") it is treated as the empty interface.  Whether a type
+  // argument actually satisfies a bare "comparable" constraint is checked
+  // separately in Parse::check_generic_constraints.
+  {
+    Type* empty = Type::make_empty_interface_type(loc);
+    Named_object* no = Named_object::make_type("comparable", NULL, empty, loc);
+    Named_type* nt = no->type_value();
+    nt->set_is_alias();
+    this->add_named_type(nt);
+  }
+
   this->globals_->add_constant(Typed_identifier("true",
 						Type::make_boolean_type(),
 						loc),
