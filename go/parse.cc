@@ -5309,30 +5309,24 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   Function_type* gsig = info->marker_signature();
   if (gsig == NULL)
     {
-      std::vector<Token> subst;
-      const std::vector<Token>& tmpl = info->tokens();
-      for (size_t i = 0; i < tmpl.size(); ++i)
+      // Replace each type-parameter name with its inference marker.  Use
+      // substitute_type_params (rather than a plain replace-all) so that an
+      // identifier in a non-type position -- in particular a struct field
+      // name that happens to match a type parameter, as in
+      // "struct{ Body Body }" -- is not rewritten, leaving field names
+      // intact for unification.
+      std::vector<std::vector<Token> > marker_args(nparams);
+      for (size_t k = 0; k < nparams; ++k)
 	{
-	  const Token& t = tmpl[i];
-	  int which = -1;
-	  if (t.is_identifier())
-	    for (size_t k = 0; k < nparams; ++k)
-	      if (info->type_param_names()[k] == t.identifier())
-		{
-		  which = (int) k;
-		  break;
-		}
-	  if (which >= 0)
-	    {
-	      this->gogo_->infer_marker_type((size_t) which);
-	      char buf[32];
-	      snprintf(buf, sizeof buf, "$infermarker%d", which);
-	      subst.push_back(Token::make_identifier_token(std::string(buf),
-							   true, location));
-	    }
-	  else
-	    subst.push_back(t);
+	  this->gogo_->infer_marker_type(k);
+	  char buf[32];
+	  snprintf(buf, sizeof buf, "$infermarker%zu", k);
+	  marker_args[k].push_back(
+	    Token::make_identifier_token(std::string(buf), true, location));
 	}
+      std::vector<Token> subst;
+      substitute_type_params(info->tokens(), info->type_param_names(),
+			     marker_args, subst);
 
       this->gogo_->push_instantiation_context();
       bool imported_sig = info->defining_package() != NULL;
