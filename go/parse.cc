@@ -5046,6 +5046,21 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
       return type_to_tokens(at->element_type(), out, loc);
     }
+  if (at != NULL && at->length() != NULL)
+    {
+      // A fixed-size array "[N]E": emit the (constant) length.
+      Numeric_constant nc;
+      mpz_t val;
+      if (at->length()->numeric_constant_value(&nc) && nc.to_int(&val))
+	{
+	  out.push_back(Token::make_operator_token(OPERATOR_LSQUARE, loc));
+	  out.push_back(Token::make_integer_token(val, loc));
+	  out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
+	  mpz_clear(val);
+	  return type_to_tokens(at->element_type(), out, loc);
+	}
+      return false;
+    }
 
   Map_type* mt = t->map_type();
   if (mt != NULL)
