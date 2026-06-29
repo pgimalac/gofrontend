@@ -5150,7 +5150,34 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 					 ? NULL
 					 : gsig->parameters());
   bool is_varargs = (gsig != NULL && gsig->is_varargs());
-  if (params != NULL && args != NULL)
+
+  // A single argument that is a call returning multiple values supplies
+  // all the parameters, e.g. try(f()) where f returns (T, error).  Unify
+  // each result type against the corresponding parameter.
+  bool handled_multi = false;
+  if (args != NULL && args->size() == 1 && params != NULL
+      && params->size() > 1 && !is_varargs)
+    {
+      Expression* a0 = args->front()->copy();
+      a0->determine_type_no_context(this->gogo_);
+      Call_expression* ce = a0->call_expression();
+      if (ce != NULL && ce->result_count() == params->size()
+	  && ce->fn() != NULL && ce->fn()->type() != NULL
+	  && ce->fn()->type()->function_type() != NULL
+	  && ce->fn()->type()->function_type()->results() != NULL)
+	{
+	  const Typed_identifier_list* res =
+	    ce->fn()->type()->function_type()->results();
+	  Typed_identifier_list::const_iterator pp = params->begin();
+	  Typed_identifier_list::const_iterator rp = res->begin();
+	  for (; pp != params->end() && rp != res->end(); ++pp, ++rp)
+	    if (rp->type() != NULL && !rp->type()->is_error_type())
+	      unify_marker(this->gogo_, pp->type(), rp->type(), solved, 0);
+	  handled_multi = true;
+	}
+    }
+
+  if (!handled_multi && params != NULL && args != NULL)
     {
       size_t nparam = params->size();
       Typed_identifier_list::const_iterator pp = params->begin();
