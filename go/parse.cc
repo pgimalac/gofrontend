@@ -4881,29 +4881,36 @@ void
 Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
 			   unsigned int pragmas)
 {
+  // Capture the rest of the method: name, signature, and body.  The
+  // receiver tokens come first, and a blank "_" receiver type parameter is
+  // renamed below within this copy so substitution stays positional.
+  std::vector<Token> toks = recv;
+
   // Find the generic type name (the identifier just before the first
   // "[") and the receiver's type parameter names (identifiers at depth 1
-  // inside "[...]").
+  // inside "[...]").  A blank "_" receiver type parameter is given a unique
+  // synthetic name (and its token rewritten in TOKS) so that two blanks
+  // ("Foo[_, _]") do not collapse to one during positional substitution.
   std::string type_name;
   std::vector<std::string> recv_params;
-  size_t lb = recv.size();
-  for (size_t i = 0; i < recv.size(); ++i)
-    if (recv[i].is_op(OPERATOR_LSQUARE))
+  size_t lb = toks.size();
+  for (size_t i = 0; i < toks.size(); ++i)
+    if (toks[i].is_op(OPERATOR_LSQUARE))
       {
 	lb = i;
 	break;
       }
   for (size_t i = lb; i > 0; --i)
-    if (recv[i - 1].is_identifier())
+    if (toks[i - 1].is_identifier())
       {
-	type_name = recv[i - 1].identifier();
+	type_name = toks[i - 1].identifier();
 	break;
       }
   {
     int depth = 0;
-    for (size_t i = lb; i < recv.size(); ++i)
+    for (size_t i = lb; i < toks.size(); ++i)
       {
-	const Token& t = recv[i];
+	Token& t = toks[i];
 	if (t.is_op(OPERATOR_LSQUARE))
 	  ++depth;
 	else if (t.is_op(OPERATOR_RSQUARE))
@@ -4913,12 +4920,22 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
 	      break;
 	  }
 	else if (depth == 1 && t.is_identifier())
-	  recv_params.push_back(t.identifier());
+	  {
+	    if (t.identifier() == "_")
+	      {
+		static unsigned int blank_count;
+		char buf[40];
+		snprintf(buf, sizeof buf, "$blankrecvparam%u", blank_count);
+		++blank_count;
+		std::string syn(buf);
+		t = Token::make_identifier_token(syn, false, t.location());
+		recv_params.push_back(syn);
+	      }
+	    else
+	      recv_params.push_back(t.identifier());
+	  }
       }
   }
-
-  // Capture the rest of the method: name, signature, and body.
-  std::vector<Token> toks = recv;
   const Token* nt = this->peek_token();
   if (nt->is_identifier())
     {
