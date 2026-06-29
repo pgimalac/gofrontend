@@ -3725,7 +3725,19 @@ Parse::type_parameter_names(std::vector<std::string>* names,
 	  go_error_at(this->location(), "expected type parameter name");
 	  break;
 	}
-      names->push_back(token->identifier());
+      // A blank type-parameter name "_" is not referenceable in the body,
+      // so give it a unique synthetic name.  Otherwise substitution would
+      // rewrite every blank identifier in the body (e.g. "_ = expr").
+      if (token->identifier() == "_")
+	{
+	  static unsigned int blank_count;
+	  char buf[32];
+	  snprintf(buf, sizeof buf, "$blanktparam%u", blank_count);
+	  ++blank_count;
+	  names->push_back(std::string(buf));
+	}
+      else
+	names->push_back(token->identifier());
       this->advance_token();
 
       // Capture the constraint tokens up to a top-level "," or "]".  In a
