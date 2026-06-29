@@ -5473,7 +5473,12 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  Type* at = copy->type();
 
 	  bool last_is_varargs = (is_varargs && pi + 1 == nparam);
-	  if (at != NULL && !at->is_error_type() && !at->is_void_type())
+	  // An untyped nil argument carries no type information and must not
+	  // be unified against the parameter (which would wrongly solve a
+	  // type parameter to the nil type and block inference from the other
+	  // arguments).
+	  if (at != NULL && !at->is_error_type() && !at->is_void_type()
+	      && !at->is_nil_type())
 	    {
 	      Type* pt = pp->type();
 	      if (last_is_varargs && call_is_spread)
