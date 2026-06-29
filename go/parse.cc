@@ -5559,9 +5559,13 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 	      first = false;
 	      if (!p->is_anonymous())
 		{
+		  // field_name() is the packed name for an unexported field
+		  // (".pkgpath.b"); emit the source name so re-parsing packs it
+		  // once for the current package rather than double-packing.
 		  const std::string& fn = p->field_name();
+		  std::string src = Gogo::unpack_hidden_name(fn);
 		  out.push_back(Token::make_identifier_token(
-		    fn, Lex::is_exported_name(fn), loc));
+		    src, Lex::is_exported_name(src), loc));
 		}
 	      if (!type_to_tokens(p->type(), out, loc))
 		return false;
