@@ -3692,6 +3692,8 @@ substitute_type_params(const std::vector<Token>&,
 		       const std::vector<std::string>&,
 		       const std::vector<std::vector<Token> >&,
 		       std::vector<Token>&);
+static std::vector<std::vector<Token> >
+split_top_level(const std::vector<Token>&, Operator);
 static void
 record_constraint_obligations(Gogo*, Generic_function_info*,
 			      const std::vector<std::vector<Token> >&,
@@ -4156,6 +4158,36 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
   // unify against, so it is useless for constraint type inference.
   if (elem.size() - k == 1 && elem[k].is_identifier())
     return NULL;
+
+  // A named generic constraint "C[args]" (e.g. sliceOf[T] where
+  // "type sliceOf[E any] interface{ ~[]E }"): expand C's definition with
+  // its type parameters bound to the args, then take that constraint's
+  // core type.
+  if (elem.size() - k >= 3
+      && elem[k].is_identifier()
+      && elem[k + 1].is_op(OPERATOR_LSQUARE))
+    {
+      Generic_function_info* gi =
+	this->gogo_->lookup_generic_type(
+	  this->gogo_->pack_hidden_name(elem[k].identifier(),
+					Lex::is_exported_name(elem[k].identifier())));
+      if (gi != NULL)
+	{
+	  // Split the args between the outer "[" and matching "]".
+	  std::vector<Token> inner(elem.begin() + k + 2, elem.end());
+	  if (!inner.empty() && inner.back().is_op(OPERATOR_RSQUARE))
+	    inner.pop_back();
+	  std::vector<std::vector<Token> > gargs =
+	    split_top_level(inner, OPERATOR_COMMA);
+	  if (gargs.size() == gi->type_param_names().size())
+	    {
+	      std::vector<Token> sub;
+	      substitute_type_params(gi->tokens(), gi->type_param_names(),
+				     gargs, sub);
+	      return this->constraint_core_type_with_markers(sub, names);
+	    }
+	}
+    }
 
   // Substitute type-parameter names with inference markers.
   std::vector<Token> subst;
@@ -5071,6 +5103,18 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 	return false;
       out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
       return type_to_tokens(mt->val_type(), out, loc);
+    }
+
+  Channel_type* ct = t->channel_type();
+  if (ct != NULL)
+    {
+      // "chan E", "chan<- E" (send only) or "<-chan E" (receive only).
+      if (!ct->may_send())
+	out.push_back(Token::make_operator_token(OPERATOR_CHANOP, loc));
+      out.push_back(Token::make_keyword_token(KEYWORD_CHAN, loc));
+      if (ct->may_send() && !ct->may_receive())
+	out.push_back(Token::make_operator_token(OPERATOR_CHANOP, loc));
+      return type_to_tokens(ct->element_type(), out, loc);
     }
 
   Named_type* nt = t->named_type();
