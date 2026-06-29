@@ -356,6 +356,8 @@ class Parse
   Type* make_pending_generic_type(const std::string& name,
 				   const std::vector<std::vector<Token> >& type_args,
 				   Location);
+  std::string package_alias_for_local_type(Type* lt, Location);
+  void localize_local_type_args(std::vector<std::vector<Token> >& type_args);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);
   Expression* enclosing_var_reference(Named_object*, Named_object*,

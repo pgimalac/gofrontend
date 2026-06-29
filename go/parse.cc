@@ -5686,6 +5686,25 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  type_args[i] = (*partial)[i];
 	  continue;
 	}
+      // A solved type that is a function-local named type is not visible at
+      // package scope where the instance is re-parsed; emit a package-scope
+      // alias name for it instead.
+      Named_type* snt = (solved[i] != NULL
+			 ? solved[i]->forwarded()->named_type()
+			 : NULL);
+      if (snt != NULL)
+	{
+	  unsigned int idx;
+	  if (snt->in_function(&idx) != NULL)
+	    {
+	      std::string syn =
+		this->package_alias_for_local_type(solved[i], location);
+	      type_args[i].clear();
+	      type_args[i].push_back(
+		Token::make_identifier_token(syn, false, location));
+	      continue;
+	    }
+	}
       if (solved[i] == NULL
 	  || !type_to_tokens(solved[i], type_args[i], location))
 	{
@@ -5735,15 +5754,105 @@ record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
     }
 }
 
+// Generics: a generic instance is re-parsed at package scope, so a type
+// argument that names a function-local type would not resolve.  For each
+// such argument, assign (once, cached) a package-scope alias name and
+// rewrite the argument token to it; record (alias-name, local-type) pairs
+// in ALIASES for define_localized_type_aliases to materialize.  Must be
+// called while still in the calling function's scope.
+
+// Generics: return a stable package-scope alias name for the
+// function-local named type LT, creating the alias (a package-level type
+// that is an alias of LT) on first use so that the name resolves when an
+// instance is re-parsed at package scope.  LT must be a function-local
+// named type.
+
+std::string
+Parse::package_alias_for_local_type(Type* lt, Location location)
+{
+  // Persistent across instantiations: a stable alias name per local type.
+  static std::map<Named_object*, std::string> alias_names;
+
+  Named_object* no = lt->named_type()->named_object();
+  std::map<Named_object*, std::string>::iterator p = alias_names.find(no);
+  if (p != alias_names.end())
+    return p->second;
+
+  char buf[40];
+  snprintf(buf, sizeof buf, "$localtype%u", (unsigned) alias_names.size());
+  std::string syn(buf);
+  alias_names[no] = syn;
+
+  // Create the alias at package scope.  We may be called in a function's
+  // scope (explicit instantiation) or at package scope (inference); enter
+  // the instantiation context if needed so the alias is package-level.
+  bool pushed = false;
+  if (!this->gogo_->in_global_scope())
+    {
+      this->gogo_->push_instantiation_context();
+      pushed = true;
+    }
+  // A type reference packs an unexported name with the package path, so
+  // declare under the packed name.
+  std::string packed = this->gogo_->pack_hidden_name(syn, false);
+  Named_object* ph = this->gogo_->declare_type(packed, location);
+  Named_type* alias = Type::make_named_type(ph, lt, location);
+  alias->set_is_alias();
+  this->gogo_->define_type(ph, alias);
+  if (pushed)
+    this->gogo_->pop_instantiation_context();
+
+  return syn;
+}
+
+// Generics: a generic instance is re-parsed at package scope, so a type
+// argument that names a function-local type would not resolve.  Replace
+// each such single-identifier argument with a package-scope alias name.
+// Must be called while still in the calling function's scope.
+
+void
+Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
+{
+  for (size_t i = 0; i < type_args.size(); ++i)
+    {
+      std::vector<Token>& a = type_args[i];
+      if (a.size() != 1 || !a[0].is_identifier())
+	continue;
+      std::string id = a[0].identifier();
+      bool exp = a[0].is_identifier_exported();
+      std::string packed = this->gogo_->pack_hidden_name(id, exp);
+      Named_object* in_function = NULL;
+      Named_object* no = this->gogo_->lookup(packed, &in_function);
+      if (no == NULL || in_function == NULL || !no->is_type())
+	continue;
+      Type* lt = no->type_value();
+      if (lt == NULL || lt->is_error_type() || lt->named_type() == NULL)
+	continue;
+
+      Location aloc = a[0].location();
+      std::string syn = this->package_alias_for_local_type(lt, aloc);
+      a.clear();
+      a.push_back(Token::make_identifier_token(syn, false, aloc));
+    }
+}
+
 // Generics: instantiate a generic function template with the given type
 // arguments (each a captured token sequence).  Returns the Named_object
 // for the (possibly cached) instance, or NULL on error.
 
 Named_object*
 Parse::instantiate_generic_function(Generic_function_info* info,
-				    const std::vector<std::vector<Token> >& type_args,
+				    const std::vector<std::vector<Token> >& type_args_in,
 				    Location location)
 {
+  // A type argument may name a function-local type, which is not visible at
+  // the package scope where the instance is re-parsed.  Replace each such
+  // argument with a package-scope alias (created after the instantiation
+  // context is entered, below).  Done before the cache key is built so that
+  // repeated uses share one instance.
+  std::vector<std::vector<Token> > type_args = type_args_in;
+  this->localize_local_type_args(type_args);
+
   // Build a mangled key from the type arguments and check the cache.
   std::string key = this->instance_key(type_args);
   Named_object* cached = info->find_instance(key);
