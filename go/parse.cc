@@ -4808,8 +4808,22 @@ substitute_type_params(const std::vector<Token>& tmpl,
       if (which >= 0)
 	{
 	  const std::vector<Token>& rep = args[which];
+	  // When the type parameter is used as a conversion "T(x)" and its
+	  // type argument is a pointer type "*E", a plain textual replacement
+	  // would yield "*E(x)", which parses as "*(E(x))".  Parenthesize the
+	  // replacement -- "(*E)(x)" -- to preserve the intended meaning.  A
+	  // parenthesized type is valid in type positions too.
+	  bool paren = (!rep.empty() && rep[0].is_op(OPERATOR_MULT)
+			&& i + 1 < tmpl.size()
+			&& tmpl[i + 1].is_op(OPERATOR_LPAREN));
+	  if (paren)
+	    out.push_back(Token::make_operator_token(OPERATOR_LPAREN,
+						     t.location()));
 	  for (size_t j = 0; j < rep.size(); ++j)
 	    out.push_back(rep[j]);
+	  if (paren)
+	    out.push_back(Token::make_operator_token(OPERATOR_RPAREN,
+						     t.location()));
 	}
       else
 	out.push_back(t);
