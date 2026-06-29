@@ -781,8 +781,7 @@ Parse::Parse(Lex* lex, Gogo* gogo)
     replay_tokens_(NULL),
     replay_index_(0),
     token_(Token::make_invalid_token(Linemap::unknown_location())),
-    unget_token_(Token::make_invalid_token(Linemap::unknown_location())),
-    unget_token_valid_(false),
+    ungot_(),
     is_erroneous_function_(false),
     gogo_(gogo),
     break_stack_(NULL),
@@ -802,7 +801,7 @@ Parse::set_replay_tokens(const std::vector<Token>* tokens)
   this->replay_tokens_ = tokens;
   this->replay_index_ = 0;
   this->token_ = Token::make_invalid_token(Linemap::unknown_location());
-  this->unget_token_valid_ = false;
+  this->ungot_.clear();
 }
 
 // Fetch the next token, either from the replay buffer or the lexer.
@@ -824,8 +823,8 @@ Parse::lex_next_token()
 const Token*
 Parse::peek_token()
 {
-  if (this->unget_token_valid_)
-    return &this->unget_token_;
+  if (!this->ungot_.empty())
+    return &this->ungot_.back();
   if (this->token_.is_invalid())
     this->token_ = this->lex_next_token();
   return &this->token_;
@@ -836,9 +835,11 @@ Parse::peek_token()
 const Token*
 Parse::advance_token()
 {
-  if (this->unget_token_valid_)
+  if (!this->ungot_.empty())
     {
-      this->unget_token_valid_ = false;
+      this->ungot_.pop_back();
+      if (!this->ungot_.empty())
+	return &this->ungot_.back();
       if (!this->token_.is_invalid())
 	return &this->token_;
     }
@@ -846,14 +847,13 @@ Parse::advance_token()
   return &this->token_;
 }
 
-// Push a token back on the input stream.
+// Push a token back on the input stream.  Tokens form a stack: the most
+// recently pushed token is the next one peek_token will return.
 
 void
 Parse::unget_token(const Token& token)
 {
-  go_assert(!this->unget_token_valid_);
-  this->unget_token_ = token;
-  this->unget_token_valid_ = true;
+  this->ungot_.push_back(token);
 }
 
 // The location of the current token.
@@ -2572,9 +2572,12 @@ Parse::type_spec()
   token = this->advance_token();
 
   // Generics: a "[" after the type name introduces a type parameter
-  // list.  Capture the template and return; instances are created on
-  // demand at each use site.  (Skipped when re-parsing an instance.)
-  if (token->is_op(OPERATOR_LSQUARE) && this->replay_tokens_ == NULL)
+  // list, but only if it really is one -- "[" also begins an array or
+  // slice type ("type S []int", "type A [3]int").  Capture the template
+  // and return; instances are created on demand at each use site.
+  // (Skipped when re-parsing an instance.)
+  if (token->is_op(OPERATOR_LSQUARE) && this->replay_tokens_ == NULL
+      && this->next_is_type_parameter_decl())
     {
       this->generic_type_decl(name, is_exported, location);
       return;
@@ -3753,6 +3756,43 @@ Parse::type_parameter_names(std::vector<std::string>* names,
     }
   // Consume "]".
   this->advance_token();
+}
+
+// Generics: the current token is the "[" that follows a type name in a
+// type declaration.  Return whether it introduces a type parameter list
+// ("[P constraint, ...]") rather than an array or slice element type
+// ("[]T" or "[N]T").  Looks ahead two tokens and restores the stream.
+//
+// The distinguishing cases:
+//   "[" "]"        -> slice type, not type parameters
+//   "[" non-ident  -> array type with a constant/expression length
+//   "[" ident "]"  -> array type "[N]T" (N is a constant)
+//   "[" ident X     (X != "]") -> type parameter list (ident is a name,
+//                                  X begins its constraint, or is ",")
+// (An array length that is a more complex expression beginning with an
+// identifier, e.g. "[N+1]T", is rare in a type declaration and would be
+// misread as a type parameter list; standard array forms are handled.)
+
+bool
+Parse::next_is_type_parameter_decl()
+{
+  Token open = *this->peek_token();
+  const Token* t1 = this->advance_token();
+  bool result;
+  if (t1->is_op(OPERATOR_RSQUARE) || !t1->is_identifier())
+    {
+      result = false;
+      this->unget_token(open);
+    }
+  else
+    {
+      Token first = *t1;
+      const Token* t2 = this->advance_token();
+      result = !t2->is_op(OPERATOR_RSQUARE);
+      this->unget_token(first);
+      this->unget_token(open);
+    }
+  return result;
 }
 
 // Generics: capture a generic type template.  The current token is the

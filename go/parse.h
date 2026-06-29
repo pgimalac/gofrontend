@@ -325,6 +325,10 @@ class Parse
   // Capture a generic type template (a type whose name is followed by a
   // "[" type parameter list).
   void generic_type_decl(const std::string& name, bool is_exported, Location);
+  // Whether the "[" at the current token (after a type name in a type
+  // declaration) starts a type parameter list rather than an array or
+  // slice element type.
+  bool next_is_type_parameter_decl();
   // Record a balanced bracket group (the current token is the opener)
   // into *OUT, including both delimiters.
   void capture_bracket_group(std::vector<Token>* out);
@@ -452,10 +456,10 @@ class Parse
   size_t replay_index_;
   // The current token.
   Token token_;
-  // A token pushed back on the input stream.
-  Token unget_token_;
-  // Whether unget_token_ is valid.
-  bool unget_token_valid_;
+  // Tokens pushed back on the input stream, as a stack: the next token
+  // returned by peek_token is ungot_.back().  A stack (rather than a
+  // single slot) allows a few tokens of lookahead-and-restore.
+  std::vector<Token> ungot_;
   // Whether the function we are parsing had errors in the signature.
   bool is_erroneous_function_;
   // The code we are generating.
