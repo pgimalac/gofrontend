@@ -4204,19 +4204,33 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
   else
     elem = c;
 
-  // A multi-line interface body separates elements with newlines, which
-  // the lexer turns into semicolons, so an element such as "~[]E" written
-  // on its own line is captured as "~[]E ;".  Drop leading and trailing
-  // semicolons so that a single element is still recognized as one.
-  while (!elem.empty() && elem.back().is_op(OPERATOR_SEMICOLON))
-    elem.pop_back();
-  size_t start = 0;
-  while (start < elem.size() && elem[start].is_op(OPERATOR_SEMICOLON))
-    ++start;
-  if (start > 0)
-    elem.erase(elem.begin(), elem.begin() + start);
+  // An interface body separates its elements with semicolons (newlines in
+  // a multi-line body also become semicolons).  The core type comes only
+  // from the single structural type element; method elements ("M(...)
+  // ...") do not contribute and are ignored.  Split into elements, drop
+  // the empty and method ones, and require exactly one structural element.
+  {
+    std::vector<std::vector<Token> > parts =
+      split_top_level(elem, OPERATOR_SEMICOLON);
+    const std::vector<Token>* structural = NULL;
+    for (size_t i = 0; i < parts.size(); ++i)
+      {
+	const std::vector<Token>& p = parts[i];
+	if (p.empty())
+	  continue;
+	// A method element is an identifier immediately followed by "(".
+	if (p.size() >= 2 && p[0].is_identifier() && p[1].is_op(OPERATOR_LPAREN))
+	  continue;
+	if (structural != NULL)
+	  return NULL;
+	structural = &p;
+      }
+    if (structural == NULL)
+      return NULL;
+    elem = *structural;
+  }
 
-  // Must be a single element: no top-level "|", ";" or method.
+  // A union of terms ("~int | ~string") has no single core type.
   int depth = 0;
   for (size_t i = 0; i < elem.size(); ++i)
     {
@@ -4227,8 +4241,7 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
       else if (t.is_op(OPERATOR_RPAREN) || t.is_op(OPERATOR_RSQUARE)
 	       || t.is_op(OPERATOR_RCURLY))
 	--depth;
-      else if (depth == 0
-	       && (t.is_op(OPERATOR_OR) || t.is_op(OPERATOR_SEMICOLON)))
+      else if (depth == 0 && t.is_op(OPERATOR_OR))
 	return NULL;
     }
 
