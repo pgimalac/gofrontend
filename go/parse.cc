@@ -5065,6 +5065,36 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
   if (t->is_abstract())
     t = t->make_non_abstract_type();
 
+  // A named type (including a predeclared type like "int" or "error", a
+  // user type, or a generic instance) is emitted by name -- checked first,
+  // because points_to/array_type/etc. see through named types and would
+  // otherwise emit the underlying type and lose the name.
+  Named_type* nt = t->named_type();
+  if (nt != NULL)
+    {
+      // A generic instance ("Box$type0") is emitted by its canonical
+      // spelling ("Box[arg, ...]") so it hashes to the same instance as
+      // the type written out directly.
+      std::map<const Named_object*, std::vector<Token> >::const_iterator sp =
+	generic_instance_spelling.find(nt->named_object());
+      if (sp != generic_instance_spelling.end())
+	{
+	  for (size_t i = 0; i < sp->second.size(); ++i)
+	    out.push_back(sp->second[i]);
+	  return true;
+	}
+
+      const std::string& n = nt->name();
+      bool hidden = Gogo::is_hidden_name(n);
+      std::string src = hidden ? Gogo::unpack_hidden_name(n) : n;
+      // The token's "exported" flag must match how the name is normally
+      // tokenized (e.g. "int" is not exported), so that name packing and
+      // lookup are consistent.
+      bool exported = hidden ? false : Lex::is_exported_name(src);
+      out.push_back(Token::make_identifier_token(src, exported, loc));
+      return true;
+    }
+
   if (t->points_to() != NULL)
     {
       out.push_back(Token::make_operator_token(OPERATOR_MULT, loc));
@@ -5115,32 +5145,6 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       if (ct->may_send() && !ct->may_receive())
 	out.push_back(Token::make_operator_token(OPERATOR_CHANOP, loc));
       return type_to_tokens(ct->element_type(), out, loc);
-    }
-
-  Named_type* nt = t->named_type();
-  if (nt != NULL)
-    {
-      // If this is a generic instance, emit its canonical spelling
-      // ("Name[arg, ...]") so the instantiation it is fed into hashes to
-      // the same instance as the type written out directly.
-      std::map<const Named_object*, std::vector<Token> >::const_iterator sp =
-	generic_instance_spelling.find(nt->named_object());
-      if (sp != generic_instance_spelling.end())
-	{
-	  for (size_t i = 0; i < sp->second.size(); ++i)
-	    out.push_back(sp->second[i]);
-	  return true;
-	}
-
-      const std::string& n = nt->name();
-      bool hidden = Gogo::is_hidden_name(n);
-      std::string src = hidden ? Gogo::unpack_hidden_name(n) : n;
-      // The token's "exported" flag must match how the name is normally
-      // tokenized (e.g. "int" is not exported), so that name packing and
-      // lookup are consistent.
-      bool exported = hidden ? false : Lex::is_exported_name(src);
-      out.push_back(Token::make_identifier_token(src, exported, loc));
-      return true;
     }
 
   return false;
