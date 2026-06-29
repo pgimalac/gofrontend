@@ -4383,14 +4383,21 @@ Parse::check_generic_constraints()
 	    ct = this->resolve_constraint_type(o->constraint);
 	}
       if (ct != NULL && !ct->is_error_type()
-	  && ct->interface_type() != NULL
-	  && !ct->interface_type()->is_empty())
+	  && ct->interface_type() != NULL)
 	{
-	  std::string reason;
-	  if (!ct->interface_type()->implements_interface(argType, &reason))
-	    go_error_at(o->location,
-			"type argument does not satisfy constraint of %qs",
-			o->what.c_str());
+	  Interface_type* it = ct->interface_type();
+	  // The interface may not have been through the finalize-methods
+	  // pass (e.g. one parsed here from inline constraint tokens), which
+	  // is_empty/implements_interface require; finalize it first.
+	  it->finalize_methods();
+	  if (!it->is_empty())
+	    {
+	      std::string reason;
+	      if (!it->implements_interface(argType, &reason))
+		go_error_at(o->location,
+			    "type argument does not satisfy constraint of %qs",
+			    o->what.c_str());
+	    }
 	}
     }
 }
