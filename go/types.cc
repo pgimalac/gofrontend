@@ -9430,11 +9430,12 @@ Interface_type::finalize_methods()
       Interface_type* it = t->interface_type();
       if (it == NULL)
 	{
-	  if (!t->is_error())
-	    {
-	      go_error_at(tl, "interface contains embedded non-interface");
-	      this->set_is_error();
-	    }
+	  // Generics (Go 1.18): a non-interface type in an interface body is a
+	  // type-set element of a constraint (e.g. "interface{ int }" or
+	  // "interface{ chan int }"), not an embedded interface.  It
+	  // contributes no methods, so ignore it here.  (Using such an
+	  // interface as an ordinary, non-constraint type is diagnosed
+	  // elsewhere.)
 	  continue;
 	}
       if (it == this)
