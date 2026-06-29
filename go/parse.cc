@@ -5188,6 +5188,25 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
       return;
     }
 
+  // Two instances of the same generic type (e.g. getter[T] and getter[int],
+  // including generic interface and other non-struct instances): unify their
+  // corresponding type arguments.  This covers forms that structural
+  // decomposition below does not reach, such as a generic interface.
+  Named_type* pnt = pt->named_type();
+  Named_type* ant = at->named_type();
+  if (pnt != NULL && ant != NULL
+      && !pnt->generic_type_args().empty()
+      && !pnt->generic_base_name().empty()
+      && pnt->generic_base_name() == ant->generic_base_name()
+      && pnt->generic_type_args().size() == ant->generic_type_args().size())
+    {
+      const std::vector<Type*>& pa = pnt->generic_type_args();
+      const std::vector<Type*>& aa = ant->generic_type_args();
+      for (size_t i = 0; i < pa.size(); ++i)
+	unify_marker(gogo, pa[i], aa[i], solved, depth + 1);
+      return;
+    }
+
   if (pt->points_to() != NULL && at->points_to() != NULL)
     {
       unify_marker(gogo, pt->points_to(), at->points_to(), solved, depth + 1);
