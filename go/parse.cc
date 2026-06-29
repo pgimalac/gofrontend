@@ -279,8 +279,14 @@ gen_write_tokens(Export* exp, const std::vector<Token>& toks)
 // Write the body of one generic template: its type-parameter names and
 // constraints, its signature/body tokens, and any method templates.
 
+// Defined below: rewrite a constraint into a form that an importing
+// package can enforce on its own, expanding a named type-set constraint
+// (e.g. "Ordered") to its inline basic type-set ("~int | ... | ~string").
+static std::vector<Token>
+expand_constraint_for_export(Gogo*, const std::vector<Token>&);
+
 static void
-gen_write_generic_body(Export* exp, Generic_function_info* info)
+gen_write_generic_body(Export* exp, Gogo* gogo, Generic_function_info* info)
 {
   std::vector<std::string>& names = info->type_param_names();
   std::vector<std::vector<Token> >& constraints = info->constraints();
@@ -291,7 +297,11 @@ gen_write_generic_body(Export* exp, Generic_function_info* info)
       gen_write_lenstr(exp, names[i]);
       exp->write_c_string("\n");
       if (i < constraints.size())
-	gen_write_tokens(exp, constraints[i]);
+	{
+	  std::vector<Token> c =
+	    expand_constraint_for_export(gogo, constraints[i]);
+	  gen_write_tokens(exp, c);
+	}
       else
 	{
 	  exp->write_int(0);
@@ -379,14 +389,14 @@ go_export_generics(Export* exp, Gogo* gogo)
       exp->write_c_string("gfunc ");
       gen_write_lenstr(exp, funcs[i].second->name());
       exp->write_c_string("\n");
-      gen_write_generic_body(exp, funcs[i].second);
+      gen_write_generic_body(exp, gogo, funcs[i].second);
     }
   for (size_t i = 0; i < types.size(); ++i)
     {
       exp->write_c_string("gtype ");
       gen_write_lenstr(exp, types[i].second->name());
       exp->write_c_string("\n");
-      gen_write_generic_body(exp, types[i].second);
+      gen_write_generic_body(exp, gogo, types[i].second);
     }
 }
 
@@ -4233,6 +4243,42 @@ flatten_constraint(Gogo* gogo, const std::vector<Token>& c,
     if (!flatten_constraint_element(gogo, parts[p], terms, depth + 1))
       return false;
   return !terms->empty();
+}
+
+// Generics: rewrite a constraint into a self-contained form for export so
+// that an importing package can enforce it without the defining package's
+// constraint declarations.  A named type-set constraint all of whose
+// elements are predeclared basic types (e.g. "Ordered") is expanded to
+// the inline type-set "~int | ... | ~string"; anything else (a constraint
+// mentioning package-specific named types, methods, comparable, or any)
+// is left unchanged and is checked when the instance body is compiled.
+
+static std::vector<Token>
+expand_constraint_for_export(Gogo* gogo, const std::vector<Token>& c)
+{
+  std::vector<std::pair<bool, std::vector<Token> > > terms;
+  if (!flatten_constraint(gogo, c, &terms, 0) || terms.empty())
+    return c;
+  for (size_t i = 0; i < terms.size(); ++i)
+    if (!(terms[i].second.size() == 1
+	  && terms[i].second[0].is_identifier()
+	  && is_basic_type_name(terms[i].second[0].identifier())))
+      return c;
+
+  // If the constraint is already exactly this inline form, nothing to do;
+  // either way, emitting the flattened form is correct and self-contained.
+  Location loc = c.empty() ? Linemap::unknown_location() : c[0].location();
+  std::vector<Token> out;
+  for (size_t i = 0; i < terms.size(); ++i)
+    {
+      if (i > 0)
+	out.push_back(Token::make_operator_token(OPERATOR_OR, loc));
+      if (terms[i].first)
+	out.push_back(Token::make_operator_token(OPERATOR_TILDE, loc));
+      for (size_t j = 0; j < terms[i].second.size(); ++j)
+	out.push_back(terms[i].second[j]);
+    }
+  return out;
 }
 
 // Generics: check recorded instantiations against their type-parameter

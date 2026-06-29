@@ -89,6 +89,22 @@ for dir in case_*/; do
   fi
   objcopy -j .go_export "$tmp/lib.o" "$tmp/$ip.gox" 2>/dev/null
 
+  # A case named case_*_bad is a negative test: the main program must
+  # fail to compile (e.g. a cross-package constraint violation).
+  case "$case" in
+    *_bad)
+      if run -static-libgo "$case/main.go" $objs -o "$tmp/prog" \
+	   > "$tmp/cerr" 2>&1; then
+	echo "FAIL  $case (expected a compile error, but it compiled)"
+	fail=$((fail + 1))
+      else
+	echo "PASS  $case (rejected as expected)"
+	pass=$((pass + 1))
+      fi
+      continue
+      ;;
+  esac
+
   # Compile and link the main program against the library.
   if ! run -static-libgo "$case/main.go" $objs -o "$tmp/prog" \
        > "$tmp/cerr" 2>&1; then
