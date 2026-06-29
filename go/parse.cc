@@ -5228,6 +5228,55 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       return type_to_tokens(ct->element_type(), out, loc);
     }
 
+  // A struct type "struct { name type; ...; EmbeddedType; ... }", as can
+  // arise as an inferred type argument (e.g. the value type of a map).
+  Struct_type* st = t->struct_type();
+  if (st != NULL)
+    {
+      out.push_back(Token::make_keyword_token(KEYWORD_STRUCT, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_LCURLY, loc));
+      const Struct_field_list* fields = st->fields();
+      if (fields != NULL)
+	{
+	  bool first = true;
+	  for (Struct_field_list::const_iterator p = fields->begin();
+	       p != fields->end();
+	       ++p)
+	    {
+	      if (!first)
+		out.push_back(Token::make_operator_token(OPERATOR_SEMICOLON,
+							 loc));
+	      first = false;
+	      if (!p->is_anonymous())
+		{
+		  const std::string& fn = p->field_name();
+		  out.push_back(Token::make_identifier_token(
+		    fn, Lex::is_exported_name(fn), loc));
+		}
+	      if (!type_to_tokens(p->type(), out, loc))
+		return false;
+	      if (p->has_tag())
+		out.push_back(Token::make_string_token(p->tag(), loc));
+	    }
+	}
+      out.push_back(Token::make_operator_token(OPERATOR_RCURLY, loc));
+      return true;
+    }
+
+  // An empty interface "interface{}" (or the predeclared "any"); a
+  // non-empty interface cannot be reconstructed reliably from tokens, so
+  // only the empty case is emitted.
+  Interface_type* it = t->interface_type();
+  if (it != NULL)
+    {
+      if (it->methods() != NULL && !it->methods()->empty())
+	return false;
+      out.push_back(Token::make_keyword_token(KEYWORD_INTERFACE, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_LCURLY, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_RCURLY, loc));
+      return true;
+    }
+
   return false;
 }
 
