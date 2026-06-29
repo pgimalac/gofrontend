@@ -71,6 +71,11 @@ struct Constraint_obligation
   std::vector<Token> constraint;
   // The displayed name of the generic being instantiated.
   std::string what;
+  // The names of the generic's type parameters.  A constraint that
+  // mentions one of them (e.g. "lesser[T]" in "[T lesser[T]]") depends on
+  // the type parameters and is left to be checked when the instance body
+  // is compiled, rather than resolved here.
+  std::vector<std::string> tparams;
   Location location;
 };
 
@@ -4299,6 +4304,27 @@ Parse::check_generic_constraints()
     {
       Constraint_obligation* o = obs[oi];
 
+      // A constraint that mentions one of the generic's own type
+      // parameters (e.g. "lesser[T]" in "[T lesser[T]]") depends on them
+      // and cannot be resolved to a concrete type here; resolving it would
+      // instantiate a generic with an unbound parameter.  Leave it to be
+      // checked when the instance body is compiled.
+      bool depends_on_tparam = false;
+      for (size_t ti = 0; ti < o->constraint.size() && !depends_on_tparam;
+	   ++ti)
+	{
+	  if (!o->constraint[ti].is_identifier())
+	    continue;
+	  for (size_t pi = 0; pi < o->tparams.size(); ++pi)
+	    if (o->constraint[ti].identifier() == o->tparams[pi])
+	      {
+		depends_on_tparam = true;
+		break;
+	      }
+	}
+      if (depends_on_tparam)
+	continue;
+
       Type* argType = this->resolve_constraint_type(o->arg);
       if (argType == NULL || argType->is_error_type())
 	continue;
@@ -5072,6 +5098,7 @@ record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
       o->arg = type_args[i];
       o->constraint = cons[i];
       o->what = what;
+      o->tparams = info->type_param_names();
       o->location = location;
       gogo->add_constraint_obligation(o);
     }

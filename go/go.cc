@@ -144,6 +144,15 @@ go_parse_input_files(const char** filenames, unsigned int filename_count,
   // Work out types of unspecified constants and variables.
   ::gogo->determine_types();
 
+  // Generics: type-argument inference instantiates generic functions and
+  // types during determine_types, i.e. after the finalize-methods pass
+  // above.  Their bodies and signatures may contain interface types
+  // (e.g. an instantiated generic interface, or an interface substituted
+  // for a type parameter in a type switch) whose method sets must be
+  // finalized before verify/check, which assert that.  Re-run the pass;
+  // it is idempotent for already-finalized types.
+  ::gogo->finalize_methods();
+
   // Generics: now that all instantiations exist and their types are
   // determined, check that type arguments satisfy their constraints.
   {
