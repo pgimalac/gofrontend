@@ -1351,6 +1351,13 @@ Parse::field_decl(Struct_field_list* sfl)
 		      || token->is_op(OPERATOR_RCURLY)
 		      || token->is_op(OPERATOR_DOT)
 		      || token->is_string());
+      // Generics: an embedded generic type "B[...]" -- ID names a generic
+      // type and is followed by "[" -- is an anonymous (embedded) field,
+      // not a named field of an array type.
+      if (token->is_op(OPERATOR_LSQUARE)
+	  && this->gogo_->lookup_generic_type(
+	       this->gogo_->pack_hidden_name(id, is_id_exported)) != NULL)
+	is_anonymous = true;
       is_anonymous_pointer = false;
       this->unget_token(Token::make_identifier_token(id, is_id_exported,
 						     id_location));
@@ -3849,6 +3856,9 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Type* underlying = ip.type();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
+  // Record the generic's source name so an embedded field of this instance
+  // is named for the generic (e.g. "Box"), not the instance ("Box$type0").
+  nt->set_generic_base_name(Gogo::unpack_hidden_name(info->name()));
   this->gogo_->define_type(no, nt);
 
   // Record this instance's canonical spelling ("Name[arg, ...]") so that

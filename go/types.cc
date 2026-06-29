@@ -5978,9 +5978,21 @@ Struct_field::field_name() const
 	  dt = ptype->points_to();
 	}
       if (dt->forward_declaration_type() != NULL)
-	return dt->forward_declaration_type()->name();
+	{
+	  // Generics: a forward declaration of a generic type instance
+	  // (named e.g. "Box$type0") embeds a field named for the generic.
+	  Named_object* fno = dt->forward_declaration_type()->named_object();
+	  if (fno->is_type()
+	      && !fno->type_value()->generic_base_name().empty())
+	    return fno->type_value()->generic_base_name();
+	  return dt->forward_declaration_type()->name();
+	}
       else if (dt->named_type() != NULL)
 	{
+	  // Generics: an embedded generic type instance is named e.g.
+	  // "Box$type0"; the embedded field is named for the generic ("Box").
+	  if (!dt->named_type()->generic_base_name().empty())
+	    return dt->named_type()->generic_base_name();
 	  // Note that this can be an alias name.
 	  return dt->named_type()->name();
 	}
@@ -6019,6 +6031,13 @@ Struct_field::is_field_name(const std::string& name) const
 	t = t->points_to();
       Named_type* nt = t->named_type();
       if (nt != NULL && nt->name() == name)
+	return true;
+
+      // Generics: an embedded generic type instance ("Box$type0") is
+      // named for the generic ("Box"); match that.
+      if (nt != NULL
+	  && !nt->generic_base_name().empty()
+	  && nt->generic_base_name() == name)
 	return true;
 
       // This is a horrible hack caused by the fact that we don't pack

@@ -3462,7 +3462,7 @@ class Named_type : public Type
       is_alias_(false), is_visible_(true), is_error_(false), in_heap_(true),
       is_placeholder_(false), is_converted_(false), is_verified_(false),
       seen_(false), seen_in_compare_is_identity_(false),
-      seen_in_get_backend_(false), seen_alias_(false)
+      seen_in_get_backend_(false), seen_alias_(false), generic_base_name_()
   { }
 
   // Return the associated Named_object.  This holds the actual name.
@@ -3516,6 +3516,17 @@ class Named_type : public Type
   // Return the name of the type.
   const std::string&
   name() const;
+
+  // Generics: for a generic type instance (named e.g. "Box$type0"), the
+  // generic's source name ("Box"), used so that an embedded field gets the
+  // right name; empty for an ordinary named type.
+  const std::string&
+  generic_base_name() const
+  { return this->generic_base_name_; }
+
+  void
+  set_generic_base_name(const std::string& n)
+  { this->generic_base_name_ = n; }
 
   // Return the underlying type.
   Type*
@@ -3774,6 +3785,9 @@ class Named_type : public Type
   bool seen_in_get_backend_;
   // Like seen_, but used when resolving aliases.
   mutable bool seen_alias_;
+  // For a generic type instance, the generic's source name; see
+  // generic_base_name().
+  std::string generic_base_name_;
 };
 
 // A forward declaration.  This handles a type which has been declared
