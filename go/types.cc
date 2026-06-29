@@ -11755,6 +11755,22 @@ Named_type::append_reflection_type_name(Gogo* gogo, bool use_alias,
 	}
       ret->push_back('\t');
     }
+  // Generics: a generic type instance reflects as "Base[arg0,arg1,...]"
+  // (each argument's own reflection), not the internal mangled instance
+  // name ("Base$typeN").
+  if (!this->generic_type_args_.empty() && !this->generic_base_name_.empty())
+    {
+      ret->append(this->generic_base_name_);
+      ret->push_back('[');
+      for (size_t i = 0; i < this->generic_type_args_.size(); ++i)
+	{
+	  if (i > 0)
+	    ret->push_back(',');
+	  this->append_reflection(this->generic_type_args_[i], gogo, ret);
+	}
+      ret->push_back(']');
+      return;
+    }
   ret->append(Gogo::unpack_hidden_name(this->named_object_->name()));
 }
 

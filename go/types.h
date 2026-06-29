@@ -3528,6 +3528,17 @@ class Named_type : public Type
   set_generic_base_name(const std::string& n)
   { this->generic_base_name_ = n; }
 
+  // Generics: for a generic type instance, the resolved type arguments,
+  // used to build the reflection name "Base[arg0,arg1,...]"; empty for an
+  // ordinary named type.
+  const std::vector<Type*>&
+  generic_type_args() const
+  { return this->generic_type_args_; }
+
+  void
+  set_generic_type_args(const std::vector<Type*>& args)
+  { this->generic_type_args_ = args; }
+
   // Return the underlying type.
   Type*
   real_type()
@@ -3788,6 +3799,9 @@ class Named_type : public Type
   // For a generic type instance, the generic's source name; see
   // generic_base_name().
   std::string generic_base_name_;
+  // For a generic type instance, the resolved type arguments; see
+  // generic_type_args().
+  std::vector<Type*> generic_type_args_;
 };
 
 // A forward declaration.  This handles a type which has been declared

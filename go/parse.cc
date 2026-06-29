@@ -3861,6 +3861,24 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // Record the generic's source name so an embedded field of this instance
   // is named for the generic (e.g. "Box"), not the instance ("Box$type0").
   nt->set_generic_base_name(Gogo::unpack_hidden_name(info->name()));
+  // Record the resolved type arguments so the instance reflects as
+  // "Base[arg0,arg1,...]" rather than its mangled instance name.
+  {
+    std::vector<Type*> argtypes;
+    bool all_ok = true;
+    for (size_t i = 0; i < type_args.size(); ++i)
+      {
+	Type* at = this->parse_type_from_tokens(type_args[i]);
+	if (at == NULL || at->is_error_type())
+	  {
+	    all_ok = false;
+	    break;
+	  }
+	argtypes.push_back(at);
+      }
+    if (all_ok)
+      nt->set_generic_type_args(argtypes);
+  }
   this->gogo_->define_type(no, nt);
 
   // Record this instance's canonical spelling ("Name[arg, ...]") so that

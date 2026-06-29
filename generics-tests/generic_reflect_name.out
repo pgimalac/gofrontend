@@ -1,0 +1,3 @@
+main.Pair[int,string]
+main.Pair[main.myInt,*int]
+main.Box[int]
