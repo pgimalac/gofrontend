@@ -86,19 +86,24 @@ templates, package-level types/consts, and other imported packages (e.g.
 
 ## Constraint enforcement
 
-Type-set constraints are enforced and a violating type argument is
-rejected, matching stock go: inline type-sets of predeclared basic types
-(`int | float64`, `~int | ~string`, see `constraint_violation_bad.go`),
-exact-vs-`~` matching (`constraint_violation_named_bad.go`), and **named**
-type-set constraints, including ones that embed other type-set
-constraints (`constraint_named.go`, `constraint_named_typeset_bad.go`).
+Constraints are enforced and a violating type argument is rejected,
+matching stock go:
 
-`comparable`, method-set (interface-method) constraints, and named
-constraints imported from another package are not checked at the
-constraint itself; a type argument that violates them is instead rejected
-when the instance body is compiled (a missing method or an invalid
-operation fails there), so valid programs are accepted and most invalid
-ones are still rejected, only with a different message.
+- **type-set** constraints — inline (`int | float64`, `~int | ~string`,
+  see `constraint_violation_bad.go`), exact-vs-`~` matching
+  (`constraint_violation_named_bad.go`), and **named** ones including
+  those that embed other type-set constraints (`constraint_named.go`,
+  `constraint_named_typeset_bad.go`);
+- **`comparable`** — the argument type must be comparable
+  (`constraint_comparable_bad.go`);
+- **method-set** (interface-method) constraints — the argument must
+  implement the interface, even when the body never calls the method
+  (`constraint_method_bad.go`).
+
+A named or method constraint *imported from another package* is the one
+case not checked at the constraint itself (its definition is not resolved
+in the importer); such a violation is instead rejected when the instance
+body is compiled.
 
 ## Notes
 

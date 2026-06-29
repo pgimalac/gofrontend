@@ -4253,60 +4253,99 @@ Parse::check_generic_constraints()
     {
       Constraint_obligation* o = obs[oi];
 
-      std::vector<std::pair<bool, std::vector<Token> > > terms;
-      if (!flatten_constraint(this->gogo_, o->constraint, &terms, 0)
-	  || terms.empty())
-	continue;
-
       Type* argType = this->resolve_constraint_type(o->arg);
       if (argType == NULL || argType->is_error_type())
 	continue;
-      Type* argBase = argType->base();
-      if (argBase == NULL || argBase->is_error_type())
-	continue;
 
-      // Resolve every term to a concrete type.  If any term is an
-      // interface (a method-set embedding) or fails to resolve, do not
-      // enforce this constraint.
-      std::vector<std::pair<bool, Type*> > resolved;
-      bool enforceable = true;
-      for (size_t t = 0; t < terms.size(); ++t)
+      // Pure type-set constraint (inline like "int | ~float64", or a
+      // named constraint, possibly embedding other type-set constraints).
+      std::vector<std::pair<bool, std::vector<Token> > > terms;
+      if (flatten_constraint(this->gogo_, o->constraint, &terms, 0)
+	  && !terms.empty())
 	{
-	  Type* tt = this->resolve_constraint_type(terms[t].second);
-	  if (tt == NULL || tt->is_error_type()
-	      || tt->interface_type() != NULL)
-	    {
-	      enforceable = false;
-	      break;
-	    }
-	  resolved.push_back(std::make_pair(terms[t].first, tt));
-	}
-      if (!enforceable)
-	continue;
+	  Type* argBase = argType->base();
+	  if (argBase == NULL || argBase->is_error_type())
+	    continue;
 
-      bool ok = false;
-      for (size_t t = 0; t < resolved.size() && !ok; ++t)
+	  // Resolve every term to a concrete type.  If any term is an
+	  // interface (a method-set embedding) or fails to resolve, do not
+	  // enforce this constraint.
+	  std::vector<std::pair<bool, Type*> > resolved;
+	  bool enforceable = true;
+	  for (size_t t = 0; t < terms.size(); ++t)
+	    {
+	      Type* tt = this->resolve_constraint_type(terms[t].second);
+	      if (tt == NULL || tt->is_error_type()
+		  || tt->interface_type() != NULL)
+		{
+		  enforceable = false;
+		  break;
+		}
+	      resolved.push_back(std::make_pair(terms[t].first, tt));
+	    }
+	  if (!enforceable)
+	    continue;
+
+	  bool ok = false;
+	  for (size_t t = 0; t < resolved.size() && !ok; ++t)
+	    {
+	      Type* tt = resolved[t].second;
+	      if (resolved[t].first)
+		{
+		  // "~B": the argument's underlying type must be B.
+		  if (Type::are_identical(argBase, tt->base(),
+					  Type::COMPARE_ERRORS, NULL))
+		    ok = true;
+		}
+	      else
+		{
+		  // "B": the argument must be exactly B.
+		  if (Type::are_identical(argType, tt, Type::COMPARE_ERRORS,
+					  NULL))
+		    ok = true;
+		}
+	    }
+
+	  if (!ok)
+	    go_error_at(o->location,
+			"type argument does not satisfy constraint of %qs",
+			o->what.c_str());
+	  continue;
+	}
+
+      // The "comparable" constraint: the argument type must be comparable.
+      if (o->constraint.size() == 1
+	  && o->constraint[0].is_identifier()
+	  && o->constraint[0].identifier() == "comparable")
 	{
-	  Type* tt = resolved[t].second;
-	  if (resolved[t].first)
-	    {
-	      // "~B": the argument's underlying type must be B.
-	      if (Type::are_identical(argBase, tt->base(),
-				      Type::COMPARE_ERRORS, NULL))
-		ok = true;
-	    }
-	  else
-	    {
-	      // "B": the argument must be exactly B.
-	      if (Type::are_identical(argType, tt, Type::COMPARE_ERRORS, NULL))
-		ok = true;
-	    }
+	  if (!argType->is_comparable())
+	    go_error_at(o->location,
+			"type argument does not satisfy constraint of %qs",
+			o->what.c_str());
+	  continue;
 	}
 
-      if (!ok)
-	go_error_at(o->location,
-		    "type argument does not satisfy constraint of %qs",
-		    o->what.c_str());
+      // A method-set (interface) constraint: the argument must implement
+      // the interface's methods.  Resolve the constraint to an interface
+      // type -- a named interface, or an inline "interface { ... }".
+      Type* ct = NULL;
+      if (!o->constraint.empty())
+	{
+	  if (o->constraint[0].is_keyword(KEYWORD_INTERFACE))
+	    ct = this->parse_type_from_tokens(o->constraint);
+	  else if (o->constraint.size() == 1 && o->constraint[0].is_identifier())
+	    ct = this->resolve_constraint_type(o->constraint);
+	}
+      if (ct != NULL && !ct->is_error_type()
+	  && ct->interface_type() != NULL
+	  && !ct->interface_type()->is_empty())
+	{
+	  std::string reason;
+	  if (!ct->interface_type()->implements_interface(argType, &reason))
+	    go_error_at(o->location,
+			"type argument does not satisfy constraint of %qs",
+			o->what.c_str());
+	}
     }
 }
 
