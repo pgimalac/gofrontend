@@ -4720,6 +4720,18 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
   toks.push_back(Token::make_eof_token(location));
   this->note_token_package_usage(toks);
 
+  // A blank-named generic function ("func _[T any]() {}") can never be
+  // referenced or instantiated, so do not register it or create a
+  // placeholder (a function declaration named "_" is invalid).
+  if (Gogo::is_sink_name(name))
+    {
+      if (pragmas != 0)
+	go_warning_at(location, 0,
+		      ("ignoring magic %<//go:...%> comment before "
+		       "generic function"));
+      return;
+    }
+
   this->gogo_->add_generic_function(name, info);
 
   // Create a placeholder function declaration so that references to the
