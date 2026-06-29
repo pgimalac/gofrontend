@@ -77,6 +77,16 @@ class Parse
   static const std::vector<std::vector<Token> >*
   partial_type_args_for(const Expression*);
 
+  // Generics: resolve a deferred "F[args]" value (a forward reference used
+  // with type arguments but no call) to either an instantiated generic
+  // function reference or the fallback index expression, depending on what
+  // the reference RESOLVED_NO turned out to be.  Returns NULL if the key was
+  // not such a deferred value.  Static because it consults file-scoped state.
+  static Expression*
+  resolve_generic_value(Gogo*, const Expression* key, Named_object* resolved_no,
+			Location);
+  bool group_is_clearly_type(const std::vector<Token>& group);
+
   // Resolve recorded forward references to generic types.  Called from
   // go.cc after all input has been parsed.
   void resolve_pending_generic_types();

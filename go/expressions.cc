@@ -1956,6 +1956,20 @@ Unknown_expression::do_determine_type(Gogo* gogo, const Type_context* context)
       this->named_object_ = real;
     }
 
+  // Generics: a deferred "F[args]" value -- a forward reference used with
+  // type arguments but no call -- resolves to an instantiated generic
+  // function reference if this name is a generic function, or to the
+  // fallback index expression otherwise.
+  {
+    Expression* gv = Parse::resolve_generic_value(gogo, this, no, loc);
+    if (gv != NULL)
+      {
+	this->lowered_ = gv;
+	this->lowered_->determine_type(gogo, context);
+	return;
+      }
+  }
+
   switch (no->classification())
     {
     case Named_object::NAMED_OBJECT_TYPE:

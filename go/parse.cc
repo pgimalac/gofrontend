@@ -3694,6 +3694,85 @@ Parse::partial_type_args_for(const Expression* expr)
   return &p->second;
 }
 
+// Generics: a forward reference "F[args]" used as a value (no call, no
+// composite literal) is ambiguous until F is resolved: it is either an
+// instantiation of a generic function or an index of a value.  These maps
+// record, keyed by the unknown reference expression, the captured type
+// arguments and the fallback index expression; Parse::resolve_generic_value
+// picks between them once the name resolves.
+static std::map<const Expression*, std::vector<std::vector<Token> > >
+  generic_value_type_args;
+static std::map<const Expression*, Expression*> generic_value_fallback;
+
+// Generics: resolve such a deferred "F[args]" value.  RESOLVED_NO is the
+// named object the reference resolved to.  Returns the instantiated
+// function reference if RESOLVED_NO is a generic function, the fallback
+// index expression otherwise, or NULL if KEY was not a deferred value.
+
+// Generics: whether the captured bracket content GROUP is unambiguously a
+// type (so that "F[group]" on a forward reference may be a generic-function
+// instantiation), as opposed to an index expression.  Conservative: only
+// returns true for forms that cannot be a value -- a composite type
+// ("[]E", "*E", "map[..]", "chan E", "func(..)", "struct{..}",
+// "interface{..}", "~E"), a parenthesized type, or a single identifier that
+// already names a type (predeclared or package-level).  Anything else
+// (numbers, selectors, arithmetic, names that are not types) is treated as
+// an index, preserving ordinary indexing including the comma-ok map form.
+
+bool
+Parse::group_is_clearly_type(const std::vector<Token>& group)
+{
+  if (group.empty())
+    return false;
+  const Token& t0 = group[0];
+  if (t0.is_op(OPERATOR_LSQUARE) || t0.is_op(OPERATOR_MULT)
+      || t0.is_op(OPERATOR_CHANOP) || t0.is_op(OPERATOR_TILDE)
+      || t0.is_keyword(KEYWORD_CHAN) || t0.is_keyword(KEYWORD_MAP)
+      || t0.is_keyword(KEYWORD_FUNC) || t0.is_keyword(KEYWORD_STRUCT)
+      || t0.is_keyword(KEYWORD_INTERFACE))
+    return true;
+  if (group.size() == 1 && t0.is_identifier())
+    {
+      // A bare name: a type only if it already resolves to one (no side
+      // effects -- do not create an unknown name).
+      const std::string& nm = t0.identifier();
+      Named_object* no = this->gogo_->lookup_global(nm.c_str());
+      if (no == NULL)
+	no = this->gogo_->lookup(
+	  this->gogo_->pack_hidden_name(nm, Lex::is_exported_name(nm)), NULL);
+      return no != NULL && (no->is_type() || no->is_type_declaration());
+    }
+  return false;
+}
+
+Expression*
+Parse::resolve_generic_value(Gogo* gogo, const Expression* key,
+			     Named_object* resolved_no, Location location)
+{
+  std::map<const Expression*, std::vector<std::vector<Token> > >::iterator p =
+    generic_value_type_args.find(key);
+  if (p == generic_value_type_args.end())
+    return NULL;
+  std::vector<std::vector<Token> > type_args = p->second;
+  Expression* fallback = generic_value_fallback[key];
+
+  Generic_function_info* gi = (resolved_no == NULL
+			       ? NULL
+			       : gogo->lookup_generic_function_no(resolved_no));
+  if (gi == NULL)
+    return fallback;
+
+  // The parser only queries pragmas/embeds from the lexer (empty here), so
+  // a dummy lexer is fine, as in the generic-call path.
+  Lex dummy_lex(NULL, NULL, gogo->linemap());
+  Parse parse(&dummy_lex, gogo);
+  Named_object* inst =
+    parse.instantiate_generic_function(gi, type_args, location);
+  if (inst == NULL)
+    return Expression::make_error(location);
+  return Expression::make_func_reference(inst, NULL, location);
+}
+
 // Forward declarations; defined below.
 static void
 substitute_type_params(const std::vector<Token>&,
@@ -5221,7 +5300,8 @@ type_has_infer_marker(Gogo* gogo, Type* type, int depth)
 
 static void
 unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
-	     int depth)
+	     int depth, bool from_untyped = false,
+	     std::vector<bool>* solved_untyped = NULL)
 {
   if (pt == NULL || at == NULL || depth > 24)
     return;
@@ -5234,8 +5314,24 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
       Type* a = at;
       if (a->is_abstract())
 	a = a->make_non_abstract_type();
-      if ((size_t) mi < solved.size() && solved[mi] == NULL)
-	solved[mi] = a;
+      if ((size_t) mi < solved.size())
+	{
+	  if (solved[mi] == NULL)
+	    {
+	      solved[mi] = a;
+	      if (solved_untyped != NULL)
+		(*solved_untyped)[mi] = from_untyped;
+	    }
+	  else if (solved_untyped != NULL && (*solved_untyped)[mi]
+		   && !from_untyped)
+	    {
+	      // The marker was tentatively solved from an untyped constant
+	      // argument (e.g. the identity 0 for a parameter of type T); a
+	      // typed argument is more authoritative, so override it.
+	      solved[mi] = a;
+	      (*solved_untyped)[mi] = false;
+	    }
+	}
       return;
     }
 
@@ -5254,13 +5350,15 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
       const std::vector<Type*>& pa = pnt->generic_type_args();
       const std::vector<Type*>& aa = ant->generic_type_args();
       for (size_t i = 0; i < pa.size(); ++i)
-	unify_marker(gogo, pa[i], aa[i], solved, depth + 1);
+	unify_marker(gogo, pa[i], aa[i], solved, depth + 1, from_untyped,
+		     solved_untyped);
       return;
     }
 
   if (pt->points_to() != NULL && at->points_to() != NULL)
     {
-      unify_marker(gogo, pt->points_to(), at->points_to(), solved, depth + 1);
+      unify_marker(gogo, pt->points_to(), at->points_to(), solved, depth + 1,
+		   from_untyped, solved_untyped);
       return;
     }
 
@@ -5270,7 +5368,7 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
       && pat->length() == NULL && aat->length() == NULL)
     {
       unify_marker(gogo, pat->element_type(), aat->element_type(), solved,
-		   depth + 1);
+		   depth + 1, from_untyped, solved_untyped);
       return;
     }
 
@@ -5278,8 +5376,10 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
   Map_type* amt = at->map_type();
   if (pmt != NULL && amt != NULL)
     {
-      unify_marker(gogo, pmt->key_type(), amt->key_type(), solved, depth + 1);
-      unify_marker(gogo, pmt->val_type(), amt->val_type(), solved, depth + 1);
+      unify_marker(gogo, pmt->key_type(), amt->key_type(), solved, depth + 1,
+		   from_untyped, solved_untyped);
+      unify_marker(gogo, pmt->val_type(), amt->val_type(), solved, depth + 1,
+		   from_untyped, solved_untyped);
       return;
     }
 
@@ -5288,7 +5388,7 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
   if (pct != NULL && act != NULL)
     {
       unify_marker(gogo, pct->element_type(), act->element_type(), solved,
-		   depth + 1);
+		   depth + 1, from_untyped, solved_untyped);
       return;
     }
 
@@ -5303,7 +5403,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
 	  Typed_identifier_list::const_iterator i1 = pp->begin();
 	  Typed_identifier_list::const_iterator i2 = ap->begin();
 	  for (; i1 != pp->end() && i2 != ap->end(); ++i1, ++i2)
-	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
+	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1,
+			 from_untyped, solved_untyped);
 	}
       const Typed_identifier_list* pr = pft->results();
       const Typed_identifier_list* ar = aft->results();
@@ -5312,7 +5413,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
 	  Typed_identifier_list::const_iterator i1 = pr->begin();
 	  Typed_identifier_list::const_iterator i2 = ar->begin();
 	  for (; i1 != pr->end() && i2 != ar->end(); ++i1, ++i2)
-	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
+	    unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1,
+			 from_untyped, solved_untyped);
 	}
       return;
     }
@@ -5335,7 +5437,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
 	    {
 	      if (i1->field_name() != i2->field_name())
 		return;
-	      unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1);
+	      unify_marker(gogo, i1->type(), i2->type(), solved, depth + 1,
+			   from_untyped, solved_untyped);
 	    }
 	}
     }
@@ -5540,6 +5643,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   // Argument types are read from throwaway copies so that the real
   // argument expressions are left undetermined for the normal pass.
   std::vector<Type*> solved(nparams, (Type*) NULL);
+  // Tracks, per solved marker, whether it was solved only from an untyped
+  // constant argument; such a solution is overridden by a later typed
+  // argument so that, e.g., the untyped 0 in Reduce(s, 0, func(float64,...))
+  // does not fix the type parameter to int.
+  std::vector<bool> solved_untyped(nparams, false);
   const Typed_identifier_list* params = (gsig == NULL
 					 ? NULL
 					 : gsig->parameters());
@@ -5583,6 +5691,16 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  if (pi >= nparam)
 	    break;
 	  Expression* copy = (*pa)->copy();
+	  // Whether this argument is an untyped constant literal (e.g. 0).
+	  // Detected by classification, before determine_type_no_context gives
+	  // it a default type -- and without calling type(), which is unsafe on
+	  // an as-yet-unlowered expression such as an unknown reference.
+	  Expression::Expression_classification ec = copy->classification();
+	  bool untyped = (ec == Expression::EXPRESSION_INTEGER
+			  || ec == Expression::EXPRESSION_FLOAT
+			  || ec == Expression::EXPRESSION_COMPLEX
+			  || ec == Expression::EXPRESSION_STRING
+			  || ec == Expression::EXPRESSION_BOOLEAN);
 	  copy->determine_type_no_context(this->gogo_);
 	  Type* at = copy->type();
 
@@ -5599,7 +5717,8 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		{
 		  // A spread call "f(s...)" passes the slice directly, so the
 		  // argument type unifies with the whole "[]E" parameter.
-		  unify_marker(this->gogo_, pt, at, solved, 0);
+		  unify_marker(this->gogo_, pt, at, solved, 0, untyped,
+			       &solved_untyped);
 		}
 	      else if (last_is_varargs)
 		{
@@ -5607,10 +5726,12 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		  // element type E with each trailing argument.
 		  Array_type* a = pt->array_type();
 		  Type* elem = (a != NULL ? a->element_type() : pt);
-		  unify_marker(this->gogo_, elem, at, solved, 0);
+		  unify_marker(this->gogo_, elem, at, solved, 0, untyped,
+			       &solved_untyped);
 		}
 	      else
-		unify_marker(this->gogo_, pt, at, solved, 0);
+		unify_marker(this->gogo_, pt, at, solved, 0, untyped,
+			     &solved_untyped);
 	    }
 
 	  // Advance to the next parameter, but stay on a trailing variadic
@@ -6697,10 +6818,16 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 	  if (fe != NULL)
 	    ginfo =
 	      this->gogo_->lookup_generic_function_no(fe->named_object());
+	  // An unknown reference may name a generic function that is already
+	  // registered -- in particular while re-parsing an instance body that
+	  // calls another generic function ("_Ranger[K]()"), where the name
+	  // resolves to an unknown rather than a function reference.
+	  if (ginfo == NULL && ret->unknown_expression() != NULL)
+	    ginfo = this->gogo_->lookup_generic_function_no(
+	      ret->unknown_expression()->named_object());
 	  if (ginfo != NULL)
 	    ret = this->generic_instantiation(ginfo, ret, ret->location());
-	  else if (ret->unknown_expression() != NULL
-		   && this->replay_tokens_ == NULL)
+	  else if (ret->unknown_expression() != NULL)
 	    {
 	      // A forward reference to a generic function used with explicit
 	      // type arguments ("F[int](x)" where F is declared later) is not
@@ -6726,11 +6853,32 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 		}
 	      else if (groups.size() > 1 || call_follows)
 		partial_generic_type_args[ret] = groups;
+	      else if (this->group_is_clearly_type(groups[0]))
+		{
+		  // A single bracket whose content is unambiguously a type on a
+		  // forward (unknown) reference, with no call or composite
+		  // literal: this is an instantiation of a generic function used
+		  // as a value ("F[int]") if the name turns out to be a generic
+		  // function, or otherwise an index.  Build the index as a
+		  // fallback and record both interpretations on the (kept)
+		  // unknown reference; Unknown_expression::do_determine_type
+		  // chooses between them.  Only done when the content is clearly
+		  // a type, so an ordinary index ("v[i]", including the
+		  // comma-ok map form) keeps its index expression at parse time.
+		  std::vector<Token> rb = rawb;
+		  rb.push_back(Token::make_eof_token(bl));
+		  Parse ip(this->lex_, this->gogo_);
+		  ip.set_replay_tokens(&rb);
+		  Expression* fallback = ip.index(ret->copy());
+		  generic_value_type_args[ret] = groups;
+		  generic_value_fallback[ret] = fallback;
+		}
 	      else
 		{
-		  rawb.push_back(Token::make_eof_token(bl));
+		  std::vector<Token> rb = rawb;
+		  rb.push_back(Token::make_eof_token(bl));
 		  Parse ip(this->lex_, this->gogo_);
-		  ip.set_replay_tokens(&rawb);
+		  ip.set_replay_tokens(&rb);
 		  ret = ip.index(this->verify_not_sink(ret));
 		}
 	    }
