@@ -4204,6 +4204,18 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
   else
     elem = c;
 
+  // A multi-line interface body separates elements with newlines, which
+  // the lexer turns into semicolons, so an element such as "~[]E" written
+  // on its own line is captured as "~[]E ;".  Drop leading and trailing
+  // semicolons so that a single element is still recognized as one.
+  while (!elem.empty() && elem.back().is_op(OPERATOR_SEMICOLON))
+    elem.pop_back();
+  size_t start = 0;
+  while (start < elem.size() && elem[start].is_op(OPERATOR_SEMICOLON))
+    ++start;
+  if (start > 0)
+    elem.erase(elem.begin(), elem.begin() + start);
+
   // Must be a single element: no top-level "|", ";" or method.
   int depth = 0;
   for (size_t i = 0; i < elem.size(); ++i)
