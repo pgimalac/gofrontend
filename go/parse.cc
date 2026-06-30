@@ -5614,6 +5614,18 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       // tokenized (e.g. "int" is not exported), so that name packing and
       // lookup are consistent.
       bool exported = hidden ? false : Lex::is_exported_name(src);
+      // A type defined in another package must be emitted qualified
+      // ("pkg.Name"); otherwise the bare name is undefined when the
+      // instantiation is re-parsed (e.g. an inferred type argument of type
+      // "unit.Unit").  Predeclared and current-package types have no package.
+      Named_object* tno = nt->named_object();
+      const Package* tpkg = (tno != NULL ? tno->package() : NULL);
+      if (tpkg != NULL && exported)
+	{
+	  out.push_back(
+	    Token::make_identifier_token(tpkg->package_name(), false, loc));
+	  out.push_back(Token::make_operator_token(OPERATOR_DOT, loc));
+	}
       out.push_back(Token::make_identifier_token(src, exported, loc));
       return true;
     }
