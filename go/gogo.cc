@@ -1902,13 +1902,15 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
 	return ret;
     }
 
-  // Generics: while instantiating a template (re-parsing its body, which
-  // happens after file scope has been cleared), a qualified reference
-  // "pkg.X" needs "pkg" to resolve even though the import binding is no
-  // longer in scope.  Resolve it against the set of known packages by
-  // name.  This applies to both locally-declared and imported templates.
-  if (!this->saved_functions_.empty())
-    {
+  // Generics: while instantiating a template (re-parsing its body or a type
+  // argument, which happens after file scope has been cleared), a qualified
+  // reference "pkg.X" needs "pkg" to resolve even though the import binding
+  // is no longer in scope.  Resolve it against the set of known packages by
+  // name.  This applies to both locally-declared and imported templates, and
+  // to nested sub-parses (e.g. parse_type_from_tokens of an inferred type
+  // argument like "unit.Unit") that have no saved function context.  It is a
+  // last resort, reached only after the normal scope lookups above fail.
+  {
       std::string bare = Gogo::unpack_hidden_name(name);
       Unordered_map(std::string, Named_object*)::const_iterator c =
 	this->instantiation_package_cache_.find(bare);
