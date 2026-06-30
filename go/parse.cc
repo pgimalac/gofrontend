@@ -1251,6 +1251,29 @@ Parse::type_name(bool issue_error)
 	named_object = g;
     }
 
+  // The predeclared "nil" is valid as a type in a type-switch case
+  // ("case nil:").  A generic function/method body is captured as tokens and
+  // only ever parsed during instantiation, by which point "nil" has resolved
+  // to the universe constant rather than an unknown forward reference.
+  // Return a forward declaration wrapping that constant -- the representation
+  // the type-switch lowering recognizes (is_nil_constant_as_type) -- so the
+  // case lowers to a nil comparison rather than a (basic, unnamed) type
+  // descriptor.
+  if (package == NULL
+      && named_object != NULL
+      && named_object->is_const()
+      && Gogo::unpack_hidden_name(name) == "nil")
+    {
+      // Build the forward declaration over the unknown first (it resolves the
+      // object now, and an unknown with no real object yet resolves to
+      // itself), then point the unknown at the nil constant so
+      // is_nil_constant_as_type sees through it.
+      Named_object* u = Named_object::make_unknown_name("nil", location);
+      Type* fwd = Type::make_forward_declaration(u);
+      u->unknown_value()->set_real_named_object(named_object);
+      return fwd;
+    }
+
   bool ok = true;
   if (named_object == NULL)
     {

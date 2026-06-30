@@ -18529,11 +18529,13 @@ Composite_literal_expression::resolve_struct_keys(Gogo* gogo, Type* type)
 
       unsigned int index;
       const Struct_field* sf = st->find_local_field(name, &index);
-      // Generics: in an instantiated imported template, an unexported field
-      // key may have been packed with the importing package's pkgpath while
-      // the struct's field is packed with the defining package's (or vice
-      // versa).  Fall back to matching by the bare (unpacked) field name.
-      if (sf == NULL && Gogo::is_hidden_name(name))
+      // Generics: in an instantiated template, an unexported field key may
+      // not match its struct field by exact packed name -- the key and field
+      // can carry different package pkgpaths, or the key identifier may have
+      // resolved to an imported package that shares the field's name (e.g. a
+      // field "unit" of type "unit.Unit").  Fall back to matching by the bare
+      // (unpacked) field name.
+      if (sf == NULL)
 	{
 	  std::string bare = Gogo::unpack_hidden_name(name);
 	  unsigned int i = 0;
