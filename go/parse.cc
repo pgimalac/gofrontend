@@ -354,6 +354,23 @@ gen_write_generic_body(Export* exp, Gogo* gogo, Generic_function_info* info)
 	}
       gen_write_tokens(exp, methods[i].tokens);
     }
+
+  // The package-qualifier alias->pkgpath map, so an importer re-parsing this
+  // template resolves a qualifier (e.g. "attr.Filter") to the exact package
+  // the template was written against, rather than relying on an ambiguous
+  // by-name lookup.
+  std::map<std::string, std::string>& aliases = info->package_aliases();
+  exp->write_int(static_cast<int>(aliases.size()));
+  exp->write_c_string("\n");
+  for (std::map<std::string, std::string>::const_iterator p = aliases.begin();
+       p != aliases.end();
+       ++p)
+    {
+      gen_write_lenstr(exp, p->first);
+      exp->write_c_string(" ");
+      gen_write_lenstr(exp, p->second);
+      exp->write_c_string("\n");
+    }
 }
 
 // Export all exported generic function and type templates of the
@@ -719,6 +736,17 @@ gen_read_generic_body(Import* imp, Generic_function_info* info, Location loc)
 	}
       gen_read_tokens(imp, &mt.tokens, loc);
       info->methods().push_back(mt);
+    }
+
+  // The package-qualifier alias->pkgpath map (see gen_write_generic_body).
+  int nalias = gen_read_int(imp);
+  gen_skip_newline(imp);
+  for (int i = 0; i < nalias; ++i)
+    {
+      std::string alias = gen_read_lenstr(imp);
+      std::string path = gen_read_lenstr(imp);
+      gen_skip_newline(imp);
+      info->package_aliases()[alias] = path;
     }
 }
 
