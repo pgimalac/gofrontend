@@ -351,11 +351,15 @@ go_export_generics(Export* exp, Gogo* gogo)
   std::vector<std::pair<std::string, Generic_function_info*> > funcs;
   const Unordered_map(std::string, Generic_function_info*)& gf =
     gogo->generic_functions();
+  // Export every generic template, not just the exported ones: an exported
+  // generic function or type's body may reference the package's unexported
+  // generic helpers (e.g. an exported constructor returning an unexported
+  // generic type), which an importer must be able to instantiate too.
   for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
 	 gf.begin();
        p != gf.end();
        ++p)
-    if (p->second->is_exported())
+    if (p->second->defining_package() == NULL)
       funcs.push_back(*p);
 
   std::vector<std::pair<std::string, Generic_function_info*> > types;
@@ -365,7 +369,7 @@ go_export_generics(Export* exp, Gogo* gogo)
 	 gt.begin();
        p != gt.end();
        ++p)
-    if (p->second->is_exported())
+    if (p->second->defining_package() == NULL)
       types.push_back(*p);
 
   if (funcs.empty() && types.empty())
@@ -1127,6 +1131,17 @@ Parse::type_name(bool issue_error)
       && this->peek_token()->is_op(OPERATOR_LSQUARE))
     {
       Generic_function_info* ginfo = this->gogo_->lookup_generic_type(name);
+      // While re-parsing an imported template, a bare reference to one of the
+      // defining package's own (possibly unexported) generic types is written
+      // unqualified; the name was packed with the importing package's pkgpath,
+      // so also try the defining package's pkgpath.
+      if (ginfo == NULL)
+	{
+	  Package* ip = this->gogo_->current_instantiation_package();
+	  if (ip != NULL)
+	    ginfo = this->gogo_->lookup_generic_type(
+	      ip->pkgpath() + '.' + Gogo::unpack_hidden_name(name));
+	}
       if (ginfo != NULL)
 	return this->generic_type_instantiation(ginfo, location);
       if (!this->gogo_->parsing_complete())
@@ -4250,9 +4265,23 @@ Parse::make_pending_generic_type(const std::string& name,
   Named_object* placeholder = this->gogo_->declare_type(std::string(buf),
 							location);
 
+  // Resolve the name to the key under which the generic type is registered,
+  // now (while any instantiation-package context is still in effect) rather
+  // than after parsing, when it is lost.  A bare reference inside an imported
+  // template body names one of the defining package's own generic types.
+  std::string gname = name;
+  if (this->gogo_->lookup_generic_type(gname) == NULL)
+    {
+      Package* ip = this->gogo_->current_instantiation_package();      if (ip != NULL)
+	{
+	  std::string key = ip->pkgpath() + '.' + Gogo::unpack_hidden_name(name);	  if (this->gogo_->lookup_generic_type(key) != NULL)
+	    gname = key;
+	}
+    }
+
   Pending_generic_type* p = new Pending_generic_type;
   p->placeholder = placeholder;
-  p->generic_name = name;
+  p->generic_name = gname;
   p->type_args = type_args;
   p->location = location;
   this->gogo_->add_pending_generic_type(p);
@@ -4274,8 +4303,7 @@ Parse::resolve_pending_generic_types()
       Generic_function_info* info =
 	this->gogo_->lookup_generic_type(p->generic_name);
       if (info == NULL)
-	{
-	  go_error_at(p->location, "reference to undefined generic type");
+	{	  go_error_at(p->location, "reference to undefined generic type");
 	  continue;
 	}
       Type* inst = this->instantiate_generic_type(info, p->type_args,
