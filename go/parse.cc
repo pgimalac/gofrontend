@@ -157,8 +157,20 @@ class Generic_function_info
   }
 
   void
-  add_instance(const std::string& key, Named_object* no)
-  { this->instances_[key] = no; }
+  add_instance(const std::string& key, Named_object* no,
+	       const std::vector<std::vector<Token> >& type_args)
+  {
+    this->instances_[key] = no;
+    this->instance_list_.push_back(std::make_pair(no, type_args));
+  }
+
+  // All instances created so far, paired with their type arguments.  Used to
+  // retroactively instantiate a method on instances that were created before
+  // the method was declared (a generic type used -- e.g. in an interface
+  // satisfaction check "var _ I = &T[int]{}" -- above its method decls).
+  std::vector<std::pair<Named_object*, std::vector<std::vector<Token> > > >&
+  instance_list()
+  { return this->instance_list_; }
 
   // The cached signature parsed with marker types substituted for the
   // type parameters, used for type-argument inference.  NULL until built.
@@ -182,6 +194,8 @@ class Generic_function_info
   std::vector<std::vector<Token> > constraints_;
   Package* defining_package_;
   std::map<std::string, std::string> package_aliases_;
+  std::vector<std::pair<Named_object*, std::vector<std::vector<Token> > > >
+    instance_list_;
 };
 
 // Generics: cross-package export/import of generic templates.
@@ -4073,7 +4087,7 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // Declare the instance type first so that recursive references to the
   // same instantiation resolve to it.
   Named_object* no = this->gogo_->declare_type(packed, location);
-  info->add_instance(key, no);
+  info->add_instance(key, no, type_args);
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
@@ -5201,6 +5215,41 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
       mt.recv_type_param_names = recv_params;
       mt.tokens = toks;
       info->methods().push_back(mt);
+
+      // A generic type may be instantiated before its methods are declared
+      // (e.g. "var _ I = &T[int]{}" written above the method declarations,
+      // as in real code that asserts interface satisfaction).  Such earlier
+      // instances were created with an empty method set; add this newly
+      // declared method to each of them now so the method set is complete.
+      std::vector<std::pair<Named_object*,
+			    std::vector<std::vector<Token> > > >& insts =
+	info->instance_list();
+      for (size_t i = 0; i < insts.size(); ++i)
+	{
+	  std::vector<Token> msubst;
+	  substitute_type_params(mt.tokens, mt.recv_type_param_names,
+				 insts[i].second, msubst);
+	  this->gogo_->push_instantiation_context();
+	  bool imported = info->defining_package() != NULL;
+	  if (imported)
+	    this->gogo_->push_instantiation_package(info->defining_package());
+	  Named_object* mno =
+	    this->instantiate_generic_method(msubst, location,
+					     &info->package_aliases());
+	  if (imported)
+	    this->gogo_->pop_instantiation_package();
+	  this->gogo_->pop_instantiation_context();
+	  if (mno != NULL && this->gogo_->parsing_complete())
+	    {
+	      this->gogo_->resolve_global_names();
+	      this->gogo_->lower_builtin_calls_for(mno);
+	    }
+	  Named_type* nt = (insts[i].first->is_type()
+			    ? insts[i].first->type_value()->named_type()
+			    : NULL);
+	  if (nt != NULL && this->gogo_->parsing_complete())
+	    nt->finalize_methods(this->gogo_);
+	}
     }
   // If INFO is NULL the generic type was not declared before its method;
   // that is an unsupported ordering, so we simply drop the method.
@@ -6198,7 +6247,7 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 						  location);
   // Register before parsing the body so that recursive calls with the
   // same type arguments resolve to this instance.
-  info->add_instance(key, ino);
+  info->add_instance(key, ino, type_args);
   ip.block();
   this->gogo_->finish_function(location);
   if (imported)
