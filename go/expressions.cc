@@ -18529,6 +18529,28 @@ Composite_literal_expression::resolve_struct_keys(Gogo* gogo, Type* type)
 
       unsigned int index;
       const Struct_field* sf = st->find_local_field(name, &index);
+      // Generics: in an instantiated imported template, an unexported field
+      // key may have been packed with the importing package's pkgpath while
+      // the struct's field is packed with the defining package's (or vice
+      // versa).  Fall back to matching by the bare (unpacked) field name.
+      if (sf == NULL && Gogo::is_hidden_name(name))
+	{
+	  std::string bare = Gogo::unpack_hidden_name(name);
+	  unsigned int i = 0;
+	  for (Struct_field_list::const_iterator pf = st->fields()->begin();
+	       pf != st->fields()->end();
+	       ++pf, ++i)
+	    {
+	      const std::string& fn = pf->field_name();
+	      if (Gogo::unpack_hidden_name(fn) == bare)
+		{
+		  sf = &*pf;
+		  index = i;
+		  name = fn;
+		  break;
+		}
+	    }
+	}
       if (sf == NULL)
 	{
 	  go_error_at(name_expr->location(), "unknown field %qs in %qs",
