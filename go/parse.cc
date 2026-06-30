@@ -774,7 +774,15 @@ go_import_generics(Import* imp, Gogo* gogo, Package* package)
       gen_skip_newline(imp);
     }
   for (int i = 0; i < nimp; ++i)
-    gogo->import_package(gpaths[i], "_", false, false, loc);
+    {
+      gogo->import_package(gpaths[i], "_", false, false, loc);
+      // Mark it as referenced-by-a-generic-template so the importing file's
+      // unused-import check does not flag it (it is imported by the compiler
+      // to instantiate the template, not by user source).
+      Package* gp = gogo->package_from_pkgpath(gpaths[i]);
+      if (gp != NULL)
+	gogo->add_generic_imported_package(gp);
+    }
 
   for (int i = 0; i < nfunc; ++i)
     {
@@ -5748,7 +5756,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       // "unit.Unit").  Predeclared and current-package types have no package.
       Named_object* tno = nt->named_object();
       const Package* tpkg = (tno != NULL ? tno->package() : NULL);
-      if (tpkg != NULL && exported)
+      if (tpkg != NULL && tpkg->has_package_name() && exported)
 	{
 	  out.push_back(
 	    Token::make_identifier_token(tpkg->package_name(), false, loc));

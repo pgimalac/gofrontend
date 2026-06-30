@@ -1921,6 +1921,7 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
 	   ++p)
 	{
 	  if (p->second != this->package_
+	      && p->second->has_package_name()
 	      && p->second->package_name() == bare)
 	    {
 	      // Ensure the alias exists so that note_usage (called by the
@@ -2959,12 +2960,25 @@ Gogo::clear_file_scope()
        ++p)
     {
       Package* package = p->second;
+      // A package referenced by a generic template body is imported by the
+      // compiler to instantiate it; such usage is not visible as an ordinary
+      // alias use, so do not report it as unused.
+      if (this->generic_imported_packages_.count(package) != 0)
+	{
+	  package->clear_used();
+	  continue;
+	}
       if (package != this->package_ && !quiet)
         {
           for (Package::Aliases::const_iterator p1 = package->aliases().begin();
                p1 != package->aliases().end();
                ++p1)
             {
+              // Skip aliases the compiler synthesized while resolving a
+              // qualifier in a generic template instantiation (added at an
+              // unknown location, not present in user source).
+              if (Linemap::is_unknown_location(p1->second->location()))
+                continue;
               if (!p1->second->used())
                 {
                   // Give a more refined error message if the alias name is known.
@@ -10018,10 +10032,17 @@ Package::forget_usage(Expression* usage) const
 void
 Package::clear_used()
 {
-  std::string dot_alias = "." + this->package_name();
-  Aliases::const_iterator p = this->aliases_.find(dot_alias);
-  if (p != this->aliases_.end() && p->second->used() > this->fake_uses_.size())
-    this->fake_uses_.clear();
+  // A package registered by pkgpath for generic instantiation (e.g. a
+  // transitive dependency of an imported template) may have no package name
+  // yet; it has no real import aliases to account for.
+  if (this->has_package_name())
+    {
+      std::string dot_alias = "." + this->package_name();
+      Aliases::const_iterator p = this->aliases_.find(dot_alias);
+      if (p != this->aliases_.end()
+	  && p->second->used() > this->fake_uses_.size())
+	this->fake_uses_.clear();
+    }
 
   this->aliases_.clear();
 }
