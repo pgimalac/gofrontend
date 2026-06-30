@@ -548,6 +548,14 @@ class Gogo
   std::string
   pkgpath_symbol_for_package(const std::string&);
 
+  // Return a registered package given its pkgpath, or NULL.
+  Package*
+  package_from_pkgpath(const std::string&);
+
+  // Return a (cached, synthesized) package Named_object for a pkgpath.
+  Named_object*
+  package_no_for_pkgpath(const std::string&);
+
   // Start compiling a function.  ADD_METHOD_TO_TYPE is true if a
   // method function should be added to the type of its receiver.
   Named_object*

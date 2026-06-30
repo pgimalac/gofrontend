@@ -2017,6 +2017,40 @@ Gogo::register_package(const std::string& pkgpath,
   return package;
 }
 
+// Return a registered package given its pkgpath, or NULL if there is none.
+
+Package*
+Gogo::package_from_pkgpath(const std::string& pkgpath)
+{
+  Packages::const_iterator p = this->packages_.find(pkgpath);
+  if (p == this->packages_.end())
+    return NULL;
+  return p->second;
+}
+
+// Return a package Named_object for the package with the given pkgpath,
+// synthesizing one if needed.  Used while re-parsing a generic instance to
+// resolve a qualifier to a specific package (by pkgpath) rather than by its
+// possibly-ambiguous name.  Cached by pkgpath.
+
+Named_object*
+Gogo::package_no_for_pkgpath(const std::string& pkgpath)
+{
+  Package* p = this->package_from_pkgpath(pkgpath);
+  if (p == NULL)
+    return NULL;
+  std::string key = "\t" + pkgpath;
+  Unordered_map(std::string, Named_object*)::const_iterator c =
+    this->instantiation_package_cache_.find(key);
+  if (c != this->instantiation_package_cache_.end())
+    return c->second;
+  std::string bare = p->package_name();
+  p->add_alias(bare, Linemap::unknown_location());
+  Named_object* no = Named_object::make_package(bare, p);
+  this->instantiation_package_cache_[key] = no;
+  return no;
+}
+
 // Return the pkgpath symbol for a package, given the pkgpath.
 
 std::string

@@ -296,6 +296,11 @@ class Parse
   // Switch this parser to read tokens from a captured token vector
   // instead of the lexer (used when re-parsing an instance).
   void set_replay_tokens(const std::vector<Token>* tokens);
+  // Provide the template's package-qualifier alias->pkgpath map so that, on
+  // an instance re-parse, a qualifier resolves to the package the template
+  // was defined against (not a same-named package imported elsewhere).
+  void set_replay_pkg_aliases(const std::map<std::string, std::string>* a)
+  { this->replay_pkg_aliases_ = a; }
   // Parse a "[type-args]" list at a use site of a generic function and
   // return a reference to the resulting instance.
   Expression* generic_instantiation(Generic_function_info*, Expression* fn,
@@ -333,7 +338,8 @@ class Parse
   // Mark as used any imported package referenced (as "pkg.X") in a
   // captured generic template's tokens, so it is not reported as an
   // unused import even though the body is compiled only on instantiation.
-  void note_token_package_usage(const std::vector<Token>&);
+  void note_token_package_usage(const std::vector<Token>&,
+				std::map<std::string, std::string>* aliases = NULL);
   // Capture a generic type template (a type whose name is followed by a
   // "[" type parameter list).
   void generic_type_decl(const std::string& name, bool is_exported, Location);
@@ -351,7 +357,8 @@ class Parse
 			   unsigned int pragmas);
   // Re-parse a (token-substituted) method declaration as an ordinary
   // method on a generic type instance.  TOKS start at the receiver "(".
-  Named_object* instantiate_generic_method(std::vector<Token>& toks, Location);
+  Named_object* instantiate_generic_method(std::vector<Token>& toks, Location,
+					   const std::map<std::string, std::string>* aliases = NULL);
   // Instantiate a generic type template with the given type arguments
   // (each a captured token sequence).  Returns the instance type.
   Type* instantiate_generic_type(Generic_function_info*,
@@ -468,6 +475,9 @@ class Parse
   const std::vector<Token>* replay_tokens_;
   // The index of the next token to return from replay_tokens_.
   size_t replay_index_;
+  // When re-parsing an instance, the template's package-qualifier
+  // alias->pkgpath map (see set_replay_pkg_aliases); NULL otherwise.
+  const std::map<std::string, std::string>* replay_pkg_aliases_;
   // The current token.
   Token token_;
   // Tokens pushed back on the input stream, as a stack: the next token

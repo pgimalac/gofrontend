@@ -86,8 +86,17 @@ class Generic_function_info
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
       type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
-      methods_(), defining_package_(NULL)
+      methods_(), defining_package_(NULL), package_aliases_()
   { }
+
+  // Map from a package qualifier alias used in the template tokens (e.g.
+  // "internal") to that package's full pkgpath, captured when the template
+  // is parsed (while the defining file's import scope is in effect).  Used
+  // when re-parsing an instance, where the file scope is gone and a bare
+  // alias would otherwise resolve to the wrong same-named package.
+  std::map<std::string, std::string>&
+  package_aliases()
+  { return this->package_aliases_; }
 
   // The package that defined this template, if it was imported from
   // another package; NULL for a locally-declared template.  Used so that,
@@ -172,6 +181,7 @@ class Generic_function_info
   std::vector<Generic_method_template> methods_;
   std::vector<std::vector<Token> > constraints_;
   Package* defining_package_;
+  std::map<std::string, std::string> package_aliases_;
 };
 
 // Generics: cross-package export/import of generic templates.
@@ -780,6 +790,7 @@ Parse::Parse(Lex* lex, Gogo* gogo)
   : lex_(lex),
     replay_tokens_(NULL),
     replay_index_(0),
+    replay_pkg_aliases_(NULL),
     token_(Token::make_invalid_token(Linemap::unknown_location())),
     ungot_(),
     is_erroneous_function_(false),
@@ -941,6 +952,7 @@ Parse::qualified_ident(std::string* pname, Named_object** ppackage)
       return false;
     }
 
+  std::string raw_alias = token->identifier();
   std::string name = token->identifier();
   bool is_exported = token->is_identifier_exported();
   name = this->gogo_->pack_hidden_name(name, is_exported);
@@ -953,7 +965,29 @@ Parse::qualified_ident(std::string* pname, Named_object** ppackage)
       return true;
     }
 
-  Named_object* package = this->gogo_->lookup(name, NULL);
+  // While re-parsing a generic instance, resolve a package qualifier through
+  // the template's recorded alias->pkgpath map.  This selects the exact
+  // package the template was written against, rather than letting an
+  // ambiguous by-name lookup pick a different same-named package that
+  // happens to be imported elsewhere in this compilation.
+  Named_object* package = NULL;
+  if (this->replay_pkg_aliases_ != NULL)
+    {
+      std::map<std::string, std::string>::const_iterator a =
+	this->replay_pkg_aliases_->find(raw_alias);
+      if (a != this->replay_pkg_aliases_->end())
+	{
+	  package = this->gogo_->package_no_for_pkgpath(a->second);
+	  // Ensure the qualifier alias is registered for usage tracking, so
+	  // the note_usage below does not assert (the package's own name may
+	  // differ from the alias used here).
+	  if (package != NULL)
+	    package->package_value()->add_alias(raw_alias,
+						Linemap::unknown_location());
+	}
+    }
+  if (package == NULL)
+    package = this->gogo_->lookup(name, NULL);
   if (package == NULL || !package->is_package())
     {
       if (package == NULL)
@@ -3725,7 +3759,17 @@ Parse::group_is_clearly_type(const std::vector<Token>& group)
   if (group.empty())
     return false;
   const Token& t0 = group[0];
-  if (t0.is_op(OPERATOR_LSQUARE) || t0.is_op(OPERATOR_MULT)
+  // A leading "*" is ambiguous: "*E" is a pointer type, but "*p" is a
+  // pointer dereference (so "v[*p]" is an ordinary index, including the
+  // comma-ok map form).  Decide by what follows the "*": treat it as a type
+  // only if the remainder is itself clearly a type (e.g. "*int", "*[]E"),
+  // not when it is a value such as a variable ("*p") or expression.
+  if (t0.is_op(OPERATOR_MULT))
+    {
+      std::vector<Token> tail(group.begin() + 1, group.end());
+      return this->group_is_clearly_type(tail);
+    }
+  if (t0.is_op(OPERATOR_LSQUARE)
       || t0.is_op(OPERATOR_CHANOP) || t0.is_op(OPERATOR_TILDE)
       || t0.is_keyword(KEYWORD_CHAN) || t0.is_keyword(KEYWORD_MAP)
       || t0.is_keyword(KEYWORD_FUNC) || t0.is_keyword(KEYWORD_STRUCT)
@@ -3908,6 +3952,12 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
 
   this->type_parameter_names(&info->type_param_names(), &info->constraints());
 
+  // Note any package qualifier appearing only in a constraint (see the
+  // generic function path for why).
+  for (size_t ci = 0; ci < info->constraints().size(); ++ci)
+    this->note_token_package_usage(info->constraints()[ci],
+				   &info->package_aliases());
+
   // Capture the type definition tokens up to a top-level semicolon.
   std::vector<Token>& toks = info->tokens();
   int depth = 0;
@@ -3928,7 +3978,7 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
-  this->note_token_package_usage(toks);
+  this->note_token_package_usage(toks, &info->package_aliases());
 
   // Register under the packed name so that lookups in type context
   // (which pack the name) match, including for unexported types.
@@ -3993,6 +4043,7 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
+  ip.set_replay_pkg_aliases(&info->package_aliases());
   Type* underlying = ip.type();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
@@ -4053,7 +4104,8 @@ Parse::instantiate_generic_type(Generic_function_info* info,
       std::vector<Token> msubst;
       substitute_type_params(mt.tokens, mt.recv_type_param_names, type_args,
 			     msubst);
-      Named_object* mno = this->instantiate_generic_method(msubst, location);
+      Named_object* mno = this->instantiate_generic_method(msubst, location,
+							   &info->package_aliases());
       // If this instantiation happens after the early passes (during
       // inference), the new method needs the per-instance fixups.
       if (mno != NULL && this->gogo_->parsing_complete())
@@ -5079,12 +5131,16 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
-  this->note_token_package_usage(toks);
 
   // The generic types are registered under their packed names.
   Generic_function_info* info =
     this->gogo_->lookup_generic_type(this->gogo_->pack_hidden_name(type_name,
 								   Lex::is_exported_name(type_name)));
+  // Record package usage and alias->pkgpath on the receiver type's template,
+  // so an instance re-parse of the method body resolves qualifiers (e.g.
+  // "internal.T") to the right package even amid same-named imports.
+  this->note_token_package_usage(toks,
+				 info != NULL ? &info->package_aliases() : NULL);
   if (info != NULL)
     {
       Generic_method_template mt;
@@ -5106,10 +5162,12 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
 // Returns the method's Named_object, or NULL on error.
 
 Named_object*
-Parse::instantiate_generic_method(std::vector<Token>& toks, Location location)
+Parse::instantiate_generic_method(std::vector<Token>& toks, Location location,
+				  const std::map<std::string, std::string>* aliases)
 {
   Parse mp(this->lex_, this->gogo_);
   mp.set_replay_tokens(&toks);
+  mp.set_replay_pkg_aliases(aliases);
 
   Typed_identifier* rec = mp.receiver();
   if (rec == NULL)
@@ -5143,6 +5201,14 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
     new Generic_function_info(name, is_exported, location);
 
   this->type_parameter_names(&info->type_param_names(), &info->constraints());
+
+  // A package qualifier may appear only in a type-parameter constraint
+  // ("func F[T fmt.Stringer]..."); the constraint tokens are stored apart
+  // from the captured body, so note their package usage too -- otherwise the
+  // import is wrongly reported as unused.
+  for (size_t ci = 0; ci < info->constraints().size(); ++ci)
+    this->note_token_package_usage(info->constraints()[ci],
+				   &info->package_aliases());
 
   // Capture the signature and body tokens.  The current token should be
   // "(".  We track bracket nesting and stop after the body's closing
@@ -5181,7 +5247,7 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
       this->advance_token();
     }
   toks.push_back(Token::make_eof_token(location));
-  this->note_token_package_usage(toks);
+  this->note_token_package_usage(toks, &info->package_aliases());
 
   // A blank-named generic function ("func _[T any]() {}") can never be
   // referenced or instantiated, so do not register it or create a
@@ -5216,7 +5282,8 @@ Parse::generic_function_decl(const std::string& name, bool is_exported,
 // the normal use-tracking in operand() never sees it here.
 
 void
-Parse::note_token_package_usage(const std::vector<Token>& toks)
+Parse::note_token_package_usage(const std::vector<Token>& toks,
+				std::map<std::string, std::string>* aliases)
 {
   bool prev_dot = false;
   for (size_t i = 0; i + 1 < toks.size(); ++i)
@@ -5235,6 +5302,11 @@ Parse::note_token_package_usage(const std::vector<Token>& toks)
 	{
 	  no->package_value()->note_usage(toks[i].identifier());
 	  this->gogo_->add_generic_imported_package(no->package_value());
+	  // Record this alias's pkgpath so an instance re-parse resolves the
+	  // qualifier to the right package even when another imported package
+	  // shares the same name.
+	  if (aliases != NULL)
+	    (*aliases)[toks[i].identifier()] = no->package_value()->pkgpath();
 	}
     }
 }
@@ -5640,6 +5712,7 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	this->gogo_->push_instantiation_package(info->defining_package());
       Parse sp(this->lex_, this->gogo_);
       sp.set_replay_tokens(&subst);
+      sp.set_replay_pkg_aliases(&info->package_aliases());
       gsig = sp.signature(NULL, location);
       if (imported_sig)
 	this->gogo_->pop_instantiation_package();
@@ -6046,6 +6119,7 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
+  ip.set_replay_pkg_aliases(&info->package_aliases());
 
   Function_type* fntype = ip.signature(NULL, location);
   if (fntype == NULL)
@@ -6125,6 +6199,30 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 
 	Named_object* in_function;
 	Named_object* named_object = this->gogo_->lookup(packed, &in_function);
+
+	// While re-parsing a generic instance, resolve a package qualifier
+	// through the template's alias->pkgpath map, so it names the exact
+	// package the template was defined against rather than an ambiguous
+	// same-named package imported elsewhere (mirrors qualified_ident).
+	// The map is authoritative: an ordinary by-name lookup may have found
+	// a different same-named package, so override it.
+	if (this->replay_pkg_aliases_ != NULL)
+	  {
+	    std::map<std::string, std::string>::const_iterator a =
+	      this->replay_pkg_aliases_->find(id);
+	    if (a != this->replay_pkg_aliases_->end())
+	      {
+		Named_object* pno =
+		  this->gogo_->package_no_for_pkgpath(a->second);
+		if (pno != NULL)
+		  {
+		    pno->package_value()->add_alias(
+		      id, Linemap::unknown_location());
+		    named_object = pno;
+		    in_function = NULL;
+		  }
+	      }
+	  }
 
 	Package* package = NULL;
 	if (named_object != NULL && named_object->is_package())
