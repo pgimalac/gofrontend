@@ -4178,10 +4178,25 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     generic_instance_spelling[no] = spelling;
   }
 
+  // If any type argument is an inference marker ("$infermarkerK"), this is a
+  // transient instance built only to give a marker signature its shape for
+  // unification (e.g. a parameter of type "T[N]" while inferring the call's
+  // own type arguments).  Its methods are not needed and would fail to parse
+  // against the marker, so skip instantiating them.
+  bool marker_arg = false;
+  for (size_t i = 0; i < type_args.size() && !marker_arg; ++i)
+    for (size_t j = 0; j < type_args[i].size(); ++j)
+      if (type_args[i][j].is_identifier()
+	  && type_args[i][j].identifier().compare(0, 12, "$infermarker") == 0)
+	{
+	  marker_arg = true;
+	  break;
+	}
+
   // Instantiate the type's methods: for each method template, substitute
   // the receiver's type parameter names with the type arguments and
   // re-parse it as an ordinary method on this instance.
-  for (size_t m = 0; m < info->methods().size(); ++m)
+  for (size_t m = 0; !marker_arg && m < info->methods().size(); ++m)
     {
       Generic_method_template& mt = info->methods()[m];
       std::vector<Token> msubst;
@@ -5254,6 +5269,19 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
 	info->instance_list();
       for (size_t i = 0; i < insts.size(); ++i)
 	{
+	  // Skip transient marker-argument instances (see instantiate_generic_type).
+	  bool marker_arg = false;
+	  for (size_t a = 0; a < insts[i].second.size() && !marker_arg; ++a)
+	    for (size_t j = 0; j < insts[i].second[a].size(); ++j)
+	      if (insts[i].second[a][j].is_identifier()
+		  && insts[i].second[a][j].identifier().compare(
+		       0, 12, "$infermarker") == 0)
+		{
+		  marker_arg = true;
+		  break;
+		}
+	  if (marker_arg)
+	    continue;
 	  std::vector<Token> msubst;
 	  substitute_type_params(mt.tokens, mt.recv_type_param_names,
 				 insts[i].second, msubst);
@@ -6071,6 +6099,22 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		Token::make_identifier_token(syn, false, location));
 	      continue;
 	    }
+	}
+      // If the solved type still contains an inference marker, the argument
+      // it came from was itself a not-yet-resolved instance (e.g. an outer
+      // template's parameter standing in as "$infermarkerK" while building a
+      // marker signature).  Inference genuinely did not resolve this
+      // parameter, so fail rather than emitting "$infermarkerK" as a type
+      // argument and creating a broken instance.
+      if (solved[i] != NULL
+	  && type_has_infer_marker(this->gogo_, solved[i], 0))
+	{
+	  if (!quiet)
+	    go_error_at(location,
+			("cannot infer type arguments for call to generic "
+			 "function %qs; specify them explicitly, e.g. f[int]"),
+			Gogo::message_name(info->name()).c_str());
+	  return NULL;
 	}
       if (solved[i] == NULL
 	  || !type_to_tokens(solved[i], type_args[i], location))
