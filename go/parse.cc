@@ -509,7 +509,13 @@ go_collect_generic_exports(Gogo* gogo, const Bindings* bindings,
        p != gf.end();
        ++p)
     {
-      if (!p->second->is_exported())
+      // Every locally-declared generic template is exported (see
+      // go_export_generics), including unexported ones, so collect the
+      // symbols referenced by all of them -- an unexported generic helper's
+      // body may reference further unexported types/funcs/vars that an
+      // importer must be able to resolve and link against.  Skip only
+      // templates imported from another package.
+      if (p->second->defining_package() != NULL)
 	continue;
       Generic_function_info* info = p->second;
       collect_refs_in_tokens(gogo, bindings, info->tokens(),
@@ -523,7 +529,7 @@ go_collect_generic_exports(Gogo* gogo, const Bindings* bindings,
        p != gt.end();
        ++p)
     {
-      if (!p->second->is_exported())
+      if (p->second->defining_package() != NULL)
 	continue;
       Generic_function_info* info = p->second;
       collect_refs_in_tokens(gogo, bindings, info->tokens(),
@@ -1407,11 +1413,24 @@ Parse::field_decl(Struct_field_list* sfl)
 		      || token->is_string());
       // Generics: an embedded generic type "B[...]" -- ID names a generic
       // type and is followed by "[" -- is an anonymous (embedded) field,
-      // not a named field of an array type.
-      if (token->is_op(OPERATOR_LSQUARE)
-	  && this->gogo_->lookup_generic_type(
-	       this->gogo_->pack_hidden_name(id, is_id_exported)) != NULL)
-	is_anonymous = true;
+      // not a named field of an array type.  While re-parsing an imported
+      // template, the embedded type may be one of the defining package's own
+      // generic types, registered under that package's pkgpath.
+      if (token->is_op(OPERATOR_LSQUARE))
+	{
+	  bool is_generic =
+	    (this->gogo_->lookup_generic_type(
+	       this->gogo_->pack_hidden_name(id, is_id_exported)) != NULL);
+	  if (!is_generic)
+	    {
+	      Package* ip = this->gogo_->current_instantiation_package();
+	      if (ip != NULL)
+		is_generic = (this->gogo_->lookup_generic_type(
+				ip->pkgpath() + '.' + id) != NULL);
+	    }
+	  if (is_generic)
+	    is_anonymous = true;
+	}
       is_anonymous_pointer = false;
       this->unget_token(Token::make_identifier_token(id, is_id_exported,
 						     id_location));
@@ -6282,6 +6301,18 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	  {
 	    Generic_function_info* ginfo =
 	      this->gogo_->lookup_generic_type(packed);
+	    // While re-parsing an imported template, a bare reference to one of
+	    // the defining package's own (possibly unexported) generic types
+	    // (e.g. "&filter[N]{...}" inside its NewFilter constructor) was
+	    // packed with the importing package's pkgpath; also try the current
+	    // instantiation package's pkgpath (mirrors type_name).
+	    if (ginfo == NULL)
+	      {
+		Package* ip = this->gogo_->current_instantiation_package();
+		if (ip != NULL)
+		  ginfo = this->gogo_->lookup_generic_type(
+		    ip->pkgpath() + '.' + Gogo::unpack_hidden_name(packed));
+	      }
 	    if (ginfo != NULL)
 	      {
 		Type* t = this->generic_type_instantiation(ginfo, location);
