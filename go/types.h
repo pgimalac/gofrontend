@@ -3462,7 +3462,8 @@ class Named_type : public Type
       is_alias_(false), is_visible_(true), is_error_(false), in_heap_(true),
       is_placeholder_(false), is_converted_(false), is_verified_(false),
       seen_(false), seen_in_compare_is_identity_(false),
-      seen_in_get_backend_(false), seen_alias_(false), generic_base_name_()
+      seen_in_get_backend_(false), seen_alias_(false), generic_base_name_(),
+      generic_embedded_field_name_()
   { }
 
   // Return the associated Named_object.  This holds the actual name.
@@ -3527,6 +3528,18 @@ class Named_type : public Type
   void
   set_generic_base_name(const std::string& n)
   { this->generic_base_name_ = n; }
+
+  // Generics: the name an embedded field of this instance should have.  For
+  // an unexported generic this is the package-hidden form (".pkg.box"), so
+  // it matches how a selector packs the field name; empty otherwise (the
+  // exported base name is then used directly).
+  const std::string&
+  generic_embedded_field_name() const
+  { return this->generic_embedded_field_name_; }
+
+  void
+  set_generic_embedded_field_name(const std::string& n)
+  { this->generic_embedded_field_name_ = n; }
 
   // Generics: for a generic type instance, the resolved type arguments,
   // used to build the reflection name "Base[arg0,arg1,...]"; empty for an
@@ -3799,6 +3812,7 @@ class Named_type : public Type
   // For a generic type instance, the generic's source name; see
   // generic_base_name().
   std::string generic_base_name_;
+  std::string generic_embedded_field_name_;
   // For a generic type instance, the resolved type arguments; see
   // generic_type_args().
   std::vector<Type*> generic_type_args_;

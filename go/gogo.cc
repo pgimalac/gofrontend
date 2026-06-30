@@ -317,6 +317,26 @@ Gogo::pkgpath() const
   return this->pkgpath_;
 }
 
+// Pack a struct field's name (definition or selector).  While re-parsing an
+// imported generic template, an unexported field belongs to the template's
+// defining package, so pack it with that package's pkgpath; otherwise the
+// field definition and the selector referencing it would disagree, and an
+// imported helper type's fields (packed by the defining package) would not
+// match accesses.  Only field names use this; ordinary names (predeclared
+// builtins, package aliases, instance names) keep the importing package's
+// pkgpath via pack_hidden_name.
+
+std::string
+Gogo::pack_hidden_name_for_field(const std::string& name,
+				 bool is_exported) const
+{
+  if (is_exported)
+    return name;
+  Package* ip = this->current_instantiation_package();
+  const std::string& pp = (ip != NULL ? ip->pkgpath() : this->pkgpath());
+  return '.' + pp + '.' + name;
+}
+
 // Set the package path from the -fgo-pkgpath command line option.
 
 void
@@ -9963,7 +9983,12 @@ void
 Package::note_usage(const std::string& alias) const
 {
   Aliases::const_iterator p = this->aliases_.find(alias);
-  go_assert(p != this->aliases_.end());
+  // While re-parsing an imported generic template, a qualifier may be
+  // resolved to a synthesized package whose alias set does not include this
+  // spelling; the import's usage was already recorded where the template was
+  // defined, so there is nothing to do rather than asserting.
+  if (p == this->aliases_.end())
+    return;
   p->second->note_usage();
 }
 

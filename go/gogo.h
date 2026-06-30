@@ -300,6 +300,14 @@ class Gogo
 	    : '.' + this->pkgpath() + '.' + name);
   }
 
+  // Like pack_hidden_name, but while re-parsing an imported generic template
+  // pack with the template's defining package's pkgpath, so that struct
+  // field definitions and the selectors that reference them (and an imported
+  // helper type's fields) agree on the package.  Defined out of line because
+  // it needs Package to be complete.
+  std::string
+  pack_hidden_name_for_field(const std::string& name, bool is_exported) const;
+
   // Unpack a name which may have been hidden.  Returns the
   // user-visible name of the object.
   static std::string

@@ -6002,6 +6002,9 @@ Struct_field::field_name() const
 	  // (named e.g. "Box$type0") embeds a field named for the generic.
 	  Named_object* fno = dt->forward_declaration_type()->named_object();
 	  if (fno->is_type()
+	      && !fno->type_value()->generic_embedded_field_name().empty())
+	    return fno->type_value()->generic_embedded_field_name();
+	  if (fno->is_type()
 	      && !fno->type_value()->generic_base_name().empty())
 	    return fno->type_value()->generic_base_name();
 	  return dt->forward_declaration_type()->name();
@@ -6010,6 +6013,10 @@ Struct_field::field_name() const
 	{
 	  // Generics: an embedded generic type instance is named e.g.
 	  // "Box$type0"; the embedded field is named for the generic ("Box").
+	  // For an unexported generic the field name is the package-hidden
+	  // form (matching how a selector packs it), recorded at instantiation.
+	  if (!dt->named_type()->generic_embedded_field_name().empty())
+	    return dt->named_type()->generic_embedded_field_name();
 	  if (!dt->named_type()->generic_base_name().empty())
 	    return dt->named_type()->generic_base_name();
 	  // Note that this can be an alias name.
@@ -6057,6 +6064,13 @@ Struct_field::is_field_name(const std::string& name) const
       if (nt != NULL
 	  && !nt->generic_base_name().empty()
 	  && nt->generic_base_name() == name)
+	return true;
+
+      // For an unexported embedded generic, the field name is the
+      // package-hidden form (".pkg.box"); match that too.
+      if (nt != NULL
+	  && !nt->generic_embedded_field_name().empty()
+	  && nt->generic_embedded_field_name() == name)
 	return true;
 
       // This is a horrible hack caused by the fact that we don't pack

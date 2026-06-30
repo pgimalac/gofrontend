@@ -1492,8 +1492,8 @@ Parse::field_decl(Struct_field_list* sfl)
 	      return;
 	    }
 	  std::string name =
-	    this->gogo_->pack_hidden_name(token->identifier(),
-					  token->is_identifier_exported());
+	    this->gogo_->pack_hidden_name_for_field(token->identifier(),
+						    token->is_identifier_exported());
 	  til.push_back(Typed_identifier(name, NULL, token->location()));
 	  if (!this->advance_token()->is_op(OPERATOR_COMMA))
 	    break;
@@ -4083,7 +4083,14 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Named_type* nt = Type::make_named_type(no, underlying, location);
   // Record the generic's source name so an embedded field of this instance
   // is named for the generic (e.g. "Box"), not the instance ("Box$type0").
-  nt->set_generic_base_name(Gogo::unpack_hidden_name(info->name()));
+  std::string base_name = Gogo::unpack_hidden_name(info->name());
+  nt->set_generic_base_name(base_name);
+  // For an unexported generic, an embedded field of this instance must use
+  // the package-hidden name (".pkg.box"), matching how a selector packs the
+  // field name (with the defining package's pkgpath while instantiating).
+  if (!Lex::is_exported_name(base_name))
+    nt->set_generic_embedded_field_name(
+      this->gogo_->pack_hidden_name_for_field(base_name, false));
   // Record the resolved type arguments so the instance reflects as
   // "Base[arg0,arg1,...]" rather than its mangled instance name.
   {
@@ -5223,7 +5230,10 @@ Parse::instantiate_generic_method(std::vector<Token>& toks, Location location,
   if (!nt->is_identifier())
     return NULL;
   bool exported = nt->is_identifier_exported();
-  std::string mname = this->gogo_->pack_hidden_name(nt->identifier(), exported);
+  // Pack the method name with the defining package (while instantiating an
+  // imported template), matching how a selector packs the method name.
+  std::string mname =
+    this->gogo_->pack_hidden_name_for_field(nt->identifier(), exported);
   mp.advance_token();
   Function_type* fntype = mp.signature(rec, location);
   if (fntype == NULL)
@@ -7207,8 +7217,8 @@ Parse::selector(Expression* left, bool* is_type_switch)
       // interface, or a method associated with a type.  We can't know
       // which until we have seen all the types.
       std::string name =
-	this->gogo_->pack_hidden_name(token->identifier(),
-				      token->is_identifier_exported());
+	this->gogo_->pack_hidden_name_for_field(token->identifier(),
+						token->is_identifier_exported());
       if (token->identifier() == "_")
 	{
 	  go_error_at(this->location(), "invalid use of %<_%>");
