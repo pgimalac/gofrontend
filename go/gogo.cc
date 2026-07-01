@@ -2783,10 +2783,41 @@ Gogo::add_dot_import_object(Named_object* no)
 // Add a linkname.  This implements the go:linkname compiler directive.
 // We only support this for functions and function declarations.
 
+// Translate a gc-style //go:linkname target to the corresponding gccgo
+// assembler symbol.  Since Go 1.23 the gc toolchain only permits
+// //go:linkname references to a curated set of standard-library symbols
+// (those the standard library "pushes" via a linkname on the definition,
+// including the back-compat "badlinkname.go" lists).  Third-party packages
+// -- notably github.com/modern-go/reflect2 (pulled in transitively by
+// json-iterator/go, prometheus/client_golang, ...) -- write the gc symbol
+// name, but gccgo mangles identifiers (e.g. '_' becomes '__'), so a handful
+// of those names differ from gccgo's actual symbol.  We only need entries
+// for the names that really differ: targets whose gccgo encoding is
+// identical to the gc name (typedmemmove, mapassign, ifaceE2I, ...) resolve
+// on their own.  This is deliberately a small, demand-driven table rather
+// than a mirror of the upstream allowlist: the gc restriction postdates
+// Go 1.18 and gccgo's libgo is a separate implementation, so we add only
+// the mappings real programs actually require.
+
+static std::string
+translate_gc_linkname(const std::string& ext_name)
+{
+  static const struct { const char* gc; const char* gccgo; } table[] =
+    {
+      { "reflect.unsafe_New", "reflect.unsafe__New" },
+      { "reflect.unsafe_NewArray", "reflect.unsafe__NewArray" },
+    };
+  for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i)
+    if (ext_name == table[i].gc)
+      return std::string(table[i].gccgo);
+  return ext_name;
+}
+
 void
 Gogo::add_linkname(const std::string& go_name, bool is_exported,
-		   const std::string& ext_name, Location loc)
+		   const std::string& ext_name_arg, Location loc)
 {
+  const std::string ext_name = translate_gc_linkname(ext_name_arg);
   Named_object* no =
     this->package_->bindings()->lookup(this->pack_hidden_name(go_name,
 							      is_exported));
