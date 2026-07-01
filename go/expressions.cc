@@ -20597,14 +20597,20 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
 				      this->is_pointer_);
 
   // Set is_public if we are converting a named type to an interface
-  // type that is defined in the same package as the named type, and
-  // the interface has hidden methods.  In that case the interface
-  // method table will be defined by the package that defines the
-  // types.
+  // type with hidden (unexported) methods.  A hidden-method interface
+  // can only be implemented either by a type in the interface's own
+  // package, or -- across packages -- by a type that embeds the
+  // interface (which forwards the unexported methods).  In both cases the
+  // converting package cannot name the unexported method stubs, so the
+  // interface method table must be defined by the package that defines
+  // the named type and referenced from everywhere else.  We therefore
+  // publish it whenever the concrete type is a named type, regardless of
+  // whether the interface lives in the same package: during compilation
+  // of the type's own package named_object()->package() is NULL and we
+  // emit the (public) definition below; in importers it is non-NULL and
+  // we emit an external reference.
   bool is_public = false;
-  if (this->type_->named_type() != NULL
-      && (this->type_->named_type()->named_object()->package()
-	  == this->itype_->package()))
+  if (this->type_->named_type() != NULL)
     {
       for (Typed_identifier_list::const_iterator p = interface_methods->begin();
 	   p != interface_methods->end();
