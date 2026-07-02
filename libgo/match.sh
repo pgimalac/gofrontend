@@ -98,12 +98,20 @@ if test "$gofiles" = ""; then
     exit 1
 fi
 
+# The "unix" build tag (added in Go 1.19) matches any Unix-like GOOS.
+case "$goos" in
+    aix | android | darwin | dragonfly | freebsd | hurd | illumos | ios | linux | netbsd | openbsd | solaris)
+	unixtag=unix ;;
+    *)
+	unixtag=nosuchtag ;;
+esac
+
 gobuild() {
     line=$(echo "$1" | sed -e 's|//go:build ||')
     line=$(echo "$line" | sed -e 's/go1\.[0-9][0-9]*/1/g' -e 's/goexperiment\./goexperiment/')
     line=" $line "
     wrap='[ ()!&|]'
-    for ones in $goarch $goos $cgotag $cmdlinetag gccgo goexperimentfieldtrack; do
+    for ones in $goarch $goos $cgotag $cmdlinetag $unixtag gccgo goexperimentfieldtrack; do
 	line=$(echo "$line" | sed -e "s/\\(${wrap}\\)${ones}\\(${wrap}\\)/"'\11\2/g')
     done
     # 386 is a special case since it looks like a number to the shell.

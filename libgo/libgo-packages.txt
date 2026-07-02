@@ -2,6 +2,7 @@ archive/tar
 archive/zip
 bufio
 bytes
+cmd/go/internal/mmap
 compress/bzip2
 compress/flate
 compress/gzip
@@ -24,6 +25,13 @@ crypto/elliptic
 crypto/elliptic/internal/fiat
 crypto/elliptic/internal/nistec
 crypto/hmac
+crypto/internal/boring
+crypto/internal/boring/bbig
+crypto/internal/boring/sig
+crypto/internal/edwards25519
+crypto/internal/edwards25519/field
+crypto/internal/nistec
+crypto/internal/nistec/fiat
 crypto/internal/randutil
 crypto/internal/subtle
 crypto/md5
@@ -68,6 +76,7 @@ go/build
 go/build/constraint
 go/constant
 go/doc
+go/doc/comment
 go/format
 go/importer
 go/internal/gccgoimporter
@@ -138,6 +147,7 @@ internal/lazytemplate
 internal/nettrace
 internal/obscuretestdata
 internal/oserror
+internal/pkgbits
 internal/poll
 internal/profile
 internal/race
