@@ -3835,6 +3835,27 @@ Parse::partial_type_args_for(const Expression* expr)
   return &p->second;
 }
 
+// Generics: for an ambiguous "name[expr](args)" on a forward (unknown)
+// reference, "[expr]" may be a generic type-argument list (a generic call
+// "F[T](args)") or an ordinary index of a value followed by a call
+// ("(arr[i])(args)").  The parser cannot tell until the name resolves, so it
+// records the call as a generic instantiation (partial_generic_type_args
+// above) but also stores the ordinary index interpretation here as a
+// fallback.  If the name turns out to be a non-generic value,
+// Call_expression::do_determine_type swaps in this fallback.  Keyed by the
+// (kept) function-reference expression.
+static std::map<const Expression*, Expression*> partial_generic_call_fallback;
+
+Expression*
+Parse::partial_call_fallback_for(const Expression* expr)
+{
+  std::map<const Expression*, Expression*>::const_iterator
+    p = partial_generic_call_fallback.find(expr);
+  if (p == partial_generic_call_fallback.end())
+    return NULL;
+  return p->second;
+}
+
 // Generics: a forward reference "F[args]" used as a value (no call, no
 // composite literal) is ambiguous until F is resolved: it is either an
 // instantiation of a generic function or an index of a value.  These maps
@@ -7216,7 +7237,26 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 		  ret = this->composite_lit(t, 0, bl);
 		}
 	      else if (groups.size() > 1 || call_follows)
-		partial_generic_type_args[ret] = groups;
+		{
+		  partial_generic_type_args[ret] = groups;
+		  // For a single-bracket call "name[expr](args)" whose bracket
+		  // content is not unambiguously a type, "[expr]" is most
+		  // likely an ordinary index of a value followed by a call
+		  // (e.g. an array of functions, "transitionFunc[c.state](...)")
+		  // rather than a generic instantiation "F[T](args)".  Record
+		  // the index interpretation as a fallback so that if the name
+		  // resolves to a non-generic value rather than a generic
+		  // function, Call_expression::do_determine_type recovers it.
+		  if (call_follows && groups.size() == 1
+		      && !this->group_is_clearly_type(groups[0]))
+		    {
+		      std::vector<Token> rb = rawb;
+		      rb.push_back(Token::make_eof_token(bl));
+		      Parse ip(this->lex_, this->gogo_);
+		      ip.set_replay_tokens(&rb);
+		      partial_generic_call_fallback[ret] = ip.index(ret->copy());
+		    }
+		}
 	      else if (this->group_is_clearly_type(groups[0]))
 		{
 		  // A single bracket whose content is unambiguously a type on a

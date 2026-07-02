@@ -78,6 +78,14 @@ class Parse
   static const std::vector<std::vector<Token> >*
   partial_type_args_for(const Expression*);
 
+  // Generics: for an ambiguous "name[expr](args)" forward reference, return
+  // the ordinary index interpretation ("(name[expr])") recorded as a
+  // fallback, or NULL.  Used by the call expression when the name resolves
+  // to a non-generic value rather than a generic function.  Static because
+  // it consults file-scoped state.
+  static Expression*
+  partial_call_fallback_for(const Expression*);
+
   // Generics: resolve a deferred "F[args]" value (a forward reference used
   // with type arguments but no call) to either an instantiated generic
   // function reference or the fallback index expression, depending on what

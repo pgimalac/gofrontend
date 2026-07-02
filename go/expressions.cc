@@ -13820,6 +13820,17 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 						    this->fn_->location());
 	// Fall through to the normal determination using the instance.
       }
+    else if (this->fn_->unknown_expression() != NULL)
+      {
+	// The callee was an ambiguous "name[expr](args)" forward reference
+	// that the parser tentatively recorded as a generic instantiation.
+	// The name did not resolve to a generic function, so "[expr]" is an
+	// ordinary index of a value: swap in the recorded index fallback
+	// ("(name[expr])") as the function being called.
+	Expression* fallback = Parse::partial_call_fallback_for(this->fn_);
+	if (fallback != NULL)
+	  this->fn_ = fallback;
+      }
   }
 
   this->fn_->determine_type_no_context(gogo);
