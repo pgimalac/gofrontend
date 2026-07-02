@@ -49,7 +49,7 @@ func mmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uintptr) (u
 // prevents us from allocating more stack.
 //
 //go:nosplit
-func sysAlloc(n uintptr, sysStat *sysMemStat) unsafe.Pointer {
+func sysAllocOS(n uintptr) unsafe.Pointer {
 	p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, mmapFD, 0)
 	if err != 0 {
 		if err == _EACCES {
@@ -62,11 +62,10 @@ func sysAlloc(n uintptr, sysStat *sysMemStat) unsafe.Pointer {
 		}
 		return nil
 	}
-	sysStat.add(int64(n))
 	return p
 }
 
-func sysUnused(v unsafe.Pointer, n uintptr) {
+func sysUnusedOS(v unsafe.Pointer, n uintptr) {
 	// By default, Linux's "transparent huge page" support will
 	// merge pages into a huge page if there's even a single
 	// present regular page, undoing the effects of the DONTNEED
@@ -139,7 +138,7 @@ func sysUnused(v unsafe.Pointer, n uintptr) {
 	}
 }
 
-func sysUsed(v unsafe.Pointer, n uintptr) {
+func sysUsedOS(v unsafe.Pointer, n uintptr) {
 	// Partially undo the NOHUGEPAGE marks from sysUnused
 	// for whole huge pages between v and v+n. This may
 	// leave huge pages off at the end points v and v+n
@@ -148,10 +147,10 @@ func sysUsed(v unsafe.Pointer, n uintptr) {
 	// the end points as well, but it's probably not worth
 	// the cost because when neighboring allocations are
 	// freed sysUnused will just set NOHUGEPAGE again.
-	sysHugePage(v, n)
+	sysHugePageOS(v, n)
 }
 
-func sysHugePage(v unsafe.Pointer, n uintptr) {
+func sysHugePageOS(v unsafe.Pointer, n uintptr) {
 	if physHugePageSize != 0 && _MADV_HUGEPAGE != 0 {
 		// Round v up to a huge page boundary.
 		beg := (uintptr(v) + (physHugePageSize - 1)) &^ (physHugePageSize - 1)
@@ -168,16 +167,15 @@ func sysHugePage(v unsafe.Pointer, n uintptr) {
 // which prevents us from allocating more stack.
 //
 //go:nosplit
-func sysFree(v unsafe.Pointer, n uintptr, sysStat *sysMemStat) {
-	sysStat.add(-int64(n))
+func sysFreeOS(v unsafe.Pointer, n uintptr) {
 	munmap(v, n)
 }
 
-func sysFault(v unsafe.Pointer, n uintptr) {
+func sysFaultOS(v unsafe.Pointer, n uintptr) {
 	mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, mmapFD, 0)
 }
 
-func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+func sysReserveOS(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, mmapFD, 0)
 	if err != 0 {
 		return nil
@@ -185,9 +183,7 @@ func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	return p
 }
 
-func sysMap(v unsafe.Pointer, n uintptr, sysStat *sysMemStat) {
-	sysStat.add(int64(n))
-
+func sysMapOS(v unsafe.Pointer, n uintptr) {
 	if GOOS == "aix" {
 		// AIX does not allow mapping a range that is already mapped.
 		// So always unmap first even if it is already unmapped.
