@@ -849,6 +849,7 @@ Parse::Enclosing_var_comparison::operator()(const Enclosing_var& v1,
 Parse::Parse(Lex* lex, Gogo* gogo)
   : lex_(lex),
     replay_tokens_(NULL),
+    counted_reparse_(false),
     replay_index_(0),
     replay_pkg_aliases_(NULL),
     token_(Token::make_invalid_token(Linemap::unknown_location())),
@@ -873,6 +874,21 @@ Parse::set_replay_tokens(const std::vector<Token>* tokens)
   this->replay_index_ = 0;
   this->token_ = Token::make_invalid_token(Linemap::unknown_location());
   this->ungot_.clear();
+
+  // Mark that we are re-parsing captured tokens rather than original
+  // source, so that Gogo::lookup's package-name last resort is active (see
+  // Gogo::enter_reparse).  Balanced in the destructor.
+  if (tokens != NULL && !this->counted_reparse_)
+    {
+      this->gogo_->enter_reparse();
+      this->counted_reparse_ = true;
+    }
+}
+
+Parse::~Parse()
+{
+  if (this->counted_reparse_)
+    this->gogo_->leave_reparse();
 }
 
 // Fetch the next token, either from the replay buffer or the lexer.

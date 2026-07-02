@@ -646,6 +646,28 @@ class Gogo
 	    : this->instantiation_package_.back());
   }
 
+  // Generics: track whether the parser is currently replaying captured
+  // tokens (re-parsing a generic template body, a type argument, or an
+  // inferred type) rather than reading original source.  While re-parsing,
+  // file-scoped import bindings are gone, so a qualified reference "pkg.X"
+  // must resolve "pkg" against the set of known packages by name (see the
+  // last resort in Gogo::lookup).  During normal source parsing that same
+  // fallback must NOT fire, or a forward reference to a package-scope name
+  // that happens to match a (possibly transitively imported) package name
+  // would wrongly resolve to that package.  A counter, because re-parses
+  // nest.
+  void
+  enter_reparse()
+  { ++this->reparsing_; }
+
+  void
+  leave_reparse()
+  { --this->reparsing_; }
+
+  bool
+  is_reparsing() const
+  { return this->reparsing_ > 0; }
+
   // Record that an imported package is referenced by a generic template
   // body; such packages must appear in this package's export data so that
   // importers can resolve the reference when they instantiate the
@@ -1438,6 +1460,8 @@ class Gogo
   Package* package_;
   // The list of currently open functions during parsing.
   Open_functions functions_;
+  // Generics: nesting depth of token re-parsing (see enter_reparse).
+  int reparsing_;
   // Saved function-parsing contexts, used while instantiating a
   // generic function so that the instance is created at the top level.
   std::vector<Open_functions> saved_functions_;

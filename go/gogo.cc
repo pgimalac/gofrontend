@@ -32,6 +32,7 @@ Gogo::Gogo(Backend* backend, Linemap* linemap, int, int pointer_size)
     linemap_(linemap),
     package_(NULL),
     functions_(),
+    reparsing_(0),
     parsing_complete_(false),
     globals_(new Bindings(NULL)),
     file_block_names_(),
@@ -1910,6 +1911,15 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
   // to nested sub-parses (e.g. parse_type_from_tokens of an inferred type
   // argument like "unit.Unit") that have no saved function context.  It is a
   // last resort, reached only after the normal scope lookups above fail.
+  //
+  // Only do this while actually re-parsing captured tokens.  During normal
+  // source parsing the file-scoped imports are in scope and are found above,
+  // so reaching here means an ordinary forward reference to a package-scope
+  // name; that name must NOT be hijacked to a (possibly only transitively
+  // imported) package that happens to share its spelling -- e.g. a local
+  // "type parser" in a package that imports go/types, whose export data
+  // transitively registers the package go/parser under the name "parser".
+  if (this->is_reparsing())
   {
       std::string bare = Gogo::unpack_hidden_name(name);
       Unordered_map(std::string, Named_object*)::const_iterator c =

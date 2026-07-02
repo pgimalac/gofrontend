@@ -55,6 +55,7 @@ class Parse
 {
  public:
   Parse(Lex*, Gogo*);
+  ~Parse();
 
   // Parse a program.
   void
@@ -481,6 +482,10 @@ class Parse
   // set_replay_tokens) instead of being read from the lexer.  Used
   // when re-parsing a generic function instance.
   const std::vector<Token>* replay_tokens_;
+  // Whether this parser has incremented Gogo's re-parse counter (i.e. it
+  // was switched to replay tokens); used to balance the counter in the
+  // destructor.  See Gogo::enter_reparse.
+  bool counted_reparse_;
   // The index of the next token to return from replay_tokens_.
   size_t replay_index_;
   // When re-parsing an instance, the template's package-qualifier
