@@ -4,11 +4,7 @@
 [!cgo] skip
 [!exec:gccgo] skip
 
-<<<<<<< go/./cmd/go/testdata/script/gccgo_link_c.txt
-! go build -x -compiler gccgo cgoref
-=======
 go build -n -compiler gccgo
->>>>>>> /tmp/go119/src/./cmd/go/testdata/script/gccgo_link_c.txt
 stderr 'gccgo.*\-L [^ ]*alibpath \-lalib' # make sure that Go-inline "#cgo LDFLAGS:" ("-L alibpath -lalib") passed to gccgo linking stage
 ! stderr 'gccgo.*-lalib.*-lalib' # make sure -lalib is only passed once
 

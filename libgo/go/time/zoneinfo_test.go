@@ -67,14 +67,7 @@ func TestLoadLocationValidatesNames(t *testing.T) {
 }
 
 func TestVersion3(t *testing.T) {
-<<<<<<< go/./time/zoneinfo_test.go
 	t.Skip("gccgo does not use the zip file")
-	time.ForceZipFileForTesting(true)
-	defer time.ForceZipFileForTesting(false)
-=======
-	undo := time.DisablePlatformSources()
-	defer undo()
->>>>>>> /tmp/go119/src/./time/zoneinfo_test.go
 	_, err := time.LoadLocation("Asia/Jerusalem")
 	if err != nil {
 		t.Fatal(err)
@@ -85,15 +78,7 @@ func TestVersion3(t *testing.T) {
 // transition time. To do this we explicitly check early dates in a
 // couple of specific timezones.
 func TestFirstZone(t *testing.T) {
-<<<<<<< go/./time/zoneinfo_test.go
 	t.Skip("gccgo does not use the zip file")
-
-	time.ForceZipFileForTesting(true)
-	defer time.ForceZipFileForTesting(false)
-=======
-	undo := time.DisablePlatformSources()
-	defer undo()
->>>>>>> /tmp/go119/src/./time/zoneinfo_test.go
 
 	const format = "Mon, 02 Jan 2006 15:04:05 -0700 (MST)"
 	var tests = []struct {
@@ -142,15 +127,7 @@ func TestLocationNames(t *testing.T) {
 }
 
 func TestLoadLocationFromTZData(t *testing.T) {
-<<<<<<< go/./time/zoneinfo_test.go
 	t.Skip("gccgo does not use the zip file")
-
-	time.ForceZipFileForTesting(true)
-	defer time.ForceZipFileForTesting(false)
-=======
-	undo := time.DisablePlatformSources()
-	defer undo()
->>>>>>> /tmp/go119/src/./time/zoneinfo_test.go
 
 	const locationName = "Asia/Jerusalem"
 	reference, err := time.LoadLocation(locationName)
@@ -178,14 +155,7 @@ func TestLoadLocationFromTZData(t *testing.T) {
 
 // Issue 30099.
 func TestEarlyLocation(t *testing.T) {
-<<<<<<< go/./time/zoneinfo_test.go
 	t.Skip("gccgo does not use the zip file")
-	time.ForceZipFileForTesting(true)
-	defer time.ForceZipFileForTesting(false)
-=======
-	undo := time.DisablePlatformSources()
-	defer undo()
->>>>>>> /tmp/go119/src/./time/zoneinfo_test.go
 
 	const locName = "America/New_York"
 	loc, err := time.LoadLocation(locName)

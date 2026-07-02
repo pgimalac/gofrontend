@@ -415,15 +415,7 @@ func TestParseInLocation(t *testing.T) {
 }
 
 func TestLoadLocationZipFile(t *testing.T) {
-<<<<<<< go/./time/format_test.go
 	t.Skip("gccgo does not use the zip file")
-
-	ForceZipFileForTesting(true)
-	defer ForceZipFileForTesting(false)
-=======
-	undo := DisablePlatformSources()
-	defer undo()
->>>>>>> /tmp/go119/src/./time/format_test.go
 
 	_, err := LoadLocation("Australia/Sydney")
 	if err != nil {

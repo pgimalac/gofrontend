@@ -112,15 +112,12 @@ func TestStack(t *testing.T) {
 		n++
 	}
 	n++
-<<<<<<< go/./runtime/debug/stack_test.go
 	frame("stack.go", "debug.Stack")
 	frame("stack_test.go", "ptrmethod")
 	frame("stack_test.go", "method")
 	frame("stack_test.go", "test.TestStack")
 	frame("testing.go", "")
 }
-=======
->>>>>>> /tmp/go119/src/./runtime/debug/stack_test.go
 
 	frame("runtime/debug/stack.go", "runtime/debug.Stack")
 	frame("runtime/debug/stack_test.go", "runtime/debug_test.(*T).ptrmethod")

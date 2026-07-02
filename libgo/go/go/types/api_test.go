@@ -43,12 +43,8 @@ func pkgForMode(path, source string, info *Info, mode parser.Mode) (*Package, er
 	return conf.Check(f.Name.Name, fset, []*ast.File{f}, info)
 }
 
-<<<<<<< go/./go/types/api_test.go
 func mustTypecheck(t *testing.T, path, source string, info *Info) string {
 	t.Skip("skipping for gccgo--no importer")
-=======
-func mustTypecheck(t testing.TB, path, source string, info *Info) string {
->>>>>>> /tmp/go119/src/./go/types/api_test.go
 	pkg, err := pkgFor(path, source, info)
 	if err != nil {
 		name := path
