@@ -189,7 +189,7 @@ func payloadOffset(typ bucketType, nstk uintptr) uintptr {
 		// of the stack used will vary from trace to trace).
 		nstk = maxStack
 	}
-	return unsafe.Sizeof(bucket{}) + uintptr(nstk)*unsafe.Sizeof(uintptr)
+	return unsafe.Sizeof(bucket{}) + uintptr(nstk)*unsafe.Sizeof(uintptr(0))
 }
 
 func max(x, y uintptr) uintptr {

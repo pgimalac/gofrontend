@@ -13208,7 +13208,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Add")
 		name = "Xaddint32";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Int64")
 	    {
@@ -13223,7 +13223,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Add")
 		name = "Xaddint64";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Uint8")
 	    {
@@ -13236,7 +13236,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Or")
 		name = "Or8";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Uint32")
 	    {
@@ -13259,7 +13259,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Add")
 		name = "Xadd";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Uint64")
 	    {
@@ -13274,7 +13274,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Add")
 		name = "Xadd64";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Uintptr")
 	    {
@@ -13293,7 +13293,7 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "Add")
 		name = "Xadduintptr";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else if (rname == "Float64")
 	    {
@@ -13309,10 +13309,10 @@ Call_expression::intrinsify(Gogo* gogo,
 	      else if (name == "CompareAndSwapNoWB")
 		name = "Casp1";
 	      else
-		go_unreachable();
+		return NULL;
 	    }
 	  else
-	    go_unreachable();
+	    return NULL;
 	}
 
       if ((name == "Load" || name == "Load64" || name == "Loadint64" || name == "Loadp"

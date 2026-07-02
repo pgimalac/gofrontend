@@ -156,8 +156,15 @@ func slicebytetostringtmp(ptr *byte, n int) (str string) {
 	if asanenabled && n > 0 {
 		asanread(unsafe.Pointer(ptr), uintptr(n))
 	}
-	stringStructOf(&str).str = unsafe.Pointer(ptr)
-	stringStructOf(&str).len = n
+	// Write the string header directly through a pointer derived from the
+	// address of the local result variable.  gccgo's write-barrier pass
+	// runs before inlining and cannot see through the stringStructOf call,
+	// so it would emit a (spurious) write barrier for the field stores;
+	// that is rejected when this function is reached from a
+	// //go:nowritebarrierrec function (e.g. runtime.printDebugLog).  The
+	// "*(*T)(unsafe.Pointer(&local)) = ..." form is recognized as a
+	// non-heap store, so no barrier is generated.
+	*(*stringStruct)(unsafe.Pointer(&str)) = stringStruct{str: unsafe.Pointer(ptr), len: n}
 	return
 }
 

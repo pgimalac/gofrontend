@@ -1369,7 +1369,7 @@ func (c *gcControllerState) setMemoryLimit(in int64) int64 {
 	return out
 }
 
-//go:linkname setMemoryLimit runtime/debug.setMemoryLimit
+//go:linkname setMemoryLimit runtime_1debug.setMemoryLimit
 func setMemoryLimit(in int64) (out int64) {
 	// Run on the system stack since we grab the heap lock.
 	systemstack(func() {
