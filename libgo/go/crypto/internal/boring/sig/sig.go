@@ -7,11 +7,16 @@
 // the final binary. The functions themselves are no-ops.
 package sig
 
+// gccgo: gc implements these no-op marker functions in per-architecture
+// assembly (sig_amd64.s etc.).  gccgo has no assembly for them, so provide
+// empty Go bodies -- the functions exist only so that references to them pull
+// specific code sequences into the final binary; the bodies do nothing.
+
 // BoringCrypto indicates that the BoringCrypto module is present.
-func BoringCrypto()
+func BoringCrypto() {}
 
 // FIPSOnly indicates that package crypto/tls/fipsonly is present.
-func FIPSOnly()
+func FIPSOnly() {}
 
 // StandardCrypto indicates that standard Go crypto is present.
-func StandardCrypto()
+func StandardCrypto() {}

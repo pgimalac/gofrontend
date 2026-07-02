@@ -69,6 +69,21 @@ struct xgetbv_ret xgetbv(void) {
 
 #pragma GCC pop_options
 
+// getGOAMD64level reports the GOAMD64 microarchitecture level (1-4) that the
+// running program was built for, so that internal/cpu can verify the CPU
+// supports the required features.  gc implements it in assembly generated per
+// build from the GOAMD64 setting.  gccgo selects microarchitecture via -march
+// at compile time rather than the GOAMD64 mechanism, so it always reports the
+// baseline level 1, whose required feature set is empty and thus always
+// satisfied.
+int32_t getGOAMD64level(void)
+  __asm__(GOSYM_PREFIX "internal_1cpu.getGOAMD64level")
+  __attribute__((no_split_stack));
+
+int32_t getGOAMD64level(void) {
+	return 1;
+}
+
 #endif /* defined(__i386__) || defined(__x86_64__)  */
 
 #ifdef __s390x__
