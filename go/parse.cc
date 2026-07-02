@@ -1833,9 +1833,7 @@ Parse::parameter_list(bool* is_varargs)
 	      parameters_have_names = false;
 	    }
 	  else if (token->is_op(OPERATOR_LSQUARE)
-		   && this->gogo_->lookup_generic_type(
-			this->gogo_->pack_hidden_name(name, is_exported))
-		      != NULL)
+		   && this->name_is_generic_type(name, is_exported))
 	    {
 	      // Generics: "Foo[...]" where Foo is a generic type is an
 	      // unnamed parameter of a generic-type instantiation, not a
@@ -2293,7 +2291,14 @@ Parse::method_spec(Typed_identifier_list* methods)
       if (name == "_")
 	go_error_at(this->location(),
                     "methods must have a unique non-blank name");
-      name = this->gogo_->pack_hidden_name(name, is_exported);
+      // Generics: an unexported interface method belongs to the package that
+      // declared the interface.  While re-parsing an imported generic template
+      // (e.g. a type assertion "x.(iface[T])" whose iface has an unexported
+      // method), pack the method name with the template's defining package's
+      // pkgpath -- as the concrete type's method was packed when its own
+      // package was compiled -- so the interface method matches.  Outside
+      // instantiation this is identical to pack_hidden_name.
+      name = this->gogo_->pack_hidden_name_for_field(name, is_exported);
       Type* type = this->signature(NULL, location);
       if (type == NULL)
 	return;
@@ -3897,6 +3902,27 @@ static std::map<const Expression*, Expression*> generic_value_fallback;
 // (numbers, selectors, arithmetic, names that are not types) is treated as
 // an index, preserving ordinary indexing including the comma-ok map form.
 
+// Generics: whether NAME (with exportedness IS_EXPORTED) names a registered
+// generic type.  Checks the current package's packing and, while re-parsing
+// an imported template, the template's defining package (whose pkgpath the
+// name would not otherwise be packed with).  Used to recognize a generic-type
+// instantiation "Foo[...]" as an unnamed parameter rather than a named
+// parameter of array type.
+
+bool
+Parse::name_is_generic_type(const std::string& name, bool is_exported)
+{
+  if (this->gogo_->lookup_generic_type(
+	this->gogo_->pack_hidden_name(name, is_exported)) != NULL)
+    return true;
+  Package* ip = this->gogo_->current_instantiation_package();
+  if (ip != NULL
+      && this->gogo_->lookup_generic_type(
+	   ip->pkgpath() + '.' + Gogo::unpack_hidden_name(name)) != NULL)
+    return true;
+  return false;
+}
+
 bool
 Parse::group_is_clearly_type(const std::vector<Token>& group)
 {
@@ -4495,6 +4521,19 @@ Parse::resolve_pending_generic_types()
       Named_type* alias = Type::make_named_type(p->placeholder, inst,
 						p->location);
       alias->set_is_alias();
+      // If this instance is used as an embedded struct field before the
+      // generic type is declared ("type S struct{ box[int] }" with box
+      // declared later), the field name is derived from the alias by
+      // Struct_field::field_name.  Record the generic's source name on the
+      // alias so the field is named for the generic ("box"), not for the
+      // placeholder ("$pendinggenN").  Mirrors instantiate_generic_type.
+      {
+	std::string base_name = Gogo::unpack_hidden_name(info->name());
+	alias->set_generic_base_name(base_name);
+	if (!Lex::is_exported_name(base_name))
+	  alias->set_generic_embedded_field_name(
+	    this->gogo_->pack_hidden_name_for_field(base_name, false));
+      }
       this->gogo_->define_type(p->placeholder, alias);
     }
   this->gogo_->resolve_global_names();

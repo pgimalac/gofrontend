@@ -97,6 +97,10 @@ class Parse
 			Location);
   bool group_is_clearly_type(const std::vector<Token>& group);
 
+  // Generics: whether NAME names a registered generic type, consulting the
+  // current instantiation package while re-parsing an imported template.
+  bool name_is_generic_type(const std::string& name, bool is_exported);
+
   // Resolve recorded forward references to generic types.  Called from
   // go.cc after all input has been parsed.
   void resolve_pending_generic_types();
