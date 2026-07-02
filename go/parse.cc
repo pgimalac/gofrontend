@@ -4010,17 +4010,32 @@ Parse::type_parameter_names(std::vector<std::string>* names,
 // Generics: the current token is the "[" that follows a type name in a
 // type declaration.  Return whether it introduces a type parameter list
 // ("[P constraint, ...]") rather than an array or slice element type
-// ("[]T" or "[N]T").  Looks ahead two tokens and restores the stream.
+// ("[]T", "[N]T", "[N/64]T", ...).  Looks ahead two tokens and restores
+// the stream.
+//
+// A type parameter list has the form "[Name Constraint, ...]": the first
+// identifier is a parameter name, immediately followed by a constraint (a
+// type) or, for multiple parameters, a comma.  An array type instead has
+// the form "[Expr]Elem", where Expr is a constant expression; if it begins
+// with an identifier, the next token continues that expression (a binary
+// operator, a selector ".", an index, etc.).
+//
+// So after "[" Name, it is a type parameter list only if the following
+// token can begin a constraint or is a comma.  A constraint (an interface,
+// or a type used as a one-element type set) begins with another identifier,
+// "~", "[" (e.g. "[]byte"), "<-", or one of the type keywords
+// (interface/chan/func/map/struct).  Anything else -- "]", a binary
+// operator such as "/", "*", "-", "|", a ".", etc. -- means "[" began an
+// array type.  This matches the gc compiler; note in particular that
+// "[P *int]" is the array "P * int", not a pointer constraint.
 //
 // The distinguishing cases:
-//   "[" "]"        -> slice type, not type parameters
-//   "[" non-ident  -> array type with a constant/expression length
-//   "[" ident "]"  -> array type "[N]T" (N is a constant)
-//   "[" ident X     (X != "]") -> type parameter list (ident is a name,
-//                                  X begins its constraint, or is ",")
-// (An array length that is a more complex expression beginning with an
-// identifier, e.g. "[N+1]T", is rare in a type declaration and would be
-// misread as a type parameter list; standard array forms are handled.)
+//   "[" "]"                     -> slice type
+//   "[" non-ident ...           -> array type ("[3]T", "[2*N]T")
+//   "[" ident "]"               -> array type "[N]T"
+//   "[" ident <binop|.|(> ...   -> array type "[N/64]T", "[N*M]T", ...
+//   "[" ident ","               -> type parameter list
+//   "[" ident <ident|~|[|<-|kw> -> type parameter list "[P constraint]"
 
 bool
 Parse::next_is_type_parameter_decl()
@@ -4037,7 +4052,16 @@ Parse::next_is_type_parameter_decl()
     {
       Token first = *t1;
       const Token* t2 = this->advance_token();
-      result = !t2->is_op(OPERATOR_RSQUARE);
+      result = (t2->is_identifier()
+		|| t2->is_op(OPERATOR_COMMA)
+		|| t2->is_op(OPERATOR_TILDE)
+		|| t2->is_op(OPERATOR_LSQUARE)
+		|| t2->is_op(OPERATOR_CHANOP)
+		|| t2->is_keyword(KEYWORD_INTERFACE)
+		|| t2->is_keyword(KEYWORD_CHAN)
+		|| t2->is_keyword(KEYWORD_FUNC)
+		|| t2->is_keyword(KEYWORD_MAP)
+		|| t2->is_keyword(KEYWORD_STRUCT));
       this->unget_token(first);
       this->unget_token(open);
     }
