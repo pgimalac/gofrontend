@@ -4435,10 +4435,18 @@ Parse::make_pending_generic_type(const std::string& name,
 {
   static unsigned int count;
   char buf[64];
-  snprintf(buf, sizeof buf, ".$pendinggen%u", count);
+  snprintf(buf, sizeof buf, "$pendinggen%u", count);
   ++count;
-  Named_object* placeholder = this->gogo_->declare_type(std::string(buf),
-							location);
+  // Name the placeholder within the current package -- a proper hidden name
+  // ".pkgpath.$pendinggenN" rather than the bare ".$pendinggenN".  If the
+  // placeholder alias reaches export data (referenced by an exported generic
+  // instance type), an importer splits its name into (pkgpath, name); a bare
+  // ".$pendinggenN" mis-splits into a phantom package named "$pendinggenN"
+  // that has no package name and crashes the exporter of the importing
+  // package.  Qualifying with the real pkgpath (as the generic instance types
+  // themselves are named) makes the importer attribute it to this package.
+  std::string phname = this->gogo_->pack_hidden_name(std::string(buf), false);
+  Named_object* placeholder = this->gogo_->declare_type(phname, location);
 
   // Resolve the name to the key under which the generic type is registered,
   // now (while any instantiation-package context is still in effect) rather
