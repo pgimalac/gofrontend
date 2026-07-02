@@ -169,12 +169,12 @@ func usage() {
 }
 
 var ptrSizeMap = map[string]int64{
-<<<<<<< go/./cmd/cgo/main.go
 	"386":         4,
 	"alpha":       8,
 	"amd64":       8,
 	"arm":         4,
 	"arm64":       8,
+	"loong64":     8,
 	"m68k":        4,
 	"mips":        4,
 	"mipsle":      4,
@@ -194,40 +194,15 @@ var ptrSizeMap = map[string]int64{
 	"shbe":        4,
 	"sparc":       4,
 	"sparc64":     8,
-=======
-	"386":      4,
-	"alpha":    8,
-	"amd64":    8,
-	"arm":      4,
-	"arm64":    8,
-	"loong64":  8,
-	"m68k":     4,
-	"mips":     4,
-	"mipsle":   4,
-	"mips64":   8,
-	"mips64le": 8,
-	"nios2":    4,
-	"ppc":      4,
-	"ppc64":    8,
-	"ppc64le":  8,
-	"riscv":    4,
-	"riscv64":  8,
-	"s390":     4,
-	"s390x":    8,
-	"sh":       4,
-	"shbe":     4,
-	"sparc":    4,
-	"sparc64":  8,
->>>>>>> /tmp/go119/src/./cmd/cgo/main.go
 }
 
 var intSizeMap = map[string]int64{
-<<<<<<< go/./cmd/cgo/main.go
 	"386":         4,
 	"alpha":       8,
 	"amd64":       8,
 	"arm":         4,
 	"arm64":       8,
+	"loong64":     8,
 	"m68k":        4,
 	"mips":        4,
 	"mipsle":      4,
@@ -247,31 +222,6 @@ var intSizeMap = map[string]int64{
 	"shbe":        4,
 	"sparc":       4,
 	"sparc64":     8,
-=======
-	"386":      4,
-	"alpha":    8,
-	"amd64":    8,
-	"arm":      4,
-	"arm64":    8,
-	"loong64":  8,
-	"m68k":     4,
-	"mips":     4,
-	"mipsle":   4,
-	"mips64":   8,
-	"mips64le": 8,
-	"nios2":    4,
-	"ppc":      4,
-	"ppc64":    8,
-	"ppc64le":  8,
-	"riscv":    4,
-	"riscv64":  8,
-	"s390":     4,
-	"s390x":    8,
-	"sh":       4,
-	"shbe":     4,
-	"sparc":    4,
-	"sparc64":  8,
->>>>>>> /tmp/go119/src/./cmd/cgo/main.go
 }
 
 var cPrefix string

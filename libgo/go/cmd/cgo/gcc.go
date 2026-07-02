@@ -1656,7 +1656,6 @@ func (p *Package) gccMachine() []string {
 		} else if gomips == "softfloat" {
 			return []string{"-mabi=32", "-msoft-float"}
 		}
-<<<<<<< go/./cmd/cgo/gcc.go
 	case "ppc64":
 		if goos == "aix" {
 			return []string{"-maix64"}
@@ -1665,10 +1664,8 @@ func (p *Package) gccMachine() []string {
 		if goos == "aix" {
 			return []string{"-maix32"}
 		}
-=======
 	case "loong64":
 		return []string{"-mabi=lp64d"}
->>>>>>> /tmp/go119/src/./cmd/cgo/gcc.go
 	}
 	return nil
 }

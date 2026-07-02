@@ -12,12 +12,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-<<<<<<< go/./cmd/go/internal/modload/search.go
-	"runtime"
-=======
 	"runtime"
 	"sort"
->>>>>>> /tmp/go119/src/./cmd/go/internal/modload/search.go
 	"strings"
 	"sync"
 
@@ -151,17 +147,13 @@ func matchPackages(ctx context.Context, m *search.Match, tags map[string]bool, f
 		}
 	}
 
-<<<<<<< go/./cmd/go/internal/modload/search.go
-	if filter == includeStd && runtime.Compiler != "gccgo" {
-=======
 	// Wait for all in-flight operations to complete before returning.
 	defer func() {
 		<-q.Idle()
 		sort.Strings(m.Pkgs) // sort everything we added for determinism
 	}()
 
-	if filter == includeStd {
->>>>>>> /tmp/go119/src/./cmd/go/internal/modload/search.go
+	if filter == includeStd && runtime.Compiler != "gccgo" {
 		walkPkgs(cfg.GOROOTsrc, "", pruneGoMod)
 		if treeCanMatch("cmd") {
 			walkPkgs(filepath.Join(cfg.GOROOTsrc, "cmd"), "cmd", pruneGoMod)

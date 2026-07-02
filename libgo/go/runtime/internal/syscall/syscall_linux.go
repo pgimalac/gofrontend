@@ -26,10 +26,7 @@ func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr) {
 	return r, 0, errno
 }
 
-// syscall_RawSyscall6 is a push linkname to export Syscall6 as
-// syscall.RawSyscall6.
-//
-//go:linkname syscall_RawSyscall6 syscall.RawSyscall6
-func syscall_RawSyscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr) {
-	return Syscall6(num, a1, a2, a3, a4, a5, a6)
-}
+// Note: in gc, syscall_RawSyscall6 is a push linkname that exports Syscall6
+// as syscall.RawSyscall6.  gccgo's syscall package already provides its own
+// syscall.RawSyscall6 (syscall/syscall_funcs.go), so that wrapper is omitted
+// here to avoid a duplicate definition of the syscall.RawSyscall6 symbol.

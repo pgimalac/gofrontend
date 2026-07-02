@@ -23,6 +23,7 @@ cmd/go/internal/modconv
 cmd/go/internal/modfetch
 cmd/go/internal/modfetch/codehost
 cmd/go/internal/modget
+cmd/go/internal/modindex
 cmd/go/internal/modinfo
 cmd/go/internal/modload
 cmd/go/internal/mvs
@@ -44,8 +45,8 @@ cmd/go/internal/workcmd
 cmd/internal/browser
 cmd/internal/buildid
 cmd/internal/codesign
-cmd/internal/diff
 cmd/internal/edit
+cmd/internal/notsha256
 cmd/internal/objabi
 cmd/internal/pkgpath
 cmd/internal/quoted

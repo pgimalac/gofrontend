@@ -127,6 +127,7 @@ internal/buildcfg
 internal/bytealg
 internal/cfg
 internal/cpu
+internal/diff
 internal/fmtsort
 internal/fuzz
 internal/goarch

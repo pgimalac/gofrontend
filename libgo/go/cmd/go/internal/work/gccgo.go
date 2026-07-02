@@ -619,19 +619,11 @@ var gccgoToSymbolFunc func(string) string
 
 func (tools gccgoToolchain) gccgoCleanPkgpath(b *Builder, p *load.Package) string {
 	gccgoToSymbolFuncOnce.Do(func() {
-<<<<<<< go/./cmd/go/internal/work/gccgo.go
 		if cfg.BuildN {
 			gccgoToSymbolFunc = func(s string) string { return s }
 			return
 		}
 		fn, err := pkgpath.ToSymbolFunc(tools.compiler(), b.WorkDir)
-=======
-		tmpdir := b.WorkDir
-		if cfg.BuildN {
-			tmpdir = os.TempDir()
-		}
-		fn, err := pkgpath.ToSymbolFunc(tools.compiler(), tmpdir)
->>>>>>> /tmp/go119/src/./cmd/go/internal/work/gccgo.go
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmd/go: %v\n", err)
 			base.SetExitStatus(2)

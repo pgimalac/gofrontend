@@ -142,18 +142,14 @@ func main() {
 		}
 	}
 
-<<<<<<< go/./cmd/go/main.go
 	// For gccgo this is fine, carry on.
 	// Note that this check is imperfect as we have not yet parsed
 	// the -compiler flag.
-	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() && runtime.Compiler != "gccgo" {
-=======
-	if cfg.GOROOT == "" {
+	if cfg.GOROOT == "" && runtime.Compiler != "gccgo" {
 		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set\n")
 		os.Exit(2)
 	}
-	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() {
->>>>>>> /tmp/go119/src/./cmd/go/main.go
+	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() && runtime.Compiler != "gccgo" {
 		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: %v\n", cfg.GOROOT)
 		os.Exit(2)
 	}
