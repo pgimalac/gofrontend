@@ -2392,12 +2392,6 @@ func gcstopm() {
 func execute(gp *g, inheritTime bool) {
 	_g_ := getg()
 
-	if goroutineProfile.active {
-		// Make sure that gp has had its stack written out to the goroutine
-		// profile, exactly as it was when the goroutine profiler first stopped
-		// the world.
-		tryRecordGoroutineProfile(gp, osyield)
-	}
 
 	// Assign gp.m before entering _Grunning so running Gs have an
 	// M.
@@ -3549,14 +3543,6 @@ func exitsyscall() {
 	if exitsyscallfast(oldp) {
 		// When exitsyscallfast returns success, we have a P so can now use
 		// write barriers
-		if goroutineProfile.active {
-			// Make sure that gp has had its stack written out to the goroutine
-			// profile, exactly as it was when the goroutine profiler first
-			// stopped the world.
-			systemstack(func() {
-				tryRecordGoroutineProfileWB(_g_)
-			})
-		}
 		if trace.enabled {
 			if oldp != _g_.m.p.ptr() || _g_.m.syscalltick != _g_.m.p.ptr().syscalltick {
 				systemstack(traceGoStart)
@@ -3915,14 +3901,6 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 		// Only user goroutines inherit pprof labels.
 		if _g_.m.curg != nil {
 			newg.labels = _g_.m.curg.labels
-		}
-		if goroutineProfile.active {
-			// A concurrent goroutine profile is running. It should include
-			// exactly the set of goroutines that were alive when the goroutine
-			// profiler first stopped the world. That does not include newg, so
-			// mark it as not needing a profile before transitioning it from
-			// _Gdead.
-			newg.goroutineProfiled.Store(goroutineProfileSatisfied)
 		}
 	}
 	// Track initial transition?

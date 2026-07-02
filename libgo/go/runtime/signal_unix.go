@@ -497,7 +497,13 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 	// signal delivery. We use that as an indicator of delayed signals.
 	// For delayed signals, the handler is called on the g0 stack (see
 	// adjustSignalStack).
-	delayedSignal := *cgo_yield != nil && mp != nil && _g_.stack == mp.g0.stack
+	//
+	// gccgo does not track goroutine stacks with a g.stack field (its stacks
+	// are managed by the C runtime), so it cannot detect the g0-stack case
+	// here.  This matches gccgo's pre-1.19 behavior, where delayed-signal
+	// handling did not exist.
+	delayedSignal := false
+	_ = mp
 
 	sigfault, sigpc := getSiginfo(info, ctxt)
 
