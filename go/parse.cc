@@ -1550,6 +1550,46 @@ Parse::field_decl(Struct_field_list* sfl)
 		is_generic = (this->gogo_->lookup_generic_type(
 				ip->pkgpath() + '.' + id) != NULL);
 	    }
+	  if (!is_generic)
+	    {
+	      // The generic type may be a forward reference (declared later in
+	      // the file), so the registration lookups above fail.
+	      // Distinguish an embedded generic type "T[args]" -- where the
+	      // whole "id[...]" is the type and a field terminator follows the
+	      // "]" -- from a named field of array type "name [N]Elem", where a
+	      // type follows the "]".  Scan the balanced brackets and look at
+	      // what comes next, then restore the token stream.
+	      std::vector<Token> scanned;
+	      int depth = 0;
+	      while (true)
+		{
+		  const Token* t = this->peek_token();
+		  if (t->is_eof())
+		    break;
+		  scanned.push_back(*t);
+		  bool close = false;
+		  if (t->is_op(OPERATOR_LSQUARE))
+		    ++depth;
+		  else if (t->is_op(OPERATOR_RSQUARE))
+		    {
+		      --depth;
+		      if (depth == 0)
+			close = true;
+		    }
+		  this->advance_token();
+		  if (close)
+		    break;
+		}
+	      const Token* after = this->peek_token();
+	      if (after->is_op(OPERATOR_SEMICOLON)
+		  || after->is_op(OPERATOR_RCURLY)
+		  || after->is_string()
+		  || after->is_eof())
+		is_generic = true;
+	      for (std::vector<Token>::reverse_iterator ri = scanned.rbegin();
+		   ri != scanned.rend(); ++ri)
+		this->unget_token(*ri);
+	    }
 	  if (is_generic)
 	    is_anonymous = true;
 	}
@@ -4544,6 +4584,18 @@ Parse::resolve_pending_generic_types()
       Pending_generic_type* p = pend[i];
       Generic_function_info* info =
 	this->gogo_->lookup_generic_type(p->generic_name);
+      if (info == NULL)
+	{
+	  // A generic type referenced before its declaration is recorded
+	  // under the (raw) source name, but templates are registered under
+	  // their packed hidden name.  For an unexported generic type those
+	  // differ (".pkgpath.name" vs "name"), so retry with the packed
+	  // name.
+	  std::string bare = Gogo::unpack_hidden_name(p->generic_name);
+	  std::string packed =
+	    this->gogo_->pack_hidden_name(bare, Lex::is_exported_name(bare));
+	  info = this->gogo_->lookup_generic_type(packed);
+	}
       if (info == NULL)
 	{	  go_error_at(p->location, "reference to undefined generic type");
 	  continue;
