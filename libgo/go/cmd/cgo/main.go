@@ -11,7 +11,6 @@
 package main
 
 import (
-	"crypto/md5"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -28,6 +27,7 @@ import (
 	"strings"
 
 	"cmd/internal/edit"
+	"cmd/internal/notsha256"
 	"cmd/internal/objabi"
 )
 
@@ -169,6 +169,7 @@ func usage() {
 }
 
 var ptrSizeMap = map[string]int64{
+<<<<<<< go/./cmd/cgo/main.go
 	"386":         4,
 	"alpha":       8,
 	"amd64":       8,
@@ -193,9 +194,35 @@ var ptrSizeMap = map[string]int64{
 	"shbe":        4,
 	"sparc":       4,
 	"sparc64":     8,
+=======
+	"386":      4,
+	"alpha":    8,
+	"amd64":    8,
+	"arm":      4,
+	"arm64":    8,
+	"loong64":  8,
+	"m68k":     4,
+	"mips":     4,
+	"mipsle":   4,
+	"mips64":   8,
+	"mips64le": 8,
+	"nios2":    4,
+	"ppc":      4,
+	"ppc64":    8,
+	"ppc64le":  8,
+	"riscv":    4,
+	"riscv64":  8,
+	"s390":     4,
+	"s390x":    8,
+	"sh":       4,
+	"shbe":     4,
+	"sparc":    4,
+	"sparc64":  8,
+>>>>>>> /tmp/go119/src/./cmd/cgo/main.go
 }
 
 var intSizeMap = map[string]int64{
+<<<<<<< go/./cmd/cgo/main.go
 	"386":         4,
 	"alpha":       8,
 	"amd64":       8,
@@ -220,6 +247,31 @@ var intSizeMap = map[string]int64{
 	"shbe":        4,
 	"sparc":       4,
 	"sparc64":     8,
+=======
+	"386":      4,
+	"alpha":    8,
+	"amd64":    8,
+	"arm":      4,
+	"arm64":    8,
+	"loong64":  8,
+	"m68k":     4,
+	"mips":     4,
+	"mipsle":   4,
+	"mips64":   8,
+	"mips64le": 8,
+	"nios2":    4,
+	"ppc":      4,
+	"ppc64":    8,
+	"ppc64le":  8,
+	"riscv":    4,
+	"riscv64":  8,
+	"s390":     4,
+	"s390x":    8,
+	"sh":       4,
+	"shbe":     4,
+	"sparc":    4,
+	"sparc64":  8,
+>>>>>>> /tmp/go119/src/./cmd/cgo/main.go
 }
 
 var cPrefix string
@@ -294,6 +346,10 @@ func main() {
 		usage()
 	}
 
+	// Save original command line arguments for the godefs generated comment. Relative file
+	// paths in os.Args will be rewritten to absolute file paths in the loop below.
+	osArgs := make([]string, len(os.Args))
+	copy(osArgs, os.Args[:])
 	goFiles := args[i:]
 
 	for _, arg := range args[:i] {
@@ -328,8 +384,8 @@ func main() {
 	// we use to coordinate between gcc and ourselves.
 	// We already put _cgo_ at the beginning, so the main
 	// concern is other cgo wrappers for the same functions.
-	// Use the beginning of the md5 of the input to disambiguate.
-	h := md5.New()
+	// Use the beginning of the notsha256 of the input to disambiguate.
+	h := notsha256.New()
 	io.WriteString(h, *importPath)
 	fs := make([]*File, len(goFiles))
 	for i, input := range goFiles {
@@ -393,7 +449,7 @@ func main() {
 		p.PackagePath = f.Package
 		p.Record(f)
 		if *godefs {
-			os.Stdout.WriteString(p.godefs(f))
+			os.Stdout.WriteString(p.godefs(f, osArgs))
 		} else {
 			p.writeOutput(f, input)
 		}

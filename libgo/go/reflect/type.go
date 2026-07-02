@@ -71,7 +71,9 @@ type Type interface {
 
 	// NumMethod returns the number of methods accessible using Method.
 	//
-	// Note that NumMethod counts unexported methods only for interface types.
+	// For a non-interface type, it returns the number of exported methods.
+	//
+	// For an interface type, it returns the number of exported and unexported methods.
 	NumMethod() int
 
 	// Name returns the type's name within its package for a defined type.
@@ -456,8 +458,8 @@ const (
 
 // String returns the name of k.
 func (k Kind) String() string {
-	if int(k) < len(kindNames) {
-		return kindNames[k]
+	if uint(k) < uint(len(kindNames)) {
+		return kindNames[uint(k)]
 	}
 	return "kind" + strconv.Itoa(int(k))
 }
@@ -971,7 +973,7 @@ func (t *structType) Field(i int) (f StructField) {
 }
 
 // TODO(gri): Should there be an error/bool indicator if the index
-//            is wrong for FieldByIndex?
+// is wrong for FieldByIndex?
 
 // FieldByIndex returns the nested field corresponding to index.
 func (t *structType) FieldByIndex(index []int) (f StructField) {
@@ -2119,10 +2121,16 @@ func StructOf(fields []StructField) Type {
 		comparable = comparable && (ft.equal != nil)
 
 		offset := align(size, uintptr(ft.fieldAlign))
+		if offset < size {
+			panic("reflect.StructOf: struct size would exceed virtual address space")
+		}
 		if ft.fieldAlign > typalign {
 			typalign = ft.fieldAlign
 		}
 		size = offset + ft.size
+		if size < offset {
+			panic("reflect.StructOf: struct size would exceed virtual address space")
+		}
 		f.offsetEmbed |= offset << 1
 
 		if ft.size == 0 {
@@ -2139,6 +2147,9 @@ func StructOf(fields []StructField) Type {
 		// zero-sized field can't manufacture a pointer to the
 		// next object in the heap. See issue 9401.
 		size++
+		if size == 0 {
+			panic("reflect.StructOf: struct size would exceed virtual address space")
+		}
 	}
 
 	if len(fs) > 0 {
@@ -2149,7 +2160,11 @@ func StructOf(fields []StructField) Type {
 	str := string(repr)
 
 	// Round the size up to be a multiple of the alignment.
-	size = align(size, uintptr(typalign))
+	s := align(size, uintptr(typalign))
+	if s < size {
+		panic("reflect.StructOf: struct size would exceed virtual address space")
+	}
+	size = s
 
 	// Make the struct type.
 	var istruct any = struct{}{}

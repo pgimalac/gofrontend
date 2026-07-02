@@ -8,7 +8,6 @@ package runtime
 
 import (
 	"internal/goarch"
-	"internal/goexperiment"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
 	"unsafe"
@@ -231,12 +230,10 @@ func markroot(gcw *gcWork, i uint32, flushBgCredit bool) int64 {
 			}
 		})
 	}
-	if goexperiment.PacerRedesign {
-		if workCounter != nil && workDone != 0 {
-			workCounter.Add(workDone)
-			if flushBgCredit {
-				gcFlushBgCredit(workDone)
-			}
+	if workCounter != nil && workDone != 0 {
+		workCounter.Add(workDone)
+		if flushBgCredit {
+			gcFlushBgCredit(workDone)
 		}
 	}
 	return workDone
@@ -353,6 +350,14 @@ func gcAssistAlloc(gp *g) {
 
 	traced := false
 retry:
+	if go119MemoryLimitSupport && gcCPULimiter.limiting() {
+		// If the CPU limiter is enabled, intentionally don't
+		// assist to reduce the amount of CPU time spent in the GC.
+		if traced {
+			traceGCMarkAssistDone()
+		}
+		return
+	}
 	// Compute the amount of scan work we need to do to make the
 	// balance positive. When the required amount of work is low,
 	// we over-assist to build up credit for future allocations
@@ -477,7 +482,11 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 	// Track time spent in this assist. Since we're on the
 	// system stack, this is non-preemptible, so we can
 	// just measure start and end time.
+	//
+	// Limiter event tracking might be disabled if we end up here
+	// while on a mark worker.
 	startTime := nanotime()
+	trackLimiterEvent := gp.m.p.ptr().limiterEvent.start(limiterEventMarkAssist, startTime)
 
 	decnwait := atomic.Xadd(&work.nwait, -1)
 	if decnwait == work.nproc {
@@ -521,11 +530,16 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 		// a valid pointer).
 		gp.param = unsafe.Pointer(gp)
 	}
-	duration := nanotime() - startTime
+	now := nanotime()
+	duration := now - startTime
 	_p_ := gp.m.p.ptr()
 	_p_.gcAssistTime += duration
+	if trackLimiterEvent {
+		_p_.limiterEvent.stop(limiterEventMarkAssist, now)
+	}
 	if _p_.gcAssistTime > gcAssistTimeSlack {
-		atomic.Xaddint64(&gcController.assistTime, _p_.gcAssistTime)
+		gcController.assistTime.Add(_p_.gcAssistTime)
+		gcCPULimiter.update(now)
 		_p_.gcAssistTime = 0
 	}
 }
@@ -644,7 +658,6 @@ func doscanstackswitch(*g, *g)
 
 // scanstack scans gp's stack, greying all pointers found on the stack.
 //
-// For goexperiment.PacerRedesign:
 // Returns the amount of scan work performed, but doesn't update
 // gcController.stackScanWork or flush any credit. Any background credit produced
 // by this function should be flushed by its caller. scanstack itself can't
@@ -931,8 +944,10 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 	// want to claim was done by this call.
 	workFlushed := -gcw.heapScanWork
 
+	// In addition to backing out because of a preemption, back out
+	// if the GC CPU limiter is enabled.
 	gp := getg().m.curg
-	for !gp.preempt && workFlushed+gcw.heapScanWork < scanWork {
+	for !gp.preempt && !gcCPULimiter.limiting() && workFlushed+gcw.heapScanWork < scanWork {
 		// See gcDrain comment.
 		if work.full == 0 {
 			gcw.balance()
@@ -954,10 +969,7 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 			if work.markrootNext < work.markrootJobs {
 				job := atomic.Xadd(&work.markrootNext, +1) - 1
 				if job < work.markrootJobs {
-					work := markroot(gcw, job, false)
-					if goexperiment.PacerRedesign {
-						workFlushed += work
-					}
+					workFlushed += markroot(gcw, job, false)
 					continue
 				}
 			}
@@ -1183,6 +1195,7 @@ func scanstackblockwithmap(pc, b0, n0 uintptr, ptrmask *uint8, gcw *gcWork) {
 // Shade the object if it isn't already.
 // The object is not nil and known to be in the heap.
 // Preemption must be disabled.
+//
 //go:nowritebarrier
 func shade(b uintptr) {
 	if obj, span, objIndex := findObject(b, 0, 0, !usestackmaps); obj != 0 {
@@ -1328,19 +1341,6 @@ func gcmarknewobject(span *mspan, obj, size, scanSize uintptr) {
 
 	gcw := &getg().m.p.ptr().gcw
 	gcw.bytesMarked += uint64(size)
-	if !goexperiment.PacerRedesign {
-		// The old pacer counts newly allocated memory toward
-		// heapScanWork because heapScan is continuously updated
-		// throughout the GC cycle with newly allocated memory. However,
-		// these objects are never actually scanned, so we need
-		// to account for them in heapScanWork here, "faking" their work.
-		// Otherwise the pacer will think it's always behind, potentially
-		// by a large margin.
-		//
-		// The new pacer doesn't care about this because it ceases to updated
-		// heapScan once a GC cycle starts, effectively snapshotting it.
-		gcw.heapScanWork += int64(scanSize)
-	}
 }
 
 // gcMarkTinyAllocs greys all active tiny alloc blocks.

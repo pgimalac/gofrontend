@@ -5,6 +5,10 @@
 // Package syscall provides the syscall primitives required for the runtime.
 package syscall
 
+import (
+	_ "unsafe" // for go:linkname
+)
+
 // TODO(https://go.dev/issue/51087): This package is incomplete and currently
 // only contains very minimal support for Linux.
 
@@ -20,4 +24,12 @@ func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr) {
 	r := syscall6(num, a1, a2, a3, a4, a5, a6)
 	errno = getErrno()
 	return r, 0, errno
+}
+
+// syscall_RawSyscall6 is a push linkname to export Syscall6 as
+// syscall.RawSyscall6.
+//
+//go:linkname syscall_RawSyscall6 syscall.RawSyscall6
+func syscall_RawSyscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr) {
+	return Syscall6(num, a1, a2, a3, a4, a5, a6)
 }

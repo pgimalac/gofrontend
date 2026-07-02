@@ -83,7 +83,7 @@ func IsExported(t Type) bool {
 
 /*
 func ResolveReflectName(s string) {
-	resolveReflectName(newName(s, "", false))
+	resolveReflectName(newName(s, "", false, false))
 }
 */
 

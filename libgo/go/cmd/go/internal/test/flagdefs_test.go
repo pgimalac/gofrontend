@@ -5,6 +5,7 @@
 package test
 
 import (
+	"cmd/go/internal/cfg"
 	"cmd/go/internal/test/internal/genflags"
 	"flag"
 	"internal/testenv"
@@ -12,6 +13,10 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	cfg.SetGOROOT(testenv.GOROOT(nil))
+}
 
 func TestPassFlagToTestIncludesAllTestFlags(t *testing.T) {
 	flag.VisitAll(func(f *flag.Flag) {

@@ -112,6 +112,7 @@ var signalsOK bool
 
 // Initialize signals.
 // Called by libpreinit so runtime may not be initialized.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func initsig(preinit bool) {
@@ -262,6 +263,7 @@ func sigignore(sig uint32) {
 // back to the default. This is called by the child after a fork, so that
 // we can enable the signal mask for the exec without worrying about
 // running a signal handler in the child.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func clearSignalHandlers() {
@@ -446,6 +448,7 @@ func sigtrampgo(sig uint32, info *_siginfo_t, ctx unsafe.Pointer) {
 // sigprofNonGoPC is called when a profiling signal arrived on a
 // non-Go thread and we have a single PC value, not a stack trace.
 // g is nil, and what we can do is very limited.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func sigprofNonGoPC(pc uintptr) {
@@ -482,6 +485,19 @@ var testSigusr1 func(gp *g) bool
 func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 	_g_ := getg()
 	c := &sigctxt{info, ctxt}
+	mp := _g_.m
+
+	// Cgo TSAN (not the Go race detector) intercepts signals and calls the
+	// signal handler at a later time. When the signal handler is called, the
+	// memory may have changed, but the signal context remains old. The
+	// unmatched signal context and memory makes it unsafe to unwind or inspect
+	// the stack. So we ignore delayed non-fatal signals that will cause a stack
+	// inspection (profiling signal and preemption signal).
+	// cgo_yield is only non-nil for TSAN, and is specifically used to trigger
+	// signal delivery. We use that as an indicator of delayed signals.
+	// For delayed signals, the handler is called on the g0 stack (see
+	// adjustSignalStack).
+	delayedSignal := *cgo_yield != nil && mp != nil && _g_.stack == mp.g0.stack
 
 	sigfault, sigpc := getSiginfo(info, ctxt)
 
@@ -509,7 +525,7 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 	if sig == _SIGPROF {
 		// Some platforms (Linux) have per-thread timers, which we use in
 		// combination with the process-wide timer. Avoid double-counting.
-		if validSIGPROF(_g_.m, c) {
+		if !delayedSignal && validSIGPROF(_g_.m, c) {
 			sigprof(sigpc, gp, _g_.m)
 		}
 		return
@@ -523,7 +539,7 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 		return
 	}
 
-	if sig == sigPreempt && debug.asyncpreemptoff == 0 {
+	if sig == sigPreempt && debug.asyncpreemptoff == 0 && !delayedSignal {
 		// Might be a preemption signal.
 		doSigPreempt(gp, c, sigpc)
 		// Even if this was definitely a preemption signal, it
@@ -587,7 +603,7 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 		return
 	}
 
-	_g_.m.throwing = 1
+	_g_.m.throwing = throwTypeRuntime
 	_g_.m.caughtsig.set(gp)
 
 	if crashing == 0 {
@@ -684,6 +700,7 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 // getg().throwsplit, since sigpanic may need to grow the stack.
 //
 // This is exported via linkname to assembly in runtime/cgo.
+//
 //go:linkname sigpanic
 func sigpanic() {
 	g := getg()
@@ -732,6 +749,7 @@ func sigpanic() {
 // dieFromSignal kills the program with a signal.
 // This provides the expected exit status for the shell.
 // This is only called with fatal signals expected to kill the process.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func dieFromSignal(sig uint32) {
@@ -908,6 +926,7 @@ func signalDuringFork(sig uint32) {
 var badginsignalMsg = "fatal: bad g in signal handler\n"
 
 // This runs on a foreign stack, without an m or a g. No stack split.
+//
 //go:nosplit
 //go:norace
 //go:nowritebarrierrec
@@ -934,6 +953,7 @@ func badsignal(sig uintptr, c *sigctxt) {
 // signal to the handler that was installed before Go's. Returns whether the
 // signal was forwarded.
 // This is called by the signal handler, and the world may be stopped.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func sigfwdgo(sig uint32, info *_siginfo_t, ctx unsafe.Pointer) bool {
@@ -1003,6 +1023,7 @@ func sigfwdgo(sig uint32, info *_siginfo_t, ctx unsafe.Pointer) bool {
 // thread calls a Go function.
 // This is nosplit and nowritebarrierrec because it is called by needm
 // which may be called on a non-Go thread with no g available.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func sigsave(p *sigset) {
@@ -1014,6 +1035,7 @@ func sigsave(p *sigset) {
 // calls a Go function.
 // This is nosplit and nowritebarrierrec because it is called by dropm
 // after g has been cleared.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func msigrestore(sigmask sigset) {
@@ -1027,6 +1049,7 @@ func msigrestore(sigmask sigset) {
 // definition of sigset_all is used.
 // This is nosplit and nowritebarrierrec because it is called by needm
 // which may be called on a non-Go thread with no g available.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func sigblock(exiting bool) {
@@ -1039,6 +1062,7 @@ func sigblock(exiting bool) {
 // This is nosplit and nowritebarrierrec because it is called from
 // dieFromSignal, which can be called by sigfwdgo while running in the
 // signal handler, on the signal stack, with no g available.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func unblocksig(sig uint32) {
@@ -1097,6 +1121,7 @@ func minitSignalMask() {
 
 // unminitSignals is called from dropm, via unminit, to undo the
 // effect of calling minit on a non-Go thread.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func unminitSignals() {
@@ -1108,6 +1133,7 @@ func unminitSignals() {
 // blockableSig reports whether sig may be blocked by the signal mask.
 // We never want to block the signals marked _SigUnblock;
 // these are the synchronous signals that turn into a Go panic.
+// We never want to block the preemption signal if it is being used.
 // In a Go program--not a c-archive/c-shared--we never want to block
 // the signals marked _SigKill or _SigThrow, as otherwise it's possible
 // for all running threads to block them and delay their delivery until
@@ -1116,6 +1142,9 @@ func unminitSignals() {
 func blockableSig(sig uint32) bool {
 	flags := sigtable[sig].flags
 	if flags&_SigUnblock != 0 {
+		return false
+	}
+	if sig == sigPreempt && preemptMSupported && debug.asyncpreemptoff == 0 {
 		return false
 	}
 	if isarchive || islibrary {

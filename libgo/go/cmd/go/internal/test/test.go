@@ -11,10 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"go/build"
-	exec "internal/execabs"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -132,7 +132,7 @@ test caching explicitly is to use -count=1. Tests that open files within
 the package's source root (usually $GOPATH) or that consult environment
 variables only match future runs in which the files and environment
 variables are unchanged. A cached test result is treated as executing
-in no time at all,so a successful package test result will be cached and
+in no time at all, so a successful package test result will be cached and
 reused regardless of -timeout setting.
 
 In addition to the build flags, the flags handled by 'go test' itself are:
@@ -1354,7 +1354,12 @@ func (c *runCache) builderRunTest(b *work.Builder, ctx context.Context, a *work.
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = a.Package.Dir
-	cmd.Env = base.AppendPWD(cfg.OrigEnv[:len(cfg.OrigEnv):len(cfg.OrigEnv)], cmd.Dir)
+
+	env := cfg.OrigEnv[:len(cfg.OrigEnv):len(cfg.OrigEnv)]
+	env = base.AppendPATH(env)
+	env = base.AppendPWD(env, cmd.Dir)
+	cmd.Env = env
+
 	cmd.Stdout = stdout
 	cmd.Stderr = stdout
 

@@ -506,6 +506,69 @@ var codeRepoTests = []codeRepoTest{
 		short:   "80beb17a1603",
 		time:    time.Date(2022, 2, 22, 20, 55, 7, 0, time.UTC),
 	},
+
+	// A version tag with explicit build metadata is valid but not canonical.
+	// It should resolve to a pseudo-version based on the same tag.
+	{
+		vcs:     "git",
+		path:    "vcs-test.golang.org/git/odd-tags.git",
+		rev:     "v0.1.0+build-metadata",
+		version: "v0.1.1-0.20220223184835-9d863d525bbf",
+		name:    "9d863d525bbfcc8eda09364738c4032393711a56",
+		short:   "9d863d525bbf",
+		time:    time.Date(2022, 2, 23, 18, 48, 35, 0, time.UTC),
+	},
+	{
+		vcs:     "git",
+		path:    "vcs-test.golang.org/git/odd-tags.git",
+		rev:     "9d863d525bbf",
+		version: "v0.1.1-0.20220223184835-9d863d525bbf",
+		name:    "9d863d525bbfcc8eda09364738c4032393711a56",
+		short:   "9d863d525bbf",
+		time:    time.Date(2022, 2, 23, 18, 48, 35, 0, time.UTC),
+	},
+	{
+		vcs:     "git",
+		path:    "vcs-test.golang.org/git/odd-tags.git",
+		rev:     "latest",
+		version: "v0.1.1-0.20220223184835-9d863d525bbf",
+		name:    "9d863d525bbfcc8eda09364738c4032393711a56",
+		short:   "9d863d525bbf",
+		time:    time.Date(2022, 2, 23, 18, 48, 35, 0, time.UTC),
+	},
+
+	// A version tag with an erroneous "+incompatible" suffix should resolve using
+	// only the prefix before the "+incompatible" suffix, not the "+incompatible"
+	// tag itself. (Otherwise, we would potentially have two different commits
+	// both named "v2.0.0+incompatible".) However, the tag is still valid semver
+	// and can still be used as the base for an unambiguous pseudo-version.
+	{
+		vcs:  "git",
+		path: "vcs-test.golang.org/git/odd-tags.git",
+		rev:  "v2.0.0+incompatible",
+		err:  `unknown revision v2.0.0`,
+	},
+	{
+		vcs:     "git",
+		path:    "vcs-test.golang.org/git/odd-tags.git",
+		rev:     "12d19af20458",
+		version: "v2.0.1-0.20220223184802-12d19af20458+incompatible",
+		name:    "12d19af204585b0db3d2a876ceddf5b9323f5a4a",
+		short:   "12d19af20458",
+		time:    time.Date(2022, 2, 23, 18, 48, 2, 0, time.UTC),
+	},
+
+	// Similarly, a pseudo-version must resolve to the named commit, even if a tag
+	// matching that pseudo-version is present on a *different* commit.
+	{
+		vcs:     "git",
+		path:    "vcs-test.golang.org/git/odd-tags.git",
+		rev:     "v3.0.0-20220223184802-12d19af20458",
+		version: "v3.0.0-20220223184802-12d19af20458+incompatible",
+		name:    "12d19af204585b0db3d2a876ceddf5b9323f5a4a",
+		short:   "12d19af20458",
+		time:    time.Date(2022, 2, 23, 18, 48, 2, 0, time.UTC),
+	},
 }
 
 func TestCodeRepo(t *testing.T) {
@@ -730,6 +793,11 @@ var codeRepoVersionsTests = []struct {
 		path:     "gopkg.in/natefinch/lumberjack.v2",
 		versions: []string{"v2.0.0"},
 	},
+	{
+		vcs:      "git",
+		path:     "vcs-test.golang.org/git/odd-tags.git",
+		versions: nil,
+	},
 }
 
 func TestCodeRepoVersions(t *testing.T) {
@@ -755,7 +823,7 @@ func TestCodeRepoVersions(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Versions(%q): %v", tt.prefix, err)
 				}
-				if !reflect.DeepEqual(list, tt.versions) {
+				if !reflect.DeepEqual(list.List, tt.versions) {
 					t.Fatalf("Versions(%q):\nhave %v\nwant %v", tt.prefix, list, tt.versions)
 				}
 			})
@@ -853,7 +921,13 @@ type fixedTagsRepo struct {
 	codehost.Repo
 }
 
-func (ch *fixedTagsRepo) Tags(string) ([]string, error) { return ch.tags, nil }
+func (ch *fixedTagsRepo) Tags(string) (*codehost.Tags, error) {
+	tags := &codehost.Tags{}
+	for _, t := range ch.tags {
+		tags.List = append(tags.List, codehost.Tag{Name: t})
+	}
+	return tags, nil
+}
 
 func TestNonCanonicalSemver(t *testing.T) {
 	root := "golang.org/x/issue24476"
@@ -877,7 +951,7 @@ func TestNonCanonicalSemver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v) != 1 || v[0] != "v1.0.1" {
+	if len(v.List) != 1 || v.List[0] != "v1.0.1" {
 		t.Fatal("unexpected versions returned:", v)
 	}
 }

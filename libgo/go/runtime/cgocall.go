@@ -194,7 +194,7 @@ func cgoCheckArg(t *_type, p unsafe.Pointer, indir, top bool, msg string) {
 			if f.typ.ptrdata == 0 {
 				continue
 			}
-			cgoCheckArg(f.typ, add(p, f.offset()), true, top, msg)
+			cgoCheckArg(f.typ, add(p, f.offset), true, top, msg)
 		}
 	case kindPtr, kindUnsafePointer:
 		if indir {
@@ -265,6 +265,7 @@ func cgoCheckUnknownPointer(p unsafe.Pointer, msg string) (base, i uintptr) {
 // cgoIsGoPointer reports whether the pointer is a Go pointer--a
 // pointer to Go memory. We only care about Go memory that might
 // contain pointers.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func cgoIsGoPointer(p unsafe.Pointer) bool {
@@ -292,6 +293,7 @@ func cgoIsGoPointer(p unsafe.Pointer) bool {
 }
 
 // cgoInRange reports whether p is between start and end.
+//
 //go:nosplit
 //go:nowritebarrierrec
 func cgoInRange(p unsafe.Pointer, start, end uintptr) bool {

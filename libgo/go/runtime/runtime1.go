@@ -49,9 +49,13 @@ func gotraceback() (level int32, all, crash bool) {
 	_g_ := getg()
 	t := atomic.Load(&traceback_cache)
 	crash = t&tracebackCrash != 0
-	all = _g_.m.throwing > 0 || t&tracebackAll != 0
+	all = _g_.m.throwing >= throwTypeUser || t&tracebackAll != 0
 	if _g_.m.traceback != 0 {
 		level = int32(_g_.m.traceback)
+	} else if _g_.m.throwing >= throwTypeRuntime {
+		// Always include runtime frames in runtime throws unless
+		// otherwise overridden by m.traceback.
+		level = 2
 	} else {
 		level = int32(t >> tracebackShift)
 	}
@@ -64,6 +68,7 @@ var (
 )
 
 // nosplit for use in linux startup sysargs
+//
 //go:nosplit
 func argv_index(argv **byte, i int32) *byte {
 	return *(**byte)(add(unsafe.Pointer(argv), uintptr(i)*goarch.PtrSize))
@@ -327,6 +332,7 @@ var debug struct {
 	tracebackancestors int32
 	asyncpreemptoff    int32
 	harddecommit       int32
+	adaptivestackstart int32
 
 	// debug.malloc is used as a combined debug check
 	// in the malloc function and should be set
@@ -357,6 +363,7 @@ var dbgvars = []dbgVar{
 	{"asyncpreemptoff", &debug.asyncpreemptoff},
 	{"inittrace", &debug.inittrace},
 	{"harddecommit", &debug.harddecommit},
+	{"adaptivestackstart", &debug.adaptivestackstart},
 }
 
 func parsedebugvars() {
@@ -369,6 +376,7 @@ func parsedebugvars() {
 	// ensure that we only trace allocated heap objects, which should
 	// not contain invalid pointers.
 	debug.invalidptr = 1
+	debug.adaptivestackstart = 1 // go119 - set this to 0 to turn larger initial goroutine stacks off
 	if GOOS == "linux" {
 		// On Linux, MADV_FREE is faster than MADV_DONTNEED,
 		// but doesn't affect many of the statistics that
@@ -455,6 +463,7 @@ func setTraceback(level string) {
 // int64 division is lowered into _divv() call on 386, which does not fit into nosplit functions.
 // Handles overflow in a time-specific manner.
 // This keeps us within no-split stack limits on 32-bit processors.
+//
 //go:nosplit
 func timediv(v int64, div int32, rem *int32) int32 {
 	res := int32(0)

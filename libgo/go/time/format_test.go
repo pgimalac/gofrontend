@@ -116,6 +116,13 @@ var formatTests = []FormatTest{
 	{"StampMicro", StampMicro, "Feb  4 21:00:57.012345"},
 	{"StampNano", StampNano, "Feb  4 21:00:57.012345600"},
 	{"YearDay", "Jan  2 002 __2 2", "Feb  4 035  35 4"},
+	{"Year", "2006 6 06 _6 __6 ___6", "2009 6 09 _6 __6 ___6"},
+	{"Month", "Jan January 1 01 _1", "Feb February 2 02 _2"},
+	{"DayOfMonth", "2 02 _2 __2", "4 04  4  35"},
+	{"DayOfWeek", "Mon Monday", "Wed Wednesday"},
+	{"Hour", "15 3 03 _3", "21 9 09 _9"},
+	{"Minute", "4 04 _4", "0 00 _0"},
+	{"Second", "5 05 _5", "57 57 _57"},
 }
 
 func TestFormat(t *testing.T) {
@@ -408,10 +415,15 @@ func TestParseInLocation(t *testing.T) {
 }
 
 func TestLoadLocationZipFile(t *testing.T) {
+<<<<<<< go/./time/format_test.go
 	t.Skip("gccgo does not use the zip file")
 
 	ForceZipFileForTesting(true)
 	defer ForceZipFileForTesting(false)
+=======
+	undo := DisablePlatformSources()
+	defer undo()
+>>>>>>> /tmp/go119/src/./time/format_test.go
 
 	_, err := LoadLocation("Australia/Sydney")
 	if err != nil {

@@ -17,7 +17,7 @@ import (
 // tflag values must be kept in sync with copies in:
 //	go/types.cc
 //	reflect/type.go
-//      internal/reflectlite/type.go
+//	internal/reflectlite/type.go
 type tflag uint8
 
 const (

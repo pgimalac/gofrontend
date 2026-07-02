@@ -66,6 +66,7 @@ func checkCloseonexec(t *testing.T, fd int32, name string) {
 		t.Errorf("FD_CLOEXEC not set in %s flags %#x", name, flags)
 	}
 }
+<<<<<<< go/./runtime/nbpipe_test.go
 
 func TestSetNonblock(t *testing.T) {
 	t.Parallel()
@@ -100,3 +101,5 @@ func fcntl(fd uintptr, cmd int, arg uintptr) (uintptr, syscall.Errno) {
 	res, errno := fcntlUintptr(fd, uintptr(cmd), arg)
 	return res, syscall.Errno(errno)
 }
+=======
+>>>>>>> /tmp/go119/src/./runtime/nbpipe_test.go

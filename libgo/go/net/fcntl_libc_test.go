@@ -17,6 +17,7 @@ import (
 func libc_fcntl(uintptr, uintptr, uintptr) (uintptr, uintptr)
 
 // Implemented in the syscall package.
+//
 //go:linkname fcntl syscall.fcntl
 func fcntl(fd int, cmd int, arg int) (int, error) {
 	syscall.Entersyscall()
