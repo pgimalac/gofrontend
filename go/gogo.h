@@ -830,6 +830,13 @@ class Gogo
   void
   add_dot_import_object(Named_object*);
 
+  // Generics: record a dot-imported package so that a bare reference to one
+  // of its exported generic types (which live in the generic-template
+  // registry, not in ordinary bindings) resolves.  See lookup_generic_type.
+  void
+  add_dot_import_package(Package* p)
+  { this->dot_import_packages_.push_back(p); }
+
   // Add an identifier to the list of names seen in the file block.
   void
   add_file_block_name(const std::string& name, Location location)
@@ -1445,6 +1452,9 @@ class Gogo
   // Stack of defining packages of imported generic templates currently
   // being re-parsed for instantiation; see push_instantiation_package.
   std::vector<Package*> instantiation_package_;
+  // Generics: packages brought in with "import . \"pkg\"", so bare references
+  // to their exported generic types resolve (see lookup_generic_type).
+  std::vector<Package*> dot_import_packages_;
   // Imported packages referenced by generic template bodies, which must
   // be recorded in this package's export data.
   Unordered_set(const Package*) generic_imported_packages_;

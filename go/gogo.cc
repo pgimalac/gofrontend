@@ -548,6 +548,7 @@ Gogo::import_package(const std::string& filename,
 	    this->add_dot_import_object(pd->second);
           std::string dot_alias = "." + package->package_name();
           package->add_alias(dot_alias, location);
+	  this->add_dot_import_package(package);
 	}
       else
 	{
@@ -591,6 +592,11 @@ Gogo::import_package(const std::string& filename,
 		     "being compiled (see %<-fgo-pkgpath%> option)"));
 
       this->imports_.insert(std::make_pair(filename, package));
+
+      // Generics: record a dot import so bare references to its generic types
+      // resolve (see lookup_generic_type).
+      if (local_name == ".")
+	this->add_dot_import_package(package);
     }
 
   imp->clear_stream();
@@ -2492,6 +2498,18 @@ Gogo::lookup_generic_type(const std::string& name)
   if (ip != NULL)
     {
       p = this->generic_types_.find(ip->pkgpath() + '.' + name);
+      if (p != this->generic_types_.end())
+	return p->second;
+    }
+  // A generic type made visible by "import . \"pkg\"" is referenced by its
+  // bare name; find it under each dot-imported package's pkgpath.
+  std::string bare = Gogo::unpack_hidden_name(name);
+  for (std::vector<Package*>::const_iterator dp =
+	 this->dot_import_packages_.begin();
+       dp != this->dot_import_packages_.end();
+       ++dp)
+    {
+      p = this->generic_types_.find((*dp)->pkgpath() + '.' + bare);
       if (p != this->generic_types_.end())
 	return p->second;
     }
