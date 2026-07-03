@@ -887,6 +887,14 @@ Type::are_convertible(const Type* lhs, const Type* rhs, std::string* reason)
 			     rhs->array_type()->element_type(), 0, reason))
     return true;
 
+  // A slice may be converted to an array (Go 1.20).
+  if (rhs->is_slice_type()
+      && lhs->array_type() != NULL
+      && !lhs->is_slice_type()
+      && Type::are_identical(lhs->array_type()->element_type(),
+			     rhs->array_type()->element_type(), 0, reason))
+    return true;
+
   // An unsafe.Pointer type may be converted to any pointer type or to
   // a type whose underlying type is uintptr, and vice-versa.
   if (lhs->is_unsafe_pointer_type()
@@ -7295,6 +7303,42 @@ Struct_type::do_import(Import* imp)
   return Type::make_struct_type(fields, imp->location());
 }
 
+// Go 1.20+ runtime structs embed runtime/internal/atomic wrapper types
+// (atomic.Uint32, atomic.Int64, atomic.Bool, atomic.Pointer[T], ...) by
+// value.  The hand-written C runtime helpers never access these fields, but
+// the enclosing struct (g, m, p, ...) must still be emitted completely into
+// the -fgo-c-header output.  Return the underlying C scalar type name for
+// such a field, or the empty string if T is not one of these wrappers.
+static std::string
+atomic_wrapper_c_type(const Type* t)
+{
+  const Named_type* nt = t->named_type();
+  if (nt == NULL)
+    return "";
+  const Named_object* no = nt->named_object();
+  if (no->package() == NULL || t->struct_type() == NULL)
+    return "";
+  if (no->package()->pkgpath() != "runtime/internal/atomic")
+    return "";
+  const std::string& n = no->name();
+  if (n == "Int32")
+    return "int32_t";
+  if (n == "Uint32")
+    return "uint32_t";
+  if (n == "Int64")
+    return "int64_t";
+  if (n == "Uint64")
+    return "uint64_t";
+  if (n == "Uintptr")
+    return "uintptr_t";
+  if (n == "Bool")
+    return "_Bool";
+  // atomic.Pointer[T] is a generic instance; its name begins with "Pointer".
+  if (n.compare(0, 7, "Pointer") == 0)
+    return "void*";
+  return "";
+}
+
 // Whether we can write this struct type to a C header file.
 // We can't if any of the fields are structs defined in a different package.
 
@@ -7374,6 +7418,8 @@ Struct_type::can_write_type_to_c_header(
 	if (no->package() != NULL)
 	  {
 	    if (t->is_unsafe_pointer_type())
+	      return true;
+	    if (!atomic_wrapper_c_type(t).empty())
 	      return true;
 	    return false;
 	  }
@@ -7555,7 +7601,10 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
     case TYPE_NAMED:
       {
 	const Named_object* no = t->named_type()->named_object();
-	if (t->struct_type() != NULL)
+	std::string atomic_c = atomic_wrapper_c_type(t);
+	if (!atomic_c.empty())
+	  os << atomic_c;
+	else if (t->struct_type() != NULL)
 	  os << "struct " << no->message_name();
 	else if (t->is_unsafe_pointer_type())
 	  os << "void*";
