@@ -19,6 +19,7 @@ import (
 // finblock is allocated from non-GC'd memory, so any heap pointers
 // must be specially handled. GC currently assumes that the finalizer
 // queue does not grow during marking (but it can shrink).
+//go:notinheap
 type finblock struct {
 	_       sys.NotInHeap
 	alllink *finblock
@@ -53,6 +54,12 @@ type finalizer struct {
 	arg unsafe.Pointer // ptr to object (may be a heap pointer)
 	ft  *functype      // type of fn (unlikely, but may be a heap pointer)
 	ot  *ptrtype       // type of ptr to object (may be a heap pointer)
+}
+
+// lockRankMayQueueFinalizer records the lock ranking effects of a
+// function that may call queuefinalizer.
+func lockRankMayQueueFinalizer() {
+	lockWithRankMayAcquire(&finlock, getLockRank(&finlock))
 }
 
 func queuefinalizer(p unsafe.Pointer, fn *funcval, ft *functype, ot *ptrtype) {

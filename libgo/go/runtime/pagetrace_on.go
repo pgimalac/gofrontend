@@ -153,6 +153,7 @@ const (
 )
 
 // pageTraceEvents is the low-level buffer containing the trace data.
+//go:notinheap
 type pageTraceEvents struct {
 	_      sys.NotInHeap
 	events [pageTraceBufSize / 8]uint64

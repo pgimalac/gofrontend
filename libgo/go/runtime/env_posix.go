@@ -6,6 +6,8 @@
 
 package runtime
 
+import _ "unsafe" // for go:linkname
+
 // setenv_c and unsetenv_c update the C environment. They are
 // implemented in the C runtime (runtime/go-setenv.c and
 // runtime/go-unsetenv.c), which exports them under the syscall

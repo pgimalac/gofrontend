@@ -2798,7 +2798,10 @@ class Builtin_call_expression : public Call_expression
       BUILTIN_ALIGNOF,
       BUILTIN_OFFSETOF,
       BUILTIN_SIZEOF,
-      BUILTIN_SLICE
+      BUILTIN_SLICE,
+      BUILTIN_STRING_DATA,
+      BUILTIN_SLICE_DATA,
+      BUILTIN_STRING
     };
 
   Builtin_function_code

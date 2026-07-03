@@ -16,6 +16,7 @@ import (
 //
 // mcaches are allocated from non-GC'd memory, so any heap pointers
 // must be specially handled.
+//go:notinheap
 type mcache struct {
 	_ sys.NotInHeap
 

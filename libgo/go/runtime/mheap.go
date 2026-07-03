@@ -58,6 +58,7 @@ const (
 //
 // mheap must not be heap-allocated because it contains mSpanLists,
 // which must not be heap-allocated.
+//go:notinheap
 type mheap struct {
 	_ sys.NotInHeap
 
@@ -229,6 +230,7 @@ var mheap_ mheap
 
 // A heapArena stores metadata for a heap arena. heapArenas are stored
 // outside of the Go heap and accessed via the mheap_.arenas index.
+//go:notinheap
 type heapArena struct {
 	_ sys.NotInHeap
 
@@ -315,6 +317,7 @@ type heapArena struct {
 
 // arenaHint is a hint for where to grow the heap arenas. See
 // mheap_.arenaHints.
+//go:notinheap
 type arenaHint struct {
 	_    sys.NotInHeap
 	addr uintptr
@@ -396,12 +399,14 @@ func (b *mSpanStateBox) get() mSpanState {
 }
 
 // mSpanList heads a linked list of spans.
+//go:notinheap
 type mSpanList struct {
 	_     sys.NotInHeap
 	first *mspan // first span in list, or nil if none
 	last  *mspan // last span in list, or nil if none
 }
 
+//go:notinheap
 type mspan struct {
 	_    sys.NotInHeap
 	next *mspan     // next span in list, or nil if none
@@ -1786,6 +1791,7 @@ const (
 	// if that happens.
 )
 
+//go:notinheap
 type special struct {
 	_      sys.NotInHeap
 	next   *special // linked list in span
@@ -1907,6 +1913,7 @@ func removespecial(p unsafe.Pointer, kind uint8) *special {
 //
 // specialfinalizer is allocated from non-GC'd memory, so any heap
 // pointers must be specially handled.
+//go:notinheap
 type specialfinalizer struct {
 	_       sys.NotInHeap
 	special special
@@ -1965,6 +1972,7 @@ func removefinalizer(p unsafe.Pointer) {
 }
 
 // The described object is being heap profiled.
+//go:notinheap
 type specialprofile struct {
 	_       sys.NotInHeap
 	special special
@@ -2046,6 +2054,7 @@ func freeSpecial(s *special, p unsafe.Pointer, size uintptr) {
 }
 
 // gcBits is an alloc/mark bitmap. This is always used as gcBits.x.
+//go:notinheap
 type gcBits struct {
 	_ sys.NotInHeap
 	x uint8
@@ -2070,6 +2079,7 @@ type gcBitsHeader struct {
 	next uintptr // *gcBits triggers recursive type bug. (issue 14620)
 }
 
+//go:notinheap
 type gcBitsArena struct {
 	_ sys.NotInHeap
 	// gcBitsHeader // side step recursive type bug (issue 14620) by including fields by hand.

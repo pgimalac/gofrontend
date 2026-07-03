@@ -34,11 +34,13 @@ func unsafestring64(ptr unsafe.Pointer, len64 int64) {
 func unsafestringcheckptr(ptr unsafe.Pointer, len64 int64) {
 	unsafestring64(ptr, len64)
 
+	/* Commented out for gofrontend: checkptr is not supported by gccgo.
 	// Check that underlying array doesn't straddle multiple heap objects.
 	// unsafestring64 has already checked for overflow.
 	if checkptrStraddles(ptr, uintptr(len64)) {
 		throw("checkptr: unsafe.String result straddles multiple allocations")
 	}
+	*/
 }
 
 func panicunsafestringlen() {
@@ -82,11 +84,13 @@ func unsafeslice64(et *_type, ptr unsafe.Pointer, len64 int64) {
 func unsafeslicecheckptr(et *_type, ptr unsafe.Pointer, len64 int64) {
 	unsafeslice64(et, ptr, len64)
 
+	/* Commented out for gofrontend: checkptr is not supported by gccgo.
 	// Check that underlying array doesn't straddle multiple heap objects.
 	// unsafeslice64 has already checked for overflow.
 	if checkptrStraddles(ptr, uintptr(len64)*et.size) {
 		throw("checkptr: unsafe.Slice result straddles multiple allocations")
 	}
+	*/
 }
 
 func panicunsafeslicelen() {

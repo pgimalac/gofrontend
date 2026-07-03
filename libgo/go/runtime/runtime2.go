@@ -1037,7 +1037,7 @@ type _panic struct {
 // ancestorInfo records details of where a goroutine was started.
 type ancestorInfo struct {
 	pcs  []uintptr // pcs from the stack of this goroutine
-	goid uint64    // goroutine id of this goroutine; original goroutine possibly dead
+	goid int64     // goroutine id of this goroutine; original goroutine possibly dead
 	gopc uintptr   // pc of go statement that created this goroutine
 }
 

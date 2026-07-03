@@ -46,6 +46,7 @@ type fixalloc struct {
 // this cannot be used by some of the internal GC structures. For example when
 // the sweeper is placing an unmarked object on the free list it does not want the
 // write barrier to be called since that could result in the object being reachable.
+//go:notinheap
 type mlink struct {
 	_    sys.NotInHeap
 	next *mlink

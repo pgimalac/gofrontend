@@ -5,7 +5,6 @@
 package runtime
 
 import (
-	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -101,7 +100,7 @@ func CgocallBack() {
 	}
 
 	mp := gp.m
-	if mp.needextram || atomic.Load(&extraMWaiters) > 0 {
+	if mp.needextram || extraMWaiters.Load() > 0 {
 		mp.needextram = false
 		newextram()
 	}

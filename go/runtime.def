@@ -495,6 +495,10 @@ DEF_GO_RUNTIME(UNSAFESLICE, "runtime.unsafeslice",
 DEF_GO_RUNTIME(UNSAFESLICE64, "runtime.unsafeslice64",
 	       P3(TYPE, POINTER, INT64), R0())
 
+// Check the length of an unsafe string.
+DEF_GO_RUNTIME(UNSAFESTRING, "runtime.unsafestring", P2(POINTER, INT), R0())
+DEF_GO_RUNTIME(UNSAFESTRING64, "runtime.unsafestring64", P2(POINTER, INT64), R0())
+
 // Panic reporting a division by zero.
 DEF_GO_RUNTIME(PANIC_DIVIDE, "runtime.panicdivide", P0(), R0())
 

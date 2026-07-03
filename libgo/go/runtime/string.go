@@ -78,7 +78,7 @@ func concatstrings(buf *tmpBuf, p *string, n int) string {
 // n is the length of the slice.
 // Buf is a fixed-size buffer for the result,
 // it is not nil if the result does not escape.
-func slicebytetostring(buf *tmpBuf, ptr *byte, n int) string {
+func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
 	if n == 0 {
 		// Turns out to be a relatively common case.
 		// Consider that you want to parse out data between parens in "foo()bar",
@@ -102,7 +102,11 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) string {
 		if goarch.BigEndian {
 			p = add(p, 7)
 		}
-		return unsafe.String((*byte)(p), 1)
+		// Not using unsafe.String: the gccgo frontend's escape
+		// analysis cannot handle unsafe.String/unsafe.StringData.
+		stringStructOf(&str).str = p
+		stringStructOf(&str).len = 1
+		return
 	}
 
 	var p unsafe.Pointer
@@ -111,8 +115,10 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) string {
 	} else {
 		p = mallocgc(uintptr(n), nil, false)
 	}
+	stringStructOf(&str).str = p
+	stringStructOf(&str).len = n
 	memmove(p, unsafe.Pointer(ptr), uintptr(n))
-	return unsafe.String((*byte)(p), n)
+	return
 }
 
 func rawstringtmp(buf *tmpBuf, l int) (s string, b []byte) {
@@ -139,7 +145,7 @@ func rawstringtmp(buf *tmpBuf, l int) (s string, b []byte) {
 //     where k is []byte, T1 to Tn is a nesting of struct and array literals.
 //   - Used for "<"+string(b)+">" concatenation where b is []byte.
 //   - Used for string(b)=="foo" comparison where b is []byte.
-func slicebytetostringtmp(ptr *byte, n int) string {
+func slicebytetostringtmp(ptr *byte, n int) (str string) {
 	if raceenabled && n > 0 {
 		racereadrangepc(unsafe.Pointer(ptr),
 			uintptr(n),
@@ -266,7 +272,15 @@ func intstring(buf *[4]byte, v int64) (s string) {
 // b to set the string contents and then drop b.
 func rawstring(size int) (s string, b []byte) {
 	p := mallocgc(uintptr(size), nil, false)
-	return unsafe.String((*byte)(p), size), unsafe.Slice((*byte)(p), size)
+
+	// Not using unsafe.String: the gccgo frontend's escape analysis
+	// cannot handle unsafe.String/unsafe.StringData.
+	stringStructOf(&s).str = p
+	stringStructOf(&s).len = size
+
+	*(*slice)(unsafe.Pointer(&b)) = slice{p, size, size}
+
+	return
 }
 
 // rawbyteslice allocates a new byte slice. The byte slice is not zeroed.
@@ -328,7 +342,7 @@ func gostring(p *byte) string {
 
 // internal_syscall_gostring is a version of gostring for internal/syscall/unix.
 //
-//go:linkname internal_syscall_gostring internal/syscall/unix.gostring
+//go:linkname internal_syscall_gostring internal_1syscall_1unix.gostring
 func internal_syscall_gostring(p *byte) string {
 	return gostring(p)
 }

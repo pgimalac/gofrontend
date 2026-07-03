@@ -1624,6 +1624,9 @@ Escape_analysis_assign::expression(Expression** pexpr)
 
               case Builtin_call_expression::BUILTIN_ADD:
               case Builtin_call_expression::BUILTIN_SLICE:
+              case Builtin_call_expression::BUILTIN_SLICE_DATA:
+              case Builtin_call_expression::BUILTIN_STRING:
+              case Builtin_call_expression::BUILTIN_STRING_DATA:
                 // handled in ::assign.
                 break;
 
@@ -2435,6 +2438,18 @@ Escape_analysis_assign::assign(Node* dst, Node* src)
                     {
                       // unsafe.Slice(p, len).
                       // The resulting slice has the same backing store as p. Flow p to result.
+                      Node* arg = Node::make_node(call->args()->front());
+                      this->assign(dst, arg);
+                    }
+                    break;
+
+                  case Builtin_call_expression::BUILTIN_SLICE_DATA:
+                  case Builtin_call_expression::BUILTIN_STRING:
+                  case Builtin_call_expression::BUILTIN_STRING_DATA:
+                    {
+                      // unsafe.SliceData(s)/String(p,len)/StringData(s):
+                      // the result aliases the backing store of the first
+                      // argument.  Flow that argument to the result.
                       Node* arg = Node::make_node(call->args()->front());
                       this->assign(dst, arg);
                     }

@@ -1116,8 +1116,8 @@ func scanobject(b uintptr, gcw *gcWork) {
 			// heap. In this case, we know the object was
 			// just allocated and hence will be marked by
 			// allocation itself.
-			if obj, span, objIndex := findObject(obj, b, i, false); obj != 0 {
-				greyobject(obj, b, i, span, gcw, objIndex, false)
+			if obj, span, objIndex := findObject(obj, b, addr-b, false); obj != 0 {
+				greyobject(obj, b, addr-b, span, gcw, objIndex, false)
 			}
 		}
 	}

@@ -39,7 +39,7 @@ func atomicstorep(ptr unsafe.Pointer, new unsafe.Pointer) {
 // (like StoreNoWB but with the write barrier).
 //
 //go:nosplit
-//go:linkname atomic_storePointer runtime/internal/atomic.storePointer
+//go:linkname atomic_storePointer runtime_1internal_1atomic.storePointer
 func atomic_storePointer(ptr *unsafe.Pointer, new unsafe.Pointer) {
 	atomicstorep(unsafe.Pointer(ptr), new)
 }
@@ -48,7 +48,7 @@ func atomic_storePointer(ptr *unsafe.Pointer, new unsafe.Pointer) {
 // (like CompareAndSwapNoWB but with the write barrier).
 //
 //go:nosplit
-//go:linkname atomic_casPointer runtime/internal/atomic.casPointer
+//go:linkname atomic_casPointer runtime_1internal_1atomic.casPointer
 func atomic_casPointer(ptr *unsafe.Pointer, old, new unsafe.Pointer) bool {
 	if writeBarrier.enabled {
 		atomicwb(ptr, new)

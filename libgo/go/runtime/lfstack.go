@@ -58,7 +58,7 @@ func (head *lfstack) empty() bool {
 // lfnodeValidate panics if node is not a valid address for use with
 // lfstack.push. This only needs to be called when node is allocated.
 func lfnodeValidate(node *lfnode) {
-	if base, _, _ := findObject(uintptr(unsafe.Pointer(node)), 0, 0); base != 0 {
+	if base, _, _ := findObject(uintptr(unsafe.Pointer(node)), 0, 0, false); base != 0 {
 		throw("lfstack node allocated from the heap")
 	}
 	if lfstackUnpack(lfstackPack(node, ^uintptr(0))) != node {

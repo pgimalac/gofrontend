@@ -156,7 +156,8 @@ func dumpslice(b []byte) {
 }
 
 func dumpstr(s string) {
-	dumpmemrange(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
+	sp := stringStructOf(&s)
+	dumpmemrange(sp.str, uintptr(sp.len))
 }
 
 // dump information for a type.
@@ -257,7 +258,7 @@ func dumpgoroutine(gp *g) {
 	dumpint(tagGoroutine)
 	dumpint(uint64(uintptr(unsafe.Pointer(gp))))
 	dumpint(uint64(sp))
-	dumpint(gp.goid)
+	dumpint(uint64(gp.goid))
 	dumpint(uint64(gp.gopc))
 	dumpint(uint64(readgstatus(gp)))
 	dumpbool(isSystemGoroutine(gp, false))

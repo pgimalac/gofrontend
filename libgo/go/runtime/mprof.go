@@ -65,6 +65,7 @@ type bucketType int
 // creation, including its next and allnext links.
 //
 // No heap pointers.
+//go:notinheap
 type bucket struct {
 	_       sys.NotInHeap
 	next    *bucket

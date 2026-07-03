@@ -23,6 +23,7 @@ import (
 // per-arena bitmap with a bit for every word in the arena. The mark
 // is stored on the bit corresponding to the first word of the marked
 // allocation.
+//go:notinheap
 type checkmarksMap struct {
 	_ sys.NotInHeap
 	b [heapArenaBytes / goarch.PtrSize / 8]uint8

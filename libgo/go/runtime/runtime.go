@@ -78,7 +78,7 @@ var godebugDefault string
 var godebugUpdate atomic.Pointer[func(string, string)]
 var godebugEnv atomic.Pointer[string] // set by parsedebugvars
 
-//go:linkname godebug_setUpdate internal/godebug.setUpdate
+//go:linkname godebug_setUpdate internal_1godebug.setUpdate
 func godebug_setUpdate(update func(string, string)) {
 	p := new(func(string, string))
 	*p = update
@@ -120,5 +120,6 @@ func syscall_runtimeUnsetenv(key string) {
 //
 //go:nosplit
 func writeErrStr(s string) {
-	write(2, unsafe.Pointer(unsafe.StringData(s)), int32(len(s)))
+	sp := stringStructOf(&s)
+	write(2, sp.str, int32(sp.len))
 }

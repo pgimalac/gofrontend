@@ -52,10 +52,6 @@
 
 package runtime
 
-import (
-	"runtime/internal/atomic"
-)
-
 type suspendGState struct {
 	g *g
 
@@ -192,7 +188,7 @@ func suspendG(gp *g) suspendGState {
 		case _Grunning:
 			// Optimization: if there is already a pending preemption request
 			// (from the previous loop iteration), don't bother with the atomics.
-			if asyncM != nil && gp.preemptStop && gp.preempt && asyncM == gp.m && atomic.Load(&asyncM.preemptGen) == asyncGen {
+			if asyncM != nil && gp.preemptStop && gp.preempt && asyncM == gp.m && asyncM.preemptGen.Load() == asyncGen {
 				break
 			}
 

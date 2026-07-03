@@ -29,7 +29,7 @@ type slice struct {
 	cap   int
 }
 
-// A notInHeapSlice is a slice backed by runtime/internal/sys.NotInHeap memory.
+// A notInHeapSlice is a slice backed by go:notinheap memory.
 type notInHeapSlice struct {
 	array *notInHeap
 	len   int
@@ -140,6 +140,9 @@ func mulUintptr(a, b uintptr) (uintptr, bool) {
 	return math.MulUintptr(a, b)
 }
 
+// unsafeslice, unsafeslice64, unsafeslicecheckptr, panicunsafeslicelen and
+// panicunsafeslicenilptr live in unsafe.go (added in the Go 1.20 layout).
+
 // growslice handles slice growth during append.
 // It is passed the slice element type, the old slice, and the desired new minimum capacity,
 // and it returns a new slice with at least that capacity, with the old data
@@ -169,8 +172,8 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 
 	newcap := oldcap
 	doublecap := newcap + newcap
-	if newLen > doublecap {
-		newcap = newLen
+	if cap > doublecap {
+		newcap = cap
 	} else {
 		const threshold = 256
 		if oldcap < threshold {
@@ -178,7 +181,7 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 		} else {
 			// Check 0 < newcap to detect overflow
 			// and prevent an infinite loop.
-			for 0 < newcap && newcap < newLen {
+			for 0 < newcap && newcap < cap {
 				// Transition from growing 2x for small slices
 				// to growing 1.25x for large slices. This formula
 				// gives a smooth-ish transition between the two.
@@ -187,7 +190,7 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 			// Set newcap to the requested cap when
 			// the newcap calculation overflowed.
 			if newcap <= 0 {
-				newcap = newLen
+				newcap = cap
 			}
 		}
 	}
@@ -215,23 +218,21 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 		var shift uintptr
 		if goarch.PtrSize == 8 {
 			// Mask shift for better code generation.
-			shift = uintptr(sys.TrailingZeros64(uint64(et.size))) & 63
+			shift = uintptr(sys.Ctz64(uint64(et.size))) & 63
 		} else {
-			shift = uintptr(sys.TrailingZeros32(uint32(et.size))) & 31
+			shift = uintptr(sys.Ctz32(uint32(et.size))) & 31
 		}
 		lenmem = uintptr(oldlen) << shift
 		newlenmem = uintptr(cap) << shift
 		capmem = roundupsize(uintptr(newcap) << shift)
 		overflow = uintptr(newcap) > (maxAlloc >> shift)
 		newcap = int(capmem >> shift)
-		capmem = uintptr(newcap) << shift
 	default:
 		lenmem = uintptr(oldlen) * et.size
 		newlenmem = uintptr(cap) * et.size
 		capmem, overflow = math.MulUintptr(et.size, uintptr(newcap))
 		capmem = roundupsize(capmem)
 		newcap = int(capmem / et.size)
-		capmem = uintptr(newcap) * et.size
 	}
 
 	// The check of overflow in addition to capmem > maxAlloc is needed
@@ -248,7 +249,7 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 	//   print(len(s), "\n")
 	// }
 	if overflow || capmem > maxAlloc {
-		panic(errorString("growslice: len out of range"))
+		panic(errorString("growslice: cap out of range"))
 	}
 
 	var p unsafe.Pointer
@@ -256,14 +257,12 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 		p = mallocgc(capmem, nil, false)
 		// The append() that calls growslice is going to overwrite from oldlen to cap (which will be the new length).
 		// Only clear the part that will not be overwritten.
-		// The reflect_growslice() that calls growslice will manually clear
-		// the region not cleared here.
 		memclrNoHeapPointers(add(p, newlenmem), capmem-newlenmem)
 	} else {
 		// Note: can't use rawmem (which avoids zeroing of memory), because then GC can scan uninitialized memory.
 		p = mallocgc(capmem, et, true)
 		if lenmem > 0 && writeBarrier.enabled {
-			// Only shade the pointers in oldPtr since we know the destination slice p
+			// Only shade the pointers in old.array since we know the destination slice p
 			// only contains nil pointers because it has been cleared during alloc.
 			bulkBarrierPreWriteSrcOnly(uintptr(p), uintptr(oldarray), lenmem-et.size+et.ptrdata)
 		}

@@ -485,7 +485,6 @@ func (u *UnsafePointer) Store(value unsafe.Pointer) {
 }
 
 // provided by runtime
-//go:linkname storePointer
 func storePointer(ptr *unsafe.Pointer, new unsafe.Pointer)
 
 // CompareAndSwapNoWB atomically (with respect to other methods)

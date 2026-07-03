@@ -32,6 +32,15 @@ func getProcID() uint64 {
 	return uint64(gettid())
 }
 
+// sigFromUser reports whether the signal was sent because of a call
+// to kill or tgkill.
+//
+//go:nosplit
+func (c *sigctxt) sigFromUser() bool {
+	code := int32(c.sigcode())
+	return code == _SI_USER || code == _SI_TKILL
+}
+
 func futex(addr unsafe.Pointer, op int32, val uint32, ts, addr2 unsafe.Pointer, val3 uint32) int32 {
 	return int32(syscall(_SYS_futex, uintptr(addr), uintptr(op), uintptr(val), uintptr(ts), uintptr(addr2), uintptr(val3)))
 }
@@ -305,7 +314,7 @@ func validSIGPROF(mp *m, c *sigctxt) bool {
 
 	// Having an M means the thread interacts with the Go scheduler, and we can
 	// check whether there's an active per-thread timer for this thread.
-	if mp.profileTimerValid.Load() {
+	if atomic.Load(&mp.profileTimerValid) != 0 {
 		// If this M has its own per-thread CPU profiling interval timer, we
 		// should track the SIGPROF signals that come from that timer (for
 		// accurate reporting of its CPU usage; see issue 35057) and ignore any
@@ -331,9 +340,9 @@ func setThreadCPUProfiler(hz int32) {
 	}
 
 	// destroy any active timer
-	if mp.profileTimerValid.Load() {
+	if atomic.Load(&mp.profileTimerValid) != 0 {
 		timerid := mp.profileTimer
-		mp.profileTimerValid.Store(false)
+		atomic.Store(&mp.profileTimerValid, 0)
 		mp.profileTimer = 0
 
 		ret := timer_delete(timerid)
@@ -393,5 +402,5 @@ func setThreadCPUProfiler(hz int32) {
 	}
 
 	mp.profileTimer = timerid
-	mp.profileTimerValid.Store(true)
+	atomic.Store(&mp.profileTimerValid, 1)
 }

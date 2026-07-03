@@ -13,3 +13,7 @@ const (
 	_MinFrameSize        = 8
 	_StackAlign          = PtrSize
 )
+
+// IsLoong64 is not generated into zgoarch.go by the gccgo build (loong64 is
+// not in ALLGOARCH / configure.ac), so define it here for loong64 builds.
+const IsLoong64 = 1

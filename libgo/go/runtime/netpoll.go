@@ -73,6 +73,7 @@ const pollBlockSize = 4 * 1024
 // Network poller descriptor.
 //
 // No heap pointers.
+//go:notinheap
 type pollDesc struct {
 	_    sys.NotInHeap
 	link *pollDesc // in pollcache, protected by pollcache.lock

@@ -321,6 +321,7 @@ type workbufhdr struct {
 	nobj int
 }
 
+//go:notinheap
 type workbuf struct {
 	_ sys.NotInHeap
 	workbufhdr

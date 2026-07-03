@@ -18,6 +18,7 @@ import (
 )
 
 // Central list of free objects of a given size.
+//go:notinheap
 type mcentral struct {
 	_         sys.NotInHeap
 	spanclass spanClass

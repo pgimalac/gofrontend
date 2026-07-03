@@ -1183,7 +1183,7 @@ func fatalpanic(msgs *_panic) {
 		// startpanic_m set panicking, which will
 		// block main from exiting, so now OK to
 		// decrement runningPanicDefers.
-		atomic.Xadd(&runningPanicDefers, -1)
+		runningPanicDefers.Add(-1)
 
 		printpanics(msgs)
 	}

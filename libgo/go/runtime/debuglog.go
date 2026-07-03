@@ -122,6 +122,7 @@ func dlog() *dlogger {
 //
 // To obtain a dlogger, call dlog(). When done with the dlogger, call
 // end().
+//go:notinheap
 type dlogger struct {
 	_ sys.NotInHeap
 	w debugLogWriter
@@ -365,6 +366,7 @@ func (l *dlogger) traceback(x []uintptr) *dlogger {
 // overwrite old records. Hence, it maintains a reader that consumes
 // the log as it gets overwritten. That reader state is where an
 // actual log reader would start.
+//go:notinheap
 type debugLogWriter struct {
 	_     sys.NotInHeap
 	write uint64
@@ -384,6 +386,7 @@ type debugLogWriter struct {
 	buf [10]byte
 }
 
+//go:notinheap
 type debugLogBuf struct {
 	_ sys.NotInHeap
 	b [debugLogBytes]byte

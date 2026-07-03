@@ -120,6 +120,21 @@ Gogo::add_unsafe_bindings(Package* package)
   fntype->set_is_builtin();
   bindings->add_function_declaration("Slice", package, fntype, bloc);
 
+  // SliceData.
+  fntype = Type::make_function_type(NULL, NULL, NULL, bloc);
+  fntype->set_is_builtin();
+  bindings->add_function_declaration("SliceData", package, fntype, bloc);
+
+  // String.
+  fntype = Type::make_function_type(NULL, NULL, NULL, bloc);
+  fntype->set_is_builtin();
+  bindings->add_function_declaration("String", package, fntype, bloc);
+
+  // StringData.
+  fntype = Type::make_function_type(NULL, NULL, NULL, bloc);
+  fntype->set_is_builtin();
+  bindings->add_function_declaration("StringData", package, fntype, bloc);
+
   if (!this->imported_unsafe_)
     {
       go_imported_unsafe();
