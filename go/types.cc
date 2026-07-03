@@ -3475,6 +3475,11 @@ Type::gcprog_constructor(Gogo* gogo, int64_t ptrsize, int64_t ptrdata)
   return prog.constructor();
 }
 
+// Generics: append the user-facing name of a generic type argument (see
+// the definition below for details).
+static void
+append_generic_arg_name(const Type* type, Gogo* gogo, std::string* ret);
+
 // Return a composite literal for the uncommon type information for
 // this type.  UNCOMMON_STRUCT_TYPE is the type of the uncommon type
 // struct.  If name is not NULL, it is the name of the type.  If
@@ -3522,7 +3527,7 @@ Type::uncommon_type_constructor(Gogo* gogo, Type* uncommon_type,
 	    {
 	      if (i > 0)
 		n.push_back(',');
-	      n.append(targs[i]->reflection(gogo));
+	      append_generic_arg_name(targs[i], gogo, &n);
 	    }
 	  n.push_back(']');
 	}
@@ -11721,6 +11726,55 @@ Named_type::do_type_descriptor(Gogo* gogo, Named_type* name)
 				     name == NULL ? this : name);
 }
 
+// Generics: append the user-facing name of a generic type argument, used
+// to build the reflection name of a generic type instance
+// "Base[arg0,arg1,...]".  Unlike append_reflection, this does not use the
+// tab-delimited package-path encoding; a named argument renders as
+// "<pkgpath>.<name>" (e.g. "internal/reflectlite_test.A") and a nested
+// generic instance renders recursively, matching the gc compiler.
+
+static void
+append_generic_arg_name(const Type* type, Gogo* gogo, std::string* ret)
+{
+  const Named_type* nt = type->named_type();
+  if (nt != NULL)
+    {
+      if (nt->is_builtin())
+	{
+	  ret->append(Gogo::unpack_hidden_name(nt->named_object()->name()));
+	  return;
+	}
+      const Package* package = nt->named_object()->package();
+      const std::string& pkgpath = (package != NULL
+				    ? package->pkgpath()
+				    : gogo->pkgpath());
+      ret->append(pkgpath);
+      ret->push_back('.');
+      // A nested generic instance renders as "<pkgpath>.Base[arg,...]".
+      if (!nt->generic_type_args().empty()
+	  && !nt->generic_base_name().empty())
+	{
+	  ret->append(nt->generic_base_name());
+	  ret->push_back('[');
+	  const std::vector<Type*>& args = nt->generic_type_args();
+	  for (size_t i = 0; i < args.size(); ++i)
+	    {
+	      if (i > 0)
+		ret->push_back(',');
+	      append_generic_arg_name(args[i], gogo, ret);
+	    }
+	  ret->push_back(']');
+	  return;
+	}
+      ret->append(Gogo::unpack_hidden_name(nt->named_object()->name()));
+      return;
+    }
+  // For composite type arguments (slices, pointers, ...) fall back to the
+  // standard reflection string.  This uses the tab encoding but is only
+  // reached for arguments the common cases do not exercise.
+  ret->append(type->reflection(gogo));
+}
+
 // Add to the reflection string.  This is used mostly for the name of
 // the type used in a type descriptor, not for actual reflection
 // strings.
@@ -11800,7 +11854,7 @@ Named_type::append_reflection_type_name(Gogo* gogo, bool use_alias,
 	{
 	  if (i > 0)
 	    ret->push_back(',');
-	  this->append_reflection(this->generic_type_args_[i], gogo, ret);
+	  append_generic_arg_name(this->generic_type_args_[i], gogo, ret);
 	}
       ret->push_back(']');
       return;
