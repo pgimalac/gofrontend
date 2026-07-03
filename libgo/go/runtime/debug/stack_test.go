@@ -118,10 +118,3 @@ func TestStack(t *testing.T) {
 	frame("stack_test.go", "test.TestStack")
 	frame("testing.go", "")
 }
-
-	frame("runtime/debug/stack.go", "runtime/debug.Stack")
-	frame("runtime/debug/stack_test.go", "runtime/debug_test.(*T).ptrmethod")
-	frame("runtime/debug/stack_test.go", "runtime/debug_test.T.method")
-	frame("runtime/debug/stack_test.go", "runtime/debug_test.TestStack")
-	frame("testing/testing.go", "")
-}

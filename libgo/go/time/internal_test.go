@@ -12,9 +12,9 @@ func init() {
 }
 
 func initTestingZone() {
-	z, err := loadLocation("America/Los_Angeles", zoneSources[len(zoneSources)-1:])
+	z, err := loadLocation("America/Los_Angeles", platformZoneSources[len(platformZoneSources)-1:])
 	if runtime.Compiler == "gccgo" && err != nil {
-		z, err = loadLocation("America/Los_Angeles", zoneSources)
+		z, err = loadLocation("America/Los_Angeles", platformZoneSources)
 	}
 	if err != nil {
 		panic("cannot load America/Los_Angeles for testing: " + err.Error() + "; you may want to use -tags=timetzdata")

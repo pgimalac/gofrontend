@@ -155,6 +155,7 @@ internal/sysinfo
 internal/testenv
 internal/testlog
 internal/trace
+internal/txtar
 internal/unsafeheader
 internal/xcoff
 io
