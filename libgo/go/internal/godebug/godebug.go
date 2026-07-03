@@ -94,7 +94,7 @@ func (s *Setting) Value() string {
 // again each time the environment variable changes
 // (due to use of os.Setenv, for example).
 //
-//go:linkname setUpdate
+//go:linkname setUpdate internal_1godebug.setUpdate
 func setUpdate(update func(string, string))
 
 func init() {

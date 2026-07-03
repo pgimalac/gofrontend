@@ -49,6 +49,7 @@ cmd/internal/edit
 cmd/internal/notsha256
 cmd/internal/objabi
 cmd/internal/pkgpath
+cmd/internal/pkgpattern
 cmd/internal/quoted
 cmd/internal/sys
 cmd/internal/test2json
@@ -106,6 +107,7 @@ golang.org/x/tools/go/cfg
 golang.org/x/tools/go/types/objectpath
 golang.org/x/tools/go/types/typeutil
 golang.org/x/tools/internal/analysisinternal
+golang.org/x/tools/internal/facts
 golang.org/x/tools/internal/lsp/fuzzy
 golang.org/x/tools/internal/typeparams
 golang.org/x/tools/txtar

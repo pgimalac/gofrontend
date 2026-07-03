@@ -405,7 +405,7 @@ type lockedSource struct {
 	s  *rngSource // nil if not yet allocated
 }
 
-//go:linkname fastrand64
+//go:linkname fastrand64 math_1rand.fastrand64
 func fastrand64() uint64
 
 var randautoseed = godebug.New("randautoseed")
