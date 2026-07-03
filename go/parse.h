@@ -205,6 +205,22 @@ class Parse
   // A set of Enclosing_var entries.
   typedef std::set<Enclosing_var, Enclosing_var_comparison> Enclosing_vars;
 
+  // The enclosing-variable set currently in effect: the outer parse's set
+  // when this is a nested index re-parse (see shared_enclosing_vars_),
+  // otherwise this parse's own set.
+  Enclosing_vars&
+  active_enclosing_vars()
+  {
+    return (this->shared_enclosing_vars_ != NULL
+	    ? *this->shared_enclosing_vars_
+	    : this->enclosing_vars_);
+  }
+
+  // Make a nested index re-parse share OUTER's enclosing-variable set.
+  void
+  set_shared_enclosing_vars(Enclosing_vars* evs)
+  { this->shared_enclosing_vars_ = evs; }
+
   // Used to detect duplicate parameter/result names.
   typedef std::map<std::string, const Typed_identifier*> Names;
 
@@ -512,6 +528,14 @@ class Parse
   // References from the local function to variables defined in
   // enclosing functions.
   Enclosing_vars enclosing_vars_;
+  // Generics: when a nested Parse re-parses an index sub-expression of the
+  // current function body via token replay (see primary_expr), this points
+  // to the outer parse's enclosing_vars_ set.  Enclosing-variable
+  // references then share that set, so the closure fields they create are
+  // de-duplicated and indexed consistently with the closure construction,
+  // rather than being added again to this nested parse's own empty set.
+  // NULL for an ordinary parse, which uses enclosing_vars_ directly.
+  Enclosing_vars* shared_enclosing_vars_;
   // Generics: while parsing an interface type, the constraint type-set
   // elements seen so far (each entry the tokens of one element, possibly
   // beginning with "~").  Method elements are not recorded here.

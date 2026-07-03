@@ -859,6 +859,7 @@ Parse::Parse(Lex* lex, Gogo* gogo)
     break_stack_(NULL),
     continue_stack_(NULL),
     enclosing_vars_(),
+    shared_enclosing_vars_(NULL),
     iface_terms_(),
     last_iface_terms_()
 {
@@ -6842,10 +6843,13 @@ Parse::enclosing_var_reference(Named_object* in_function, Named_object* var,
   // The last argument to the Enclosing_var constructor is the index
   // of this variable in the closure.  We add 1 to the current number
   // of enclosed variables, because the first field in the closure
-  // points to the function code.
-  Enclosing_var ev(var, in_function, this->enclosing_vars_.size() + 1);
-  std::pair<Enclosing_vars::iterator, bool> ins =
-    this->enclosing_vars_.insert(ev);
+  // points to the function code.  Use the active set, which for a nested
+  // index re-parse is the outer parse's set, so that references shared
+  // across the re-parse are de-duplicated and indexed consistently with
+  // the closure construction.
+  Enclosing_vars& evs = this->active_enclosing_vars();
+  Enclosing_var ev(var, in_function, evs.size() + 1);
+  std::pair<Enclosing_vars::iterator, bool> ins = evs.insert(ev);
   if (ins.second)
     {
       // This is a variable we have not seen before.  Add a new field
@@ -7067,6 +7071,11 @@ Parse::function_lit()
 
   Enclosing_vars hold_enclosing_vars;
   hold_enclosing_vars.swap(this->enclosing_vars_);
+  // This function literal has its own closure, so its body must track its
+  // own enclosing-variable references even if we are inside a nested index
+  // re-parse that is sharing an outer set.
+  Enclosing_vars* hold_shared_enclosing_vars = this->shared_enclosing_vars_;
+  this->shared_enclosing_vars_ = NULL;
 
   Function_type* type = this->signature(NULL, location);
   bool fntype_is_error = false;
@@ -7080,6 +7089,7 @@ Parse::function_lit()
   // don't see that, then we may have a type expression.
   if (!this->peek_token()->is_op(OPERATOR_LCURLY))
     {
+      this->shared_enclosing_vars_ = hold_shared_enclosing_vars;
       hold_enclosing_vars.swap(this->enclosing_vars_);
       return Expression::make_type(type, location);
     }
@@ -7108,6 +7118,7 @@ Parse::function_lit()
 
   this->is_erroneous_function_ = hold_is_erroneous_function;
 
+  this->shared_enclosing_vars_ = hold_shared_enclosing_vars;
   hold_enclosing_vars.swap(this->enclosing_vars_);
 
   Expression* closure = this->create_closure(no, &hold_enclosing_vars,
@@ -7349,6 +7360,7 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 		      rb.push_back(Token::make_eof_token(bl));
 		      Parse ip(this->lex_, this->gogo_);
 		      ip.set_replay_tokens(&rb);
+		      ip.set_shared_enclosing_vars(&this->active_enclosing_vars());
 		      partial_generic_call_fallback[ret] = ip.index(ret->copy());
 		    }
 		}
@@ -7368,6 +7380,7 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 		  rb.push_back(Token::make_eof_token(bl));
 		  Parse ip(this->lex_, this->gogo_);
 		  ip.set_replay_tokens(&rb);
+		  ip.set_shared_enclosing_vars(&this->active_enclosing_vars());
 		  Expression* fallback = ip.index(ret->copy());
 		  generic_value_type_args[ret] = groups;
 		  generic_value_fallback[ret] = fallback;
@@ -7378,6 +7391,7 @@ Parse::primary_expr(bool may_be_sink, bool may_be_composite_lit,
 		  rb.push_back(Token::make_eof_token(bl));
 		  Parse ip(this->lex_, this->gogo_);
 		  ip.set_replay_tokens(&rb);
+		  ip.set_shared_enclosing_vars(&this->active_enclosing_vars());
 		  ret = ip.index(this->verify_not_sink(ret));
 		}
 	    }
