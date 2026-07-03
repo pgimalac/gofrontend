@@ -1234,7 +1234,28 @@ Parse::type_name(bool issue_error)
 
   Named_object* named_object;
   if (package == NULL)
-    named_object = this->gogo_->lookup(name, NULL);
+    {
+      named_object = NULL;
+      // Generics: an unqualified name in an instantiated template body belongs
+      // to the template's defining package, not the package being compiled.
+      // Resolve it against the defining (instantiation) package first, so that
+      // e.g. metricdata's "type Temporality" in a re-parsed metricdata.Sum
+      // template is not shadowed by a same-named "func Temporality" in the
+      // importing package.  Fall back to the ordinary lookup otherwise.
+      if (this->replay_tokens_ != NULL)
+	{
+	  Package* ip = this->gogo_->current_instantiation_package();
+	  if (ip != NULL && ip->pkgpath() != this->gogo_->pkgpath())
+	    {
+	      Named_object* ino = ip->bindings()->lookup(name);
+	      if (ino != NULL
+		  && (ino->is_type() || ino->is_type_declaration()))
+		named_object = ino;
+	    }
+	}
+      if (named_object == NULL)
+	named_object = this->gogo_->lookup(name, NULL);
+    }
   else
     {
       named_object = package->package_value()->lookup(name);
@@ -1315,7 +1336,18 @@ Parse::type_name(bool issue_error)
     }
   else if (named_object->is_type())
     {
-      if (!named_object->type_value()->is_visible())
+      // Generics: while re-parsing an imported generic template (replay),
+      // a qualified reference names a type from one of the template's
+      // defining-package imports.  Such a package is imported by the compiler
+      // to instantiate the template (see go_import_generics "genimports"),
+      // but its types can be marked not-visible if they were first created as
+      // inlined references in another package's export data (import.cc
+      // deliberately does not change an existing type's visibility).  The
+      // template was valid in its defining package, so accept the type here
+      // regardless of the visibility flag; the ordinary (non-replay) check is
+      // preserved.
+      if (!named_object->type_value()->is_visible()
+	  && this->replay_tokens_ == NULL)
 	ok = false;
     }
   else if (named_object->is_unknown() || named_object->is_type_declaration())
