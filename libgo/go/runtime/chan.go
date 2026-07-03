@@ -149,7 +149,7 @@ func full(c *hchan) bool {
 	return c.qcount == c.dataqsiz
 }
 
-// entry point for c <- x from compiled code
+// entry point for c <- x from compiled code.
 //
 //go:nosplit
 func chansend1(c *hchan, elem unsafe.Pointer) {
@@ -271,7 +271,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	// to park on a channel. The window between when this G's status
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
-	atomic.Store8(&gp.parkingOnChan, 1)
+	gp.parkingOnChan.Store(true)
 	gopark(chanparkcommit, unsafe.Pointer(&c.lock), waitReasonChanSend, traceEvGoBlockSend, 2)
 	// Ensure the value being sent is kept alive until the
 	// receiver copies it out. The sudog has a pointer to the
@@ -451,7 +451,7 @@ func empty(c *hchan) bool {
 	return atomic.Loaduint(&c.qcount) == 0
 }
 
-// entry points for <- c from compiled code
+// entry points for <- c from compiled code.
 //
 //go:nosplit
 func chanrecv1(c *hchan, elem unsafe.Pointer) {
@@ -600,7 +600,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	// to park on a channel. The window between when this G's status
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
-	atomic.Store8(&gp.parkingOnChan, 1)
+	gp.parkingOnChan.Store(true)
 	gopark(chanparkcommit, unsafe.Pointer(&c.lock), waitReasonChanReceive, traceEvGoBlockRecv, 2)
 
 	// someone woke us up
@@ -685,7 +685,7 @@ func chanparkcommit(gp *g, chanLock unsafe.Pointer) bool {
 	// Mark that it's safe for stack shrinking to occur now,
 	// because any thread acquiring this G's stack for shrinking
 	// is guaranteed to observe activeStackChans after this store.
-	atomic.Store8(&gp.parkingOnChan, 0)
+	gp.parkingOnChan.Store(false)
 	// Make sure we unlock after setting activeStackChans and
 	// unsetting parkingOnChan. The moment we unlock chanLock
 	// we risk gp getting readied by a channel operation and
@@ -812,7 +812,7 @@ func (q *waitq) dequeue() *sudog {
 		// We use a flag in the G struct to tell us when someone
 		// else has won the race to signal this goroutine but the goroutine
 		// hasn't removed itself from the queue yet.
-		if sgp.isSelect && !atomic.Cas(&sgp.g.selectDone, 0, 1) {
+		if sgp.isSelect && !sgp.g.selectDone.CompareAndSwap(0, 1) {
 			continue
 		}
 

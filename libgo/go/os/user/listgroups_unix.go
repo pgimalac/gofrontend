@@ -16,10 +16,6 @@ import (
 	"strconv"
 )
 
-const groupFile = "/etc/group"
-
-var colon = []byte{':'}
-
 func listGroupsFromReader(u *User, r io.Reader) ([]string, error) {
 	if u.Username == "" {
 		return nil, errors.New("user: list groups: empty username")

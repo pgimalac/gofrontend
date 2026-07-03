@@ -49,6 +49,15 @@ type Frame struct {
 	File string
 	Line int
 
+	// startLine is the line number of the beginning of the function in
+	// this frame. Specifically, it is the line number of the func keyword
+	// for Go functions. Note that //line directives can change the
+	// filename and/or line number arbitrarily within a function, meaning
+	// that the Line - startLine offset is not always meaningful.
+	//
+	// This may be zero if not known.
+	startLine int
+
 	// Entry point program counter for the function; may be zero
 	// if not known. If Func is not nil then Entry ==
 	// Func.Entry().
@@ -123,6 +132,13 @@ func (ci *Frames) Next() (frame Frame, more bool) {
 //go:noescape
 // pcInlineCallers is written in C.
 func pcInlineCallers(pc uintptr, locbuf *location, max int32) int32
+
+// runtime_FrameStartLine returns the start line of the function in a Frame.
+//
+//go:linkname runtime_FrameStartLine runtime/pprof.runtime_FrameStartLine
+func runtime_FrameStartLine(f *Frame) int {
+	return f.startLine
+}
 
 // runtime_expandFinalInlineFrame expands the final pc in stk to include all
 // "callers" if pc is inline.

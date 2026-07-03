@@ -539,7 +539,7 @@ bucketloop:
 	return unsafe.Pointer(&zeroVal[0]), false
 }
 
-// returns both key and elem. Used by map iterator
+// returns both key and elem. Used by map iterator.
 func mapaccessK(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, unsafe.Pointer) {
 	// Check preemption, since unlike gc we don't check on every call.
 	if getg().preempt {

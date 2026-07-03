@@ -6,6 +6,7 @@ package modload
 
 import (
 	"context"
+	"flag"
 	"internal/testenv"
 	"log"
 	"os"
@@ -15,27 +16,47 @@ import (
 	"testing"
 
 	"cmd/go/internal/cfg"
+	"cmd/go/internal/vcweb/vcstest"
 
 	"golang.org/x/mod/module"
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testMain(m))
+	flag.Parse()
+	if err := testMain(m); err != nil {
+		log.Fatal(err)
+	}
 }
 
-func testMain(m *testing.M) int {
+func testMain(m *testing.M) (err error) {
 	cfg.GOPROXY = "direct"
+	cfg.ModCacheRW = true
+
+	srv, err := vcstest.NewServer()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := srv.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 
 	dir, err := os.MkdirTemp("", "modload-test-")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if rmErr := os.RemoveAll(dir); err == nil {
+			err = rmErr
+		}
+	}()
 
 	os.Setenv("GOPATH", dir)
 	cfg.BuildContext.GOPATH = dir
 	cfg.GOMODCACHE = filepath.Join(dir, "pkg/mod")
-	return m.Run()
+	m.Run()
+	return nil
 }
 
 var (

@@ -41,8 +41,6 @@ type inodeLock struct {
 	queue []<-chan File
 }
 
-type token struct{}
-
 var (
 	mu     sync.Mutex
 	inodes = map[File]inode{}

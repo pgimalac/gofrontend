@@ -43,7 +43,7 @@ func (p *Package) writeDefs() {
 	}
 	fm := creat(*objDir + "_cgo_main.c")
 
-	var gccgoInit bytes.Buffer
+	var gccgoInit strings.Builder
 
 	fflg := creat(*objDir + "_cgo_flags")
 	var flags []string
@@ -90,8 +90,13 @@ func (p *Package) writeDefs() {
 		fmt.Fprintf(fgo2, "import \"syscall\"\n\n")
 	}
 	if *importRuntimeCgo {
-		fmt.Fprintf(fgo2, "import _cgopackage \"runtime/cgo\"\n\n")
-		fmt.Fprintf(fgo2, "type _ _cgopackage.Incomplete\n") // prevent import-not-used error
+		if !*gccgoDefineCgoIncomplete {
+			fmt.Fprintf(fgo2, "import _cgopackage \"runtime/cgo\"\n\n")
+			fmt.Fprintf(fgo2, "type _ _cgopackage.Incomplete\n") // prevent import-not-used error
+		} else {
+			fmt.Fprintf(fgo2, "//go:notinheap\n")
+			fmt.Fprintf(fgo2, "type _cgopackage_Incomplete struct{ _ struct{ _ struct{} } }\n")
+		}
 	}
 	if *importSyscall {
 		fmt.Fprintf(fgo2, "var _ syscall.Errno\n")
@@ -432,7 +437,7 @@ func checkImportSymName(s string) {
 			fatalf("dynamic symbol %q contains unsupported character", s)
 		}
 	}
-	if strings.Index(s, "//") >= 0 || strings.Index(s, "/*") >= 0 {
+	if strings.Contains(s, "//") || strings.Contains(s, "/*") {
 		fatalf("dynamic symbol %q contains Go comment")
 	}
 }
@@ -443,7 +448,7 @@ func checkImportSymName(s string) {
 // Also assumes that gc convention is to word-align the
 // input and output parameters.
 func (p *Package) structType(n *Name) (string, int64) {
-	var buf bytes.Buffer
+	var buf strings.Builder
 	fmt.Fprint(&buf, "struct {\n")
 	off := int64(0)
 	for i, t := range n.FuncType.Params {
@@ -632,9 +637,7 @@ func (p *Package) writeDefsFunc(fgo2 io.Writer, n *Name, callsMalloc *bool) {
 // writeOutput creates stubs for a specific source file to be compiled by gc
 func (p *Package) writeOutput(f *File, srcfile string) {
 	base := srcfile
-	if strings.HasSuffix(base, ".go") {
-		base = base[0 : len(base)-3]
-	}
+	base = strings.TrimSuffix(base, ".go")
 	base = filepath.Base(base)
 	fgo1 := creat(*objDir + base + ".cgo1.go")
 	fgcc := creat(*objDir + base + ".cgo2.c")
@@ -1119,7 +1122,7 @@ func (p *Package) writeGccgoExports(fgo2, fm, fgcc, fgcch io.Writer) {
 		fn := exp.Func
 		fntype := fn.Type
 
-		cdeclBuf := new(bytes.Buffer)
+		cdeclBuf := new(strings.Builder)
 		resultCount := 0
 		forFieldList(fntype.Results,
 			func(i int, aname string, atype ast.Expr) { resultCount++ })
@@ -1151,7 +1154,7 @@ func (p *Package) writeGccgoExports(fgo2, fm, fgcc, fgcch io.Writer) {
 
 		cRet := cdeclBuf.String()
 
-		cdeclBuf = new(bytes.Buffer)
+		cdeclBuf = new(strings.Builder)
 		fmt.Fprintf(cdeclBuf, "(")
 		if fn.Recv != nil {
 			fmt.Fprintf(cdeclBuf, "%s recv", p.cgoType(fn.Recv.List[0].Type).C.String())
@@ -1287,7 +1290,7 @@ func (p *Package) writeExportHeader(fgcch io.Writer) {
 	// They aren't useful for people using the header file,
 	// and they mean that the header files change based on the
 	// exact location of GOPATH.
-	re := regexp.MustCompile(`(?m)^(#line\s+[0-9]+\s+")[^"]*[/\\]([^"]*")`)
+	re := regexp.MustCompile(`(?m)^(#line\s+\d+\s+")[^"]*[/\\]([^"]*")`)
 	preamble := re.ReplaceAllString(p.Preamble, "$1$2")
 
 	fmt.Fprintf(fgcch, "/* Start of preamble from import \"C\" comments.  */\n\n")

@@ -8,7 +8,7 @@ package aes
 
 import (
 	"crypto/cipher"
-	subtleoverlap "crypto/internal/subtle"
+	"crypto/internal/alias"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
@@ -213,7 +213,7 @@ func (g *gcmAsm) Seal(dst, nonce, plaintext, data []byte) []byte {
 	}
 
 	ret, out := sliceForAppend(dst, len(plaintext)+g.tagSize)
-	if subtleoverlap.InexactOverlap(out[:len(plaintext)], plaintext) {
+	if alias.InexactOverlap(out[:len(plaintext)], plaintext) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 
@@ -262,7 +262,7 @@ func (g *gcmAsm) Open(dst, nonce, ciphertext, data []byte) ([]byte, error) {
 	g.auth(expectedTag[:], ciphertext, data, &tagMask)
 
 	ret, out := sliceForAppend(dst, len(ciphertext))
-	if subtleoverlap.InexactOverlap(out, ciphertext) {
+	if alias.InexactOverlap(out, ciphertext) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 
@@ -314,7 +314,7 @@ func (g *gcmKMA) Seal(dst, nonce, plaintext, data []byte) []byte {
 	}
 
 	ret, out := sliceForAppend(dst, len(plaintext)+g.tagSize)
-	if subtleoverlap.InexactOverlap(out[:len(plaintext)], plaintext) {
+	if alias.InexactOverlap(out[:len(plaintext)], plaintext) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 
@@ -344,7 +344,7 @@ func (g *gcmKMA) Open(dst, nonce, ciphertext, data []byte) ([]byte, error) {
 	tag := ciphertext[len(ciphertext)-g.tagSize:]
 	ciphertext = ciphertext[:len(ciphertext)-g.tagSize]
 	ret, out := sliceForAppend(dst, len(ciphertext))
-	if subtleoverlap.InexactOverlap(out, ciphertext) {
+	if alias.InexactOverlap(out, ciphertext) {
 		panic("crypto/cipher: invalid buffer overlap")
 	}
 

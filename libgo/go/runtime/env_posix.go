@@ -6,6 +6,18 @@
 
 package runtime
 
+// setenv_c and unsetenv_c update the C environment. They are
+// implemented in the C runtime (runtime/go-setenv.c and
+// runtime/go-unsetenv.c), which exports them under the syscall
+// package's mangled names. They are called from syscall_runtimeSetenv
+// and syscall_runtimeUnsetenv in runtime.go.
+//
+//go:linkname setenv_c syscall.setenv_c
+func setenv_c(k string, v string)
+
+//go:linkname unsetenv_c syscall.unsetenv_c
+func unsetenv_c(k string)
+
 func gogetenv(key string) string {
 	env := environ()
 	if env == nil {

@@ -135,6 +135,8 @@ func osinit() {
 
 	ncpu = getncpu()
 	physPageSize = getPageSize()
+
+	osinit_hack()
 }
 
 //go:nosplit

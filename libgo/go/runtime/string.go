@@ -78,7 +78,7 @@ func concatstrings(buf *tmpBuf, p *string, n int) string {
 // n is the length of the slice.
 // Buf is a fixed-size buffer for the result,
 // it is not nil if the result does not escape.
-func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
+func slicebytetostring(buf *tmpBuf, ptr *byte, n int) string {
 	if n == 0 {
 		// Turns out to be a relatively common case.
 		// Consider that you want to parse out data between parens in "foo()bar",
@@ -102,9 +102,7 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
 		if goarch.BigEndian {
 			p = add(p, 7)
 		}
-		stringStructOf(&str).str = p
-		stringStructOf(&str).len = 1
-		return
+		return unsafe.String((*byte)(p), 1)
 	}
 
 	var p unsafe.Pointer
@@ -113,10 +111,8 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
 	} else {
 		p = mallocgc(uintptr(n), nil, false)
 	}
-	stringStructOf(&str).str = p
-	stringStructOf(&str).len = n
 	memmove(p, unsafe.Pointer(ptr), uintptr(n))
-	return
+	return unsafe.String((*byte)(p), n)
 }
 
 func rawstringtmp(buf *tmpBuf, l int) (s string, b []byte) {
@@ -143,7 +139,7 @@ func rawstringtmp(buf *tmpBuf, l int) (s string, b []byte) {
 //     where k is []byte, T1 to Tn is a nesting of struct and array literals.
 //   - Used for "<"+string(b)+">" concatenation where b is []byte.
 //   - Used for string(b)=="foo" comparison where b is []byte.
-func slicebytetostringtmp(ptr *byte, n int) (str string) {
+func slicebytetostringtmp(ptr *byte, n int) string {
 	if raceenabled && n > 0 {
 		racereadrangepc(unsafe.Pointer(ptr),
 			uintptr(n),
@@ -270,13 +266,7 @@ func intstring(buf *[4]byte, v int64) (s string) {
 // b to set the string contents and then drop b.
 func rawstring(size int) (s string, b []byte) {
 	p := mallocgc(uintptr(size), nil, false)
-
-	stringStructOf(&s).str = p
-	stringStructOf(&s).len = size
-
-	*(*slice)(unsafe.Pointer(&b)) = slice{p, size, size}
-
-	return
+	return unsafe.String((*byte)(p), size), unsafe.Slice((*byte)(p), size)
 }
 
 // rawbyteslice allocates a new byte slice. The byte slice is not zeroed.
@@ -334,6 +324,13 @@ func gostring(p *byte) string {
 	s, b := rawstring(l)
 	memmove(unsafe.Pointer(&b[0]), unsafe.Pointer(p), uintptr(l))
 	return s
+}
+
+// internal_syscall_gostring is a version of gostring for internal/syscall/unix.
+//
+//go:linkname internal_syscall_gostring internal/syscall/unix.gostring
+func internal_syscall_gostring(p *byte) string {
+	return gostring(p)
 }
 
 func gostringn(p *byte, l int) string {

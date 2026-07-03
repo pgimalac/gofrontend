@@ -6,7 +6,10 @@
 
 package runtime
 
-import "unsafe"
+import (
+	"runtime/internal/atomic"
+	"unsafe"
+)
 
 // read calls the read system call.
 // It returns a non-negative number of bytes written or a negative errno value.
@@ -24,7 +27,7 @@ func usleep_no_g(usec uint32) {
 	usleep(usec)
 }
 
-// write calls the write system call.
+// write1 calls the write system call.
 // It returns a non-negative number of bytes written or a negative errno value.
 //
 //go:noescape
@@ -33,9 +36,9 @@ func write1(fd uintptr, p unsafe.Pointer, n int32) int32
 //go:noescape
 func open(name *byte, mode, perm int32) int32
 
-// exitThread terminates the current thread, writing *wait = 0 when
+// exitThread terminates the current thread, writing *wait = freeMStack when
 // the stack is safe to reclaim.
-func exitThread(wait *uint32) {
+func exitThread(wait *atomic.Uint32) {
 	// This is never used by gccgo.
 	throw("exitThread")
 }

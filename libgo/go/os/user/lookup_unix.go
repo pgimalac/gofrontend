@@ -16,8 +16,6 @@ import (
 	"strings"
 )
 
-const userFile = "/etc/passwd"
-
 // lineFunc returns a value, an error, or (nil, nil) to skip the row.
 type lineFunc func(line []byte) (v any, err error)
 

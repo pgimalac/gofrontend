@@ -6,12 +6,13 @@ package runtime
 
 import (
 	"runtime/internal/atomic"
-	_ "unsafe" // for go:linkname
+	"unsafe"
 )
 
 //go:generate go run wincallback.go
 //go:generate go run mkduff.go
 //go:generate go run mkfastlog2table.go
+//go:generate go run mklockrank.go -o lockrank.go
 
 // For gccgo, while we still have C runtime code, use go:linkname to
 // export some functions.
@@ -72,3 +73,52 @@ func get_envs() []string { return envs }
 
 //go:linkname get_args runtime_get_args
 func get_args() []string { return argslice }
+
+var godebugDefault string
+var godebugUpdate atomic.Pointer[func(string, string)]
+var godebugEnv atomic.Pointer[string] // set by parsedebugvars
+
+//go:linkname godebug_setUpdate internal/godebug.setUpdate
+func godebug_setUpdate(update func(string, string)) {
+	p := new(func(string, string))
+	*p = update
+	godebugUpdate.Store(p)
+	godebugNotify()
+}
+
+func godebugNotify() {
+	if update := godebugUpdate.Load(); update != nil {
+		var env string
+		if p := godebugEnv.Load(); p != nil {
+			env = *p
+		}
+		(*update)(godebugDefault, env)
+	}
+}
+
+//go:linkname syscall_runtimeSetenv syscall.runtimeSetenv
+func syscall_runtimeSetenv(key, value string) {
+	setenv_c(key, value)
+	if key == "GODEBUG" {
+		p := new(string)
+		*p = value
+		godebugEnv.Store(p)
+		godebugNotify()
+	}
+}
+
+//go:linkname syscall_runtimeUnsetenv syscall.runtimeUnsetenv
+func syscall_runtimeUnsetenv(key string) {
+	unsetenv_c(key)
+	if key == "GODEBUG" {
+		godebugEnv.Store(nil)
+		godebugNotify()
+	}
+}
+
+// writeErrStr writes a string to descriptor 2.
+//
+//go:nosplit
+func writeErrStr(s string) {
+	write(2, unsafe.Pointer(unsafe.StringData(s)), int32(len(s)))
+}

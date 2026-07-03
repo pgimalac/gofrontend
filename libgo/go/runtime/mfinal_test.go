@@ -56,7 +56,7 @@ func TestFinalizerType(t *testing.T) {
 		}},
 	}
 
-	for i, tt := range finalizerTests {
+	for _, tt := range finalizerTests {
 		done := make(chan bool, 1)
 		go func() {
 			// allocate struct with pointer to avoid hitting tinyalloc.
@@ -74,11 +74,7 @@ func TestFinalizerType(t *testing.T) {
 		}()
 		<-done
 		runtime.GC()
-		select {
-		case <-ch:
-		case <-time.After(time.Second * 4):
-			t.Errorf("#%d: finalizer for type %T didn't run", i, tt.finalizer)
-		}
+		<-ch
 	}
 }
 
@@ -115,11 +111,7 @@ func TestFinalizerInterfaceBig(t *testing.T) {
 	}()
 	<-done
 	runtime.GC()
-	select {
-	case <-ch:
-	case <-time.After(4 * time.Second):
-		t.Errorf("finalizer for type *bigValue didn't run")
-	}
+	<-ch
 }
 
 func fin(v *int) {
@@ -197,11 +189,7 @@ func TestEmptySlice(t *testing.T) {
 	fin := make(chan bool, 1)
 	runtime.SetFinalizer(y, func(z *objtype) { fin <- true })
 	runtime.GC()
-	select {
-	case <-fin:
-	case <-time.After(4 * time.Second):
-		t.Errorf("finalizer of next object in memory didn't run")
-	}
+	<-fin
 	xsglobal = xs // keep empty slice alive until here
 }
 
@@ -233,11 +221,7 @@ func TestEmptyString(t *testing.T) {
 	// set finalizer on string contents of y
 	runtime.SetFinalizer(y, func(z *objtype) { fin <- true })
 	runtime.GC()
-	select {
-	case <-fin:
-	case <-time.After(4 * time.Second):
-		t.Errorf("finalizer of next string in memory didn't run")
-	}
+	<-fin
 	ssglobal = ss // keep 0-length string live until here
 }
 

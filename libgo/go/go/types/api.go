@@ -31,6 +31,8 @@ import (
 	"go/ast"
 	"go/constant"
 	"go/token"
+	. "internal/types/errors"
+
 	_ "unsafe" // for go:linkname
 )
 
@@ -49,7 +51,7 @@ type Error struct {
 	// to preview this feature may read go116code using reflection (see
 	// errorcodes_test.go), but beware that there is no guarantee of future
 	// compatibility.
-	go116code  errorCode
+	go116code  Code
 	go116start token.Pos
 	go116end   token.Pos
 }
@@ -167,6 +169,11 @@ type Config struct {
 	// If DisableUnusedImportCheck is set, packages are not checked
 	// for unused imports.
 	DisableUnusedImportCheck bool
+
+	// If oldComparableSemantics is set, ordinary (non-type parameter)
+	// interfaces do not satisfy the comparable constraint.
+	// TODO(gri) remove this flag for Go 1.21
+	oldComparableSemantics bool
 }
 
 //go:linkname srcimporter_setUsesCgo
@@ -426,7 +433,7 @@ func AssertableTo(V *Interface, T Type) bool {
 	if T.Underlying() == Typ[Invalid] {
 		return false
 	}
-	return (*Checker)(nil).newAssertableTo(V, T) == nil
+	return (*Checker)(nil).newAssertableTo(V, T)
 }
 
 // AssignableTo reports whether a value of type V is assignable to a variable
@@ -464,7 +471,15 @@ func Implements(V Type, T *Interface) bool {
 	if V.Underlying() == Typ[Invalid] {
 		return false
 	}
-	return (*Checker)(nil).implements(V, T) == nil
+	return (*Checker)(nil).implements(V, T, false, nil)
+}
+
+// Satisfies reports whether type V satisfies the constraint T.
+//
+// The behavior of Satisfies is unspecified if V is Typ[Invalid] or an uninstantiated
+// generic type.
+func Satisfies(V Type, T *Interface) bool {
+	return (*Checker)(nil).implements(V, T, true, nil)
 }
 
 // Identical reports whether x and y are identical types.

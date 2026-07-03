@@ -382,7 +382,7 @@ func BenchmarkGoroutineProfile(b *testing.B) {
 				if !ok {
 					b.Fatal("goroutine profile failed")
 				}
-				latencies = append(latencies, time.Now().Sub(start))
+				latencies = append(latencies, time.Since(start))
 			}
 			b.StopTimer()
 

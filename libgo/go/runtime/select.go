@@ -7,7 +7,6 @@ package runtime
 // This file contains the implementation of Go select statements.
 
 import (
-	"runtime/internal/atomic"
 	"unsafe"
 )
 
@@ -65,7 +64,7 @@ func selparkcommit(gp *g, _ unsafe.Pointer) bool {
 	// Mark that it's safe for stack shrinking to occur now,
 	// because any thread acquiring this G's stack for shrinking
 	// is guaranteed to observe activeStackChans after this store.
-	atomic.Store8(&gp.parkingOnChan, 0)
+	gp.parkingOnChan.Store(false)
 	// Make sure we unlock after setting activeStackChans and
 	// unsetting parkingOnChan. The moment we unlock any of the
 	// channel locks we risk gp getting readied by a channel operation
@@ -306,13 +305,13 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 	// to park on a channel. The window between when this G's status
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
-	atomic.Store8(&gp.parkingOnChan, 1)
+	gp.parkingOnChan.Store(true)
 	gopark(selparkcommit, nil, waitReasonSelect, traceEvGoBlockSelect, 1)
 	gp.activeStackChans = false
 
 	sellock(scases, lockorder)
 
-	gp.selectDone = 0
+	gp.selectDone.Store(0)
 	sg = (*sudog)(gp.param)
 	gp.param = nil
 

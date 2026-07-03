@@ -207,7 +207,7 @@ func suspendG(gp *g) suspendGState {
 
 			// Prepare for asynchronous preemption.
 			asyncM2 := gp.m
-			asyncGen2 := atomic.Load(&asyncM2.preemptGen)
+			asyncGen2 := asyncM2.preemptGen.Load()
 			needAsync := asyncM != asyncM2 || asyncGen != asyncGen2
 			asyncM = asyncM2
 			asyncGen = asyncGen2

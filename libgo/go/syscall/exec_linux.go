@@ -23,6 +23,9 @@ import (
 //sysnb rawOpenat(dirfd int, pathname *byte, flags int, perm uint32) (fd int, err Errno)
 //__go_openat(dirfd _C_int, pathname *byte, flags _C_int, perm Mode_t) _C_int
 
+// The CLONE_* constants and clone3()-only flags (CLONE_INTO_CGROUP etc.)
+// are provided by the generated sysinfo.go file (see mksysinfo.sh) on gccgo,
+// so they are not redefined here.
 // SysProcIDMap holds Container ID to Host ID mappings used for User Namespaces in Linux.
 // See user_namespaces(7).
 type SysProcIDMap struct {
@@ -71,6 +74,8 @@ type SysProcAttr struct {
 	// users this should be set to false for mappings work.
 	GidMappingsEnableSetgroups bool
 	AmbientCaps                []uintptr // Ambient capabilities (Linux only)
+	UseCgroupFD                bool      // Whether to make use of the CgroupFD field.
+	CgroupFD                   int       // File descriptor of a cgroup to put the new process into.
 }
 
 var (
@@ -153,6 +158,21 @@ func capToIndex(cap uintptr) uintptr { return cap >> 5 }
 // See CAP_TO_MASK in linux/capability.h:
 func capToMask(cap uintptr) uint32 { return 1 << uint(cap&31) }
 
+// cloneArgs holds arguments for clone3 Linux syscall.
+type cloneArgs struct {
+	flags      uint64 // Flags bit mask
+	pidFD      uint64 // Where to store PID file descriptor (int *)
+	childTID   uint64 // Where to store child TID, in child's memory (pid_t *)
+	parentTID  uint64 // Where to store child TID, in parent's memory (pid_t *)
+	exitSignal uint64 // Signal to deliver to parent on child termination
+	stack      uint64 // Pointer to lowest byte of stack
+	stackSize  uint64 // Size of stack
+	tls        uint64 // Location of new TLS
+	setTID     uint64 // Pointer to a pid_t array (since Linux 5.5)
+	setTIDSize uint64 // Number of elements in set_tid (since Linux 5.5)
+	cgroup     uint64 // File descriptor for target cgroup of child (since Linux 5.7)
+}
+
 // forkAndExecInChild1 implements the body of forkAndExecInChild up to
 // the parent's post-fork path. This is a separate function so we can
 // separate the child's and parent's stack frames if we're using
@@ -184,8 +204,10 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		r2                        int
 		caps                      caps
 		fd1                       int
+		flags                     uintptr
 		puid, psetgroups, pgid    []byte
 		uidmap, setgroups, gidmap []byte
+		clone3                    *cloneArgs
 	)
 
 	if sys.UidMappings != nil {
@@ -227,6 +249,19 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		if err := forkExecPipe(p[:]); err != nil {
 			err1 = err.(Errno)
 			return
+		}
+	}
+
+	flags = sys.Cloneflags
+	if sys.Cloneflags&CLONE_NEWUSER == 0 && sys.Unshareflags&CLONE_NEWUSER == 0 {
+		flags |= CLONE_VFORK | CLONE_VM
+	}
+	// Whether to use clone3.
+	if sys.UseCgroupFD {
+		clone3 = &cloneArgs{
+			flags:      uint64(flags) | CLONE_INTO_CGROUP,
+			exitSignal: uint64(SIGCHLD),
+			cgroup:     uint64(sys.CgroupFD),
 		}
 	}
 
@@ -471,7 +506,7 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		nextfd++
 	}
 	for i = 0; i < len(fd); i++ {
-		if fd[i] >= 0 && fd[i] < int(i) {
+		if fd[i] >= 0 && fd[i] < i {
 			if nextfd == pipe { // don't stomp on pipe
 				nextfd++
 			}
@@ -490,7 +525,7 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 			raw_close(i)
 			continue
 		}
-		if fd[i] == int(i) {
+		if fd[i] == i {
 			// dup2(i, i) won't clear close-on-exec flag on Linux,
 			// probably not elsewhere either.
 			_, err1 = raw_fcntl(fd[i], F_SETFD, 0)
@@ -560,7 +595,7 @@ func forkExecPipe(p []int) (err error) {
 func formatIDMappings(idMap []SysProcIDMap) []byte {
 	var data []byte
 	for _, im := range idMap {
-		data = append(data, []byte(itoa.Itoa(im.ContainerID)+" "+itoa.Itoa(im.HostID)+" "+itoa.Itoa(im.Size)+"\n")...)
+		data = append(data, itoa.Itoa(im.ContainerID)+" "+itoa.Itoa(im.HostID)+" "+itoa.Itoa(im.Size)+"\n"...)
 	}
 	return data
 }
