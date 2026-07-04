@@ -14,6 +14,7 @@ import (
 	"internal/testenv"
 	"reflect"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -173,6 +174,13 @@ func TestValuesInfo(t *testing.T) {
 }
 
 func TestTypesInfo(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		// Some test cases import "unsafe" (and other packages), but
+		// gccgo's test environment has no source importer installed,
+		// so type-checking them fails. This matches how gccgo 1.19
+		// skipped importer-dependent type-checking tests.
+		t.Skip("skipping for gccgo--no importer")
+	}
 	// Test sources that are not expected to typecheck must start with the broken prefix.
 	const broken = "package broken_"
 

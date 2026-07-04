@@ -13,6 +13,16 @@ import (
 )
 
 func TestCertCache(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		// This test relies on a runtime.SetFinalizer-based cache
+		// entry being collected promptly after runtime.GC. gccgo's
+		// conservative garbage collector does not guarantee that
+		// finalizers run promptly (or at all) for stack-referenced
+		// objects, so the ref count never drops and the test times
+		// out. Skip it, as gccgo does for other finalizer-dependent
+		// tests.
+		t.Skip("skipping for gccgo--conservative GC does not run finalizers promptly")
+	}
 	cc := certCache{}
 	p, _ := pem.Decode([]byte(rsaCertPEM))
 	if p == nil {

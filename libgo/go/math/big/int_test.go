@@ -11,6 +11,7 @@ import (
 	"internal/testenv"
 	"math"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -1941,6 +1942,9 @@ func TestNewIntMinInt64(t *testing.T) {
 }
 
 func TestNewIntAllocs(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		t.Skip("gofrontend escape analysis not good enough")
+	}
 	testenv.SkipIfOptimizationOff(t)
 	for _, n := range []int64{0, 7, -7, 1 << 30, -1 << 30, 1 << 50, -1 << 50} {
 		x := NewInt(3)

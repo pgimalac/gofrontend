@@ -430,10 +430,10 @@ noinst_DATA = \
 	internal/obscuretestdata.gox \
 	internal/profile.gox \
 	internal/testenv.gox \
+	internal/testpty.gox \
 	internal/trace.gox \
 	net/internal/socktest.gox \
 	os/exec/internal/fdtest.gox \
-	os/signal/internal/pty.gox \
 	reflect/internal/example1.gox \
 	reflect/internal/example2.gox
 

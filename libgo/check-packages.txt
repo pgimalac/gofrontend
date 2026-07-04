@@ -16,7 +16,6 @@ cmd/go/internal/modfetch/codehost
 cmd/go/internal/modload
 cmd/go/internal/mvs
 cmd/go/internal/par
-cmd/go/internal/search
 cmd/go/internal/str
 cmd/go/internal/test
 cmd/go/internal/vcs

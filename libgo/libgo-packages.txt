@@ -32,7 +32,6 @@ crypto/internal/edwards25519/field
 crypto/internal/nistec
 crypto/internal/nistec/fiat
 crypto/internal/randutil
-crypto/internal/subtle
 crypto/md5
 crypto/rand
 crypto/rc4
@@ -176,6 +175,7 @@ internal/syscall/unix
 internal/sysinfo
 internal/testenv
 internal/testlog
+internal/testpty
 internal/trace
 internal/txtar
 internal/types/errors
@@ -218,7 +218,6 @@ os
 os/exec
 os/exec/internal/fdtest
 os/signal
-os/signal/internal/pty
 os/user
 path
 path/filepath

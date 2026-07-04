@@ -8,13 +8,11 @@ import (
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"hash"
 	"internal/testenv"
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,20 +20,15 @@ import (
 
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/modfetch/codehost"
-	"cmd/go/internal/vcweb/vcstest"
 
 	"golang.org/x/mod/sumdb/dirhash"
 )
 
 func TestMain(m *testing.M) {
-	flag.Parse()
-	if err := testMain(m); err != nil {
-		log.Fatal(err)
-	}
+	os.Exit(testMain(m))
 }
 
-func testMain(m *testing.M) (err error) {
-
+func testMain(m *testing.M) int {
 	cfg.GOPROXY = "direct"
 
 	// The sum database is populated using a released version of the go command,
@@ -46,31 +39,12 @@ func testMain(m *testing.M) (err error) {
 
 	dir, err := os.MkdirTemp("", "gitrepo-test-")
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(dir); err == nil {
-			err = rmErr
-		}
-	}()
+	defer os.RemoveAll(dir)
 
-	cfg.GOMODCACHE = filepath.Join(dir, "modcache")
-	if err := os.Mkdir(cfg.GOMODCACHE, 0755); err != nil {
-		return err
-	}
-
-	srv, err := vcstest.NewServer()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := srv.Close(); err == nil {
-			err = closeErr
-		}
-	}()
-
-	m.Run()
-	return nil
+	cfg.GOMODCACHE = dir
+	return m.Run()
 }
 
 const (
@@ -604,10 +578,6 @@ func TestCodeRepo(t *testing.T) {
 	for _, tt := range codeRepoTests {
 		f := func(tt codeRepoTest) func(t *testing.T) {
 			return func(t *testing.T) {
-				if strings.Contains(tt.path, "gopkg.in") {
-					testenv.SkipFlaky(t, 54503)
-				}
-
 				t.Parallel()
 				if tt.vcs != "mod" {
 					testenv.MustHaveExecPath(t, tt.vcs)
@@ -841,12 +811,8 @@ func TestCodeRepoVersions(t *testing.T) {
 
 	t.Run("parallel", func(t *testing.T) {
 		for _, tt := range codeRepoVersionsTests {
-			tt := tt
 			t.Run(strings.ReplaceAll(tt.path, "/", "_"), func(t *testing.T) {
-				if strings.Contains(tt.path, "gopkg.in") {
-					testenv.SkipFlaky(t, 54503)
-				}
-
+				tt := tt
 				t.Parallel()
 				if tt.vcs != "mod" {
 					testenv.MustHaveExecPath(t, tt.vcs)
