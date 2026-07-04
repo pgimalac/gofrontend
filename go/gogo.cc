@@ -1979,6 +1979,18 @@ Gogo::lookup_global(const char* name) const
   return this->globals_->lookup(name);
 }
 
+// Look up a package-qualifier alias in the current package's own import
+// bindings only (see the declaration in gogo.h).
+
+Named_object*
+Gogo::lookup_pkg_binding(const std::string& name) const
+{
+  Named_object* no = (this->package_ != NULL
+		      ? this->package_->bindings()->lookup(name)
+		      : NULL);
+  return (no != NULL && no->is_package()) ? no : NULL;
+}
+
 // Add an imported package.
 
 Package*

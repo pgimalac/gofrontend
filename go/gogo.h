@@ -668,6 +668,15 @@ class Gogo
   is_reparsing() const
   { return this->reparsing_ > 0; }
 
+  // Look up a package-qualifier alias in the current package's OWN import
+  // bindings only -- no by-name reparse fallback (which arbitrarily picks and
+  // globally caches one of several same-named packages, e.g. the many
+  // "internal" packages).  Used to record an alias->pkgpath binding that must
+  // be the exact package the current file imports under that alias.  Returns
+  // NULL if the alias is not a real import here.
+  Named_object*
+  lookup_pkg_binding(const std::string& name) const;
+
   // Record that an imported package is referenced by a generic template
   // body; such packages must appear in this package's export data so that
   // importers can resolve the reference when they instantiate the

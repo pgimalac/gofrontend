@@ -4922,7 +4922,13 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
       else
 	subst.push_back(t);
     }
-  return this->parse_type_from_tokens(subst, &pkg_bindings);
+  // Quietly: this is constraint type inference.  A constraint whose core type
+  // names a package not resolvable here (e.g. a method-set interface like
+  // "internal.Request", or a package the current context can't disambiguate)
+  // must yield NULL so inference falls back to the arguments, not emit a
+  // spurious "undefined identifier".
+  return this->parse_type_from_tokens(subst, &pkg_bindings,
+				      /*issue_error=*/false);
 }
 
 // Generics: build the instance cache key for a set of type arguments.
@@ -5775,7 +5781,12 @@ Parse::note_token_package_usage(const std::vector<Token>& toks,
       std::string packed =
 	this->gogo_->pack_hidden_name(toks[i].identifier(),
 				      toks[i].is_identifier_exported());
-      Named_object* no = this->gogo_->lookup(packed, NULL);
+      // Resolve via the current package's OWN import bindings, never the
+      // ambiguous by-name reparse fallback -- otherwise the recorded
+      // alias->pkgpath binding could point at the wrong same-named package
+      // (e.g. one of the many "internal" packages), which then poisons the
+      // instance re-parse.
+      Named_object* no = this->gogo_->lookup_pkg_binding(packed);
       if (no != NULL && no->is_package())
 	{
 	  no->package_value()->note_usage(toks[i].identifier());
@@ -6426,6 +6437,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
       if (partial != NULL && i < partial->size())
 	{
 	  type_args[i] = (*partial)[i];
+	  // An explicitly-supplied type argument (e.g. "Fn[internal.Request]")
+	  // is used as source tokens directly, bypassing type_to_tokens; record
+	  // its package-qualifier bindings from the caller's imports so the
+	  // instance re-parse resolves each qualifier to the exact package.
+	  this->note_token_package_usage((*partial)[i], &pkg_bindings);
 	  continue;
 	}
       // A solved type that is a function-local named type is not visible at
