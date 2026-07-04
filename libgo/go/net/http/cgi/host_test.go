@@ -428,25 +428,6 @@ func handlerRunning() bool {
 		// Resize it and try again.
 		buf = make([]byte, 2*len(buf))
 	}
-<<<<<<< go/./net/http/cgi/host_test.go
-	expectedMap := map[string]string{
-		"cwd": cwd,
-	}
-	runCgiTest(t, h, "GET /test.cgi HTTP/1.0\nHost: example.com\n\n", expectedMap)
-
-	cwd, _ = os.Getwd()
-	cwd = filepath.Join(cwd, "testdata")
-	h = &Handler{
-		Path: "testdata/test.cgi",
-		Root: "/test.cgi",
-	}
-	abswd, _ := filepath.EvalSymlinks(cwd)
-	expectedMap = map[string]string{
-		"cwd": abswd,
-	}
-	runCgiTest(t, h, "GET /test.cgi HTTP/1.0\nHost: example.com\n\n", expectedMap)
-=======
->>>>>>> /tmp/go122/src/./net/http/cgi/host_test.go
 }
 
 func TestDir(t *testing.T) {

@@ -303,15 +303,6 @@ func (tools gccgoToolchain) link(b *Builder, root *Action, out, importcfg string
 		if err := sh.CopyFile(newArchive, archive, 0666, false); err != nil {
 			return "", err
 		}
-<<<<<<< go/./cmd/go/internal/work/gccgo.go
-		if cfg.BuildN {
-			// TODO(rsc): We could do better about showing the right _cgo_flags even in -n mode.
-			// Either the archive is already built and we can read them out,
-			// or we're printing commands to build the archive and can
-			// forward the _cgo_flags directly to this step.
-			b.Showcmd("", "ar d %s _cgo_flags", newArchive)
-			return "", nil
-=======
 		if cfg.BuildN || cfg.BuildX {
 			sh.ShowCmd("", "ar d %s _cgo_flags", newArchive)
 			if cfg.BuildN {
@@ -321,7 +312,6 @@ func (tools gccgoToolchain) link(b *Builder, root *Action, out, importcfg string
 				// forward the _cgo_flags directly to this step.
 				return "", nil
 			}
->>>>>>> /tmp/go122/src/./cmd/go/internal/work/gccgo.go
 		}
 		err := sh.run(root.Objdir, desc, nil, tools.ar(), arArgs, "x", newArchive, "_cgo_flags")
 		if err != nil {

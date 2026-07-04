@@ -882,68 +882,8 @@ func scanSyscallStack(gp *g, gcw *gcWork) {
 			return
 		}
 
-<<<<<<< go/./runtime/mgcmark.go
 		// The signal was delivered at a bad time.  Try again.
 		osyield()
-=======
-		// Scan arguments to this frame.
-		if n := frame.argBytes(); n != 0 {
-			// TODO: We could pass the entry argument map
-			// to narrow this down further.
-			scanConservative(frame.argp, n, nil, gcw, state)
-		}
-
-		if isAsyncPreempt || isDebugCall {
-			// This function's frame contained the
-			// registers for the asynchronously stopped
-			// parent frame. Scan the parent
-			// conservatively.
-			state.conservative = true
-		} else {
-			// We only wanted to scan those two frames
-			// conservatively. Clear the flag for future
-			// frames.
-			state.conservative = false
-		}
-		return
-	}
-
-	locals, args, objs := frame.getStackMap(false)
-
-	// Scan local variables if stack frame has been allocated.
-	if locals.n > 0 {
-		size := uintptr(locals.n) * goarch.PtrSize
-		scanblock(frame.varp-size, size, locals.bytedata, gcw, state)
-	}
-
-	// Scan arguments.
-	if args.n > 0 {
-		scanblock(frame.argp, uintptr(args.n)*goarch.PtrSize, args.bytedata, gcw, state)
-	}
-
-	// Add all stack objects to the stack object list.
-	if frame.varp != 0 {
-		// varp is 0 for defers, where there are no locals.
-		// In that case, there can't be a pointer to its args, either.
-		// (And all args would be scanned above anyway.)
-		for i := range objs {
-			obj := &objs[i]
-			off := obj.off
-			base := frame.varp // locals base pointer
-			if off >= 0 {
-				base = frame.argp // arguments and return values base pointer
-			}
-			ptr := base + uintptr(off)
-			if ptr < frame.sp {
-				// object hasn't been allocated in the frame yet.
-				continue
-			}
-			if stackTraceDebug {
-				println("stkobj at", hex(ptr), "of size", obj.size)
-			}
-			state.addObject(ptr, obj)
-		}
->>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 	}
 }
 
@@ -1255,7 +1195,6 @@ func scanobject(b uintptr, gcw *gcWork) {
 		throw("scanobject n == 0")
 	}
 
-	var tp typePointers
 	if n > maxObletBytes {
 		// Large object. Break into oblets for better
 		// parallelism and lower latency.
@@ -1288,17 +1227,9 @@ func scanobject(b uintptr, gcw *gcWork) {
 		// of the object.
 		n = s.base() + s.elemsize - b
 		n = min(n, maxObletBytes)
-		if goexperiment.AllocHeaders {
-			tp = s.typePointersOfUnchecked(s.base())
-			tp = tp.fastForward(b-tp.addr, b+n)
-		}
-	} else {
-		if goexperiment.AllocHeaders {
-			tp = s.typePointersOfUnchecked(b)
-		}
 	}
 
-<<<<<<< go/./runtime/mgcmark.go
+	hbits := heapBitsForAddr(b)
 	var i uintptr
 	for i = 0; i < n; i, hbits = i+goarch.PtrSize, hbits.next() {
 		// Load bits once. See CL 22712 and issue 16973 for discussion.
@@ -1308,27 +1239,6 @@ func scanobject(b uintptr, gcw *gcWork) {
 		}
 		if bits&bitPointer == 0 {
 			continue // not a pointer
-=======
-	var hbits heapBits
-	if !goexperiment.AllocHeaders {
-		hbits = heapBitsForAddr(b, n)
-	}
-	var scanSize uintptr
-	for {
-		var addr uintptr
-		if goexperiment.AllocHeaders {
-			if tp, addr = tp.nextFast(); addr == 0 {
-				if tp, addr = tp.next(b + n); addr == 0 {
-					break
-				}
-			}
-		} else {
-			if hbits, addr = hbits.nextFast(); addr == 0 {
-				if hbits, addr = hbits.next(); addr == 0 {
-					break
-				}
-			}
->>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 		}
 
 		// Work here is duplicated in scanblock and above.
@@ -1552,11 +1462,7 @@ func gcDumpObject(label string, obj, off uintptr) {
 //
 //go:nowritebarrier
 //go:nosplit
-<<<<<<< go/./runtime/mgcmark.go
 func gcmarknewobject(span *mspan, obj, size, scanSize uintptr) {
-=======
-func gcmarknewobject(span *mspan, obj uintptr) {
->>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 	if useCheckmark { // The world should be stopped so this should not happen.
 		throw("gcmarknewobject called while doing checkmark")
 	}

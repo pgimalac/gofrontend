@@ -220,11 +220,8 @@ var gcphase uint32
 var writeBarrier struct {
 	enabled bool    // compiler emits a check of this before calling write barrier
 	pad     [3]byte // compiler uses 32-bit load for "enabled" field
-<<<<<<< go/./runtime/mgc.go
 	needed  bool    // identical to enabled, for now (TODO: dedup)
 	cgo     bool    // whether we need a write barrier for a cgo check
-=======
->>>>>>> /tmp/go122/src/./runtime/mgc.go
 	alignme uint64  // guarantee alignment so that compiler can use a 32 or 64-bit load
 }
 
@@ -1191,25 +1188,6 @@ func gcMarkTermination(stw worldStop) {
 		printunlock()
 	}
 
-<<<<<<< go/./runtime/mgc.go
-=======
-	// Set any arena chunks that were deferred to fault.
-	lock(&userArenaState.lock)
-	faultList := userArenaState.fault
-	userArenaState.fault = nil
-	unlock(&userArenaState.lock)
-	for _, lc := range faultList {
-		lc.mspan.setUserArenaChunkToFault()
-	}
-
-	// Enable huge pages on some metadata if we cross a heap threshold.
-	if gcController.heapGoal() > minHeapForMetadataHugePages {
-		systemstack(func() {
-			mheap_.enableMetadataHugePages()
-		})
-	}
-
->>>>>>> /tmp/go122/src/./runtime/mgc.go
 	semrelease(&worldsema)
 	semrelease(&gcsema)
 	// Careful: another GC cycle may start now.

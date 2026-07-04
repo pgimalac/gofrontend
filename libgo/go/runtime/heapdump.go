@@ -253,95 +253,6 @@ func dumpbv(cbv *bitvector, offset uintptr) {
 	}
 }
 
-<<<<<<< go/./runtime/heapdump.go
-=======
-func dumpframe(s *stkframe, child *childInfo) {
-	f := s.fn
-
-	// Figure out what we can about our stack map
-	pc := s.pc
-	pcdata := int32(-1) // Use the entry map at function entry
-	if pc != f.entry() {
-		pc--
-		pcdata = pcdatavalue(f, abi.PCDATA_StackMapIndex, pc)
-	}
-	if pcdata == -1 {
-		// We do not have a valid pcdata value but there might be a
-		// stackmap for this function. It is likely that we are looking
-		// at the function prologue, assume so and hope for the best.
-		pcdata = 0
-	}
-	stkmap := (*stackmap)(funcdata(f, abi.FUNCDATA_LocalsPointerMaps))
-
-	var bv bitvector
-	if stkmap != nil && stkmap.n > 0 {
-		bv = stackmapdata(stkmap, pcdata)
-	} else {
-		bv.n = -1
-	}
-
-	// Dump main body of stack frame.
-	dumpint(tagStackFrame)
-	dumpint(uint64(s.sp))                              // lowest address in frame
-	dumpint(uint64(child.depth))                       // # of frames deep on the stack
-	dumpint(uint64(uintptr(unsafe.Pointer(child.sp)))) // sp of child, or 0 if bottom of stack
-	dumpmemrange(unsafe.Pointer(s.sp), s.fp-s.sp)      // frame contents
-	dumpint(uint64(f.entry()))
-	dumpint(uint64(s.pc))
-	dumpint(uint64(s.continpc))
-	name := funcname(f)
-	if name == "" {
-		name = "unknown function"
-	}
-	dumpstr(name)
-
-	// Dump fields in the outargs section
-	if child.args.n >= 0 {
-		dumpbv(&child.args, child.argoff)
-	} else {
-		// conservative - everything might be a pointer
-		for off := child.argoff; off < child.argoff+child.arglen; off += goarch.PtrSize {
-			dumpint(fieldKindPtr)
-			dumpint(uint64(off))
-		}
-	}
-
-	// Dump fields in the local vars section
-	if stkmap == nil {
-		// No locals information, dump everything.
-		for off := child.arglen; off < s.varp-s.sp; off += goarch.PtrSize {
-			dumpint(fieldKindPtr)
-			dumpint(uint64(off))
-		}
-	} else if stkmap.n < 0 {
-		// Locals size information, dump just the locals.
-		size := uintptr(-stkmap.n)
-		for off := s.varp - size - s.sp; off < s.varp-s.sp; off += goarch.PtrSize {
-			dumpint(fieldKindPtr)
-			dumpint(uint64(off))
-		}
-	} else if stkmap.n > 0 {
-		// Locals bitmap information, scan just the pointers in
-		// locals.
-		dumpbv(&bv, s.varp-uintptr(bv.n)*goarch.PtrSize-s.sp)
-	}
-	dumpint(fieldKindEol)
-
-	// Record arg info for parent.
-	child.argoff = s.argp - s.fp
-	child.arglen = s.argBytes()
-	child.sp = (*uint8)(unsafe.Pointer(s.sp))
-	child.depth++
-	stkmap = (*stackmap)(funcdata(f, abi.FUNCDATA_ArgsPointerMaps))
-	if stkmap != nil {
-		child.args = stackmapdata(stkmap, pcdata)
-	} else {
-		child.args.n = -1
-	}
-	return
-}
-
->>>>>>> /tmp/go122/src/./runtime/heapdump.go
 func dumpgoroutine(gp *g) {
 	sp := gp.syscallsp
 
@@ -686,7 +597,6 @@ func makeheapobjbv(p uintptr, size uintptr) bitvector {
 	for i := uintptr(0); i < nptr/8+1; i++ {
 		tmpbuf[i] = 0
 	}
-<<<<<<< go/./runtime/heapdump.go
 
 	i := uintptr(0)
 	hbits := heapBitsForAddr(p)
@@ -696,31 +606,7 @@ func makeheapobjbv(p uintptr, size uintptr) bitvector {
 		}
 		if hbits.isPointer() {
 			tmpbuf[i/8] |= 1 << (i % 8)
-=======
-	if goexperiment.AllocHeaders {
-		s := spanOf(p)
-		tp := s.typePointersOf(p, size)
-		for {
-			var addr uintptr
-			if tp, addr = tp.next(p + size); addr == 0 {
-				break
-			}
-			i := (addr - p) / goarch.PtrSize
-			tmpbuf[i/8] |= 1 << (i % 8)
 		}
-	} else {
-		hbits := heapBitsForAddr(p, size)
-		for {
-			var addr uintptr
-			hbits, addr = hbits.next()
-			if addr == 0 {
-				break
-			}
-			i := (addr - p) / goarch.PtrSize
-			tmpbuf[i/8] |= 1 << (i % 8)
->>>>>>> /tmp/go122/src/./runtime/heapdump.go
-		}
-<<<<<<< go/./runtime/heapdump.go
 		hbits = hbits.next()
 	}
 	return bitvector{int32(i), &tmpbuf[0]}
@@ -735,7 +621,5 @@ func gobv(bv bitvector) gobitvector {
 	return gobitvector{
 		uintptr(bv.n),
 		(*[1 << 30]byte)(unsafe.Pointer(bv.bytedata))[:(bv.n+7)/8],
-=======
->>>>>>> /tmp/go122/src/./runtime/heapdump.go
 	}
 }

@@ -12,14 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-<<<<<<< go/./testing/testing_test.go
-	"runtime"
-=======
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
->>>>>>> /tmp/go122/src/./testing/testing_test.go
 	"testing"
 	"time"
 )

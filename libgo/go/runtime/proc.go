@@ -262,7 +262,6 @@ func main(unsafe.Pointer) {
 		_cgo_notify_runtime_init_done()
 	}
 
-<<<<<<< go/./runtime/proc.go
 	fn := main_init // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	createGcRootsIndex()
@@ -270,18 +269,6 @@ func main(unsafe.Pointer) {
 	// For gccgo we have to wait until after main is initialized
 	// to enable GC, because initializing main registers the GC roots.
 	gcenable()
-=======
-	// Run the initializing tasks. Depending on build mode this
-	// list can arrive a few different ways, but it will always
-	// contain the init tasks computed by the linker for all the
-	// packages in the program (excluding those added at runtime
-	// by package plugin). Run through the modules in dependency
-	// order (the order they are initialized by the dynamic
-	// loader, i.e. they are added to the moduledata linked list).
-	for m := &firstmoduledata; m != nil; m = m.next {
-		doInit(m.inittasks)
-	}
->>>>>>> /tmp/go122/src/./runtime/proc.go
 
 	// Disable init tracing after main init done to avoid overhead
 	// of collecting statistics in malloc and newproc
@@ -539,91 +526,6 @@ func releaseSudog(s *sudog) {
 	releasem(mp)
 }
 
-<<<<<<< go/./runtime/proc.go
-=======
-// called from assembly.
-func badmcall(fn func(*g)) {
-	throw("runtime: mcall called on m->g0 stack")
-}
-
-func badmcall2(fn func(*g)) {
-	throw("runtime: mcall function returned")
-}
-
-func badreflectcall() {
-	panic(plainError("arg size to reflect.call more than 1GB"))
-}
-
-//go:nosplit
-//go:nowritebarrierrec
-func badmorestackg0() {
-	if !crashStackImplemented {
-		writeErrStr("fatal: morestack on g0\n")
-		return
-	}
-
-	g := getg()
-	switchToCrashStack(func() {
-		print("runtime: morestack on g0, stack [", hex(g.stack.lo), " ", hex(g.stack.hi), "], sp=", hex(g.sched.sp), ", called from\n")
-		g.m.traceback = 2 // include pc and sp in stack trace
-		traceback1(g.sched.pc, g.sched.sp, g.sched.lr, g, 0)
-		print("\n")
-
-		throw("morestack on g0")
-	})
-}
-
-//go:nosplit
-//go:nowritebarrierrec
-func badmorestackgsignal() {
-	writeErrStr("fatal: morestack on gsignal\n")
-}
-
-//go:nosplit
-func badctxt() {
-	throw("ctxt != 0")
-}
-
-// gcrash is a fake g that can be used when crashing due to bad
-// stack conditions.
-var gcrash g
-
-var crashingG atomic.Pointer[g]
-
-// Switch to crashstack and call fn, with special handling of
-// concurrent and recursive cases.
-//
-// Nosplit as it is called in a bad stack condition (we know
-// morestack would fail).
-//
-//go:nosplit
-//go:nowritebarrierrec
-func switchToCrashStack(fn func()) {
-	me := getg()
-	if crashingG.CompareAndSwapNoWB(nil, me) {
-		switchToCrashStack0(fn) // should never return
-		abort()
-	}
-	if crashingG.Load() == me {
-		// recursive crashing. too bad.
-		writeErrStr("fatal: recursive switchToCrashStack\n")
-		abort()
-	}
-	// Another g is crashing. Give it some time, hopefully it will finish traceback.
-	usleep_no_g(100)
-	writeErrStr("fatal: concurrent switchToCrashStack\n")
-	abort()
-}
-
-// Disable crash stack on Windows for now. Apparently, throwing an exception
-// on a non-system-allocated crash stack causes EXCEPTION_STACK_OVERFLOW and
-// hangs the process (see issue 63938).
-const crashStackImplemented = (GOARCH == "amd64" || GOARCH == "arm64" || GOARCH == "mips64" || GOARCH == "mips64le" || GOARCH == "ppc64" || GOARCH == "ppc64le" || GOARCH == "riscv64" || GOARCH == "wasm") && GOOS != "windows"
-
-//go:noescape
-func switchToCrashStack0(fn func()) // in assembly
-
->>>>>>> /tmp/go122/src/./runtime/proc.go
 func lockedOSThread() bool {
 	gp := getg()
 	return gp.lockedm != 0 && gp.m.lockedg != 0
@@ -790,12 +692,9 @@ func schedinit() {
 	// lockInit(&reflectOffs.lock, lockRankReflectOffs)
 	lockInit(&finlock, lockRankFin)
 	lockInit(&cpuprof.lock, lockRankCpuprof)
-<<<<<<< go/./runtime/proc.go
-=======
 	allocmLock.init(lockRankAllocmR, lockRankAllocmRInternal, lockRankAllocmW)
 	execLock.init(lockRankExecR, lockRankExecRInternal, lockRankExecW)
 	traceLockInit()
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	// Enforce that this lock is always a leaf lock.
 	// All of this lock's critical sections should be
 	// extremely short.
@@ -809,24 +708,10 @@ func schedinit() {
 	// The world starts stopped.
 	worldStopped()
 
-<<<<<<< go/./runtime/proc.go
-=======
-	ticks.init() // run as early as possible
-	moduledataverify()
-	stackinit()
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	mallocinit()
-<<<<<<< go/./runtime/proc.go
 	cpuinit()      // must run before alginit
 	alginit()      // maps, hash, fastrand must not be used before this call
 	fastrandinit() // must run before mcommoninit
-=======
-	godebug := getGodebugEarly()
-	initPageTrace(godebug) // must run after mallocinit but before anything allocates
-	cpuinit(godebug)       // must run before alginit
-	randinit()             // must run before alginit, mcommoninit
-	alginit()              // maps, hash, rand must not be used before this call
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	mcommoninit(gp.m, -1)
 
 	sigsave(&gp.m.sigmask)
@@ -1459,11 +1344,6 @@ var gcsema uint32 = 1
 // startTheWorldWithSema and stopTheWorldWithSema.
 // Holding worldsema causes any other goroutines invoking
 // stopTheWorld to block.
-<<<<<<< go/./runtime/proc.go
-func stopTheWorldWithSema(reason stwReason) {
-	if traceEnabled() {
-		traceGCSTWStart(int(reason))
-=======
 //
 // Returns the STW context. When starting the world, this context must be
 // passed to startTheWorldWithSema.
@@ -1472,7 +1352,6 @@ func stopTheWorldWithSema(reason stwReason) worldStop {
 	if trace.ok() {
 		trace.STWStart(reason)
 		traceRelease(trace)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 	gp := getg()
 
@@ -1617,11 +1496,6 @@ func startTheWorldWithSema(now int64, w worldStop) int64 {
 	}
 
 	// Capture start-the-world time before doing clean-up tasks.
-<<<<<<< go/./runtime/proc.go
-	startTime := nanotime()
-	if traceEnabled() {
-		traceGCSTWDone()
-=======
 	if now == 0 {
 		now = nanotime()
 	}
@@ -1635,7 +1509,6 @@ func startTheWorldWithSema(now int64, w worldStop) int64 {
 	if trace.ok() {
 		trace.STWDone()
 		traceRelease(trace)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 
 	// Wakeup an additional proc in case we have excessive runnable goroutines
@@ -1648,7 +1521,6 @@ func startTheWorldWithSema(now int64, w worldStop) int64 {
 	return now
 }
 
-<<<<<<< go/./runtime/proc.go
 // First function run by a new goroutine.
 // This is passed to makecontext.
 func kickoff() {
@@ -1656,19 +1528,8 @@ func kickoff() {
 
 	if gp.traceback != 0 {
 		gtraceback(gp)
-=======
-// usesLibcall indicates whether this runtime performs system calls
-// via libcall.
-func usesLibcall() bool {
-	switch GOOS {
-	case "aix", "darwin", "illumos", "ios", "solaris", "windows":
-		return true
-	case "openbsd":
-		return GOARCH != "mips64"
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 
-<<<<<<< go/./runtime/proc.go
 	fv := gp.entry
 	param := gp.param
 
@@ -1693,59 +1554,13 @@ func usesLibcall() bool {
 	} else {
 		gp.entry = nil
 		gp.param = nil
-=======
-// mStackIsSystemAllocated indicates whether this runtime starts on a
-// system-allocated stack.
-func mStackIsSystemAllocated() bool {
-	switch GOOS {
-	case "aix", "darwin", "plan9", "illumos", "ios", "solaris", "windows":
-		return true
-	case "openbsd":
-		return GOARCH != "mips64"
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 
 	// Record the entry SP to help stack scan.
 	gp.entrysp = getsp()
 
-<<<<<<< go/./runtime/proc.go
 	fv(param)
 	goexit1()
-=======
-	osStack := gp.stack.lo == 0
-	if osStack {
-		// Initialize stack bounds from system stack.
-		// Cgo may have left stack size in stack.hi.
-		// minit may update the stack bounds.
-		//
-		// Note: these bounds may not be very accurate.
-		// We set hi to &size, but there are things above
-		// it. The 1024 is supposed to compensate this,
-		// but is somewhat arbitrary.
-		size := gp.stack.hi
-		if size == 0 {
-			size = 16384 * sys.StackGuardMultiplier
-		}
-		gp.stack.hi = uintptr(noescape(unsafe.Pointer(&size)))
-		gp.stack.lo = gp.stack.hi - size + 1024
-	}
-	// Initialize stack guard so that we can start calling regular
-	// Go code.
-	gp.stackguard0 = gp.stack.lo + stackGuard
-	// This is the g0, so we can also call go:systemstack
-	// functions, which check stackguard1.
-	gp.stackguard1 = gp.stackguard0
-	mstart1()
-
-	// Exit this thread.
-	if mStackIsSystemAllocated() {
-		// Windows, Solaris, illumos, Darwin, AIX and Plan 9 always system-allocate
-		// the stack, but put it in gp.stack before mstart,
-		// so the logic above hasn't set osStack yet.
-		osStack = true
-	}
-	mexit(osStack)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 }
 
 // The go:noinline is to guarantee the getcallerpc/getcallersp below are safe,
@@ -2141,17 +1956,7 @@ func allocm(_p_ *p, fn func(), id int64, allocatestack bool) (mp *m, g0Stack uns
 	mp.mstartfn = fn
 	mcommoninit(mp, id)
 
-<<<<<<< go/./runtime/proc.go
 	mp.g0 = malg(allocatestack, false, &g0Stack, &g0StackSize)
-=======
-	// In case of cgo or Solaris or illumos or Darwin, pthread_create will make us a stack.
-	// Windows and Plan 9 will layout sched stack on OS stack.
-	if iscgo || mStackIsSystemAllocated() {
-		mp.g0 = malg(-1)
-	} else {
-		mp.g0 = malg(16384 * sys.StackGuardMultiplier)
-	}
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	mp.g0.m = mp
 
 	if _p_ == gp.m.p.ptr() {
@@ -2247,30 +2052,15 @@ func needm(signal bool) {
 	// would do this if necessary).
 	osSetupTLS(mp)
 
-<<<<<<< go/./runtime/proc.go
 	// Install g (= m->curg).
 	setg(mp.curg)
-=======
-	// Install g (= m->g0) and set the stack bounds
-	// to match the current stack.
-	setg(mp.g0)
-	sp := getcallersp()
-	callbackUpdateSystemStack(mp, sp, signal)
-
-	// Should mark we are already in Go now.
-	// Otherwise, we may call needm again when we get a signal, before cgocallbackg1,
-	// which means the extram list may be empty, that will cause a deadlock.
-	mp.isExtraInC = false
->>>>>>> /tmp/go122/src/./runtime/proc.go
 
 	// Initialize this thread to use the m.
 	asminit()
 	minit()
 
-<<<<<<< go/./runtime/proc.go
 	setGContext()
 
-=======
 	// Emit a trace event for this dead -> syscall transition,
 	// but only in the new tracer and only if we're not in a signal handler.
 	//
@@ -2281,7 +2071,6 @@ func needm(signal bool) {
 		trace = traceAcquire()
 	}
 
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	// mp.curg is now a real goroutine.
 	casgstatus(mp.curg, _Gdead, _Gsyscall)
 	sched.ngsys.Add(-1)
@@ -2343,19 +2132,12 @@ func oneNewExtraM() {
 	mp.lockedInt++
 	mp.lockedg.set(gp)
 	gp.lockedm.set(mp)
-<<<<<<< go/./runtime/proc.go
 	gp.goid = int64(sched.goidgen.Add(1))
-=======
-	gp.goid = sched.goidgen.Add(1)
-	if raceenabled {
-		gp.racectx = racegostart(abi.FuncPCABIInternal(newextram) + sys.PCQuantum)
-	}
 	trace := traceAcquire()
 	if trace.ok() {
 		trace.OneNewExtraM(gp)
 		traceRelease(trace)
 	}
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	// put on allg for garbage collector
 	allgadd(gp)
 
@@ -2389,7 +2171,6 @@ func oneNewExtraM() {
 // call. These should typically not be scheduling operations, just a few
 // atomics, so the cost should be small.
 //
-<<<<<<< go/./runtime/proc.go
 // TODO(rsc): An alternative would be to allocate a dummy pthread per-thread
 // variable using pthread_key_create. Unlike the pthread keys we already use
 // on OS X, this dummy key would never be read by Go code. It would exist
@@ -2399,22 +2180,6 @@ func oneNewExtraM() {
 // in which dropm happens on each cgo call, is still correct too.
 // We may have to keep the current version on systems with cgo
 // but without pthreads, like Windows.
-=======
-// 2. On systems with pthreads
-// dropm is called while a non-Go thread is exiting.
-// We allocate a pthread per-thread variable using pthread_key_create,
-// to register a thread-exit-time destructor.
-// And store the g into a thread-specific value associated with the pthread key,
-// when first return back to C.
-// So that the destructor would invoke dropm while the non-Go thread is exiting.
-// This is much faster since it avoids expensive signal-related syscalls.
-//
-// This always runs without a P, so //go:nowritebarrierrec is required.
-//
-// This may run with a different stack than was recorded in g0 (there is no
-// call to callbackUpdateSystemStack prior to dropm), so this must be
-// //go:nosplit to avoid the stack bounds check.
->>>>>>> /tmp/go122/src/./runtime/proc.go
 //
 // CgocallBackDone calls this after releasing p, so no write barriers.
 //go:nowritebarrierrec
@@ -3161,13 +2926,8 @@ func execute(gp *g, inheritTime bool) {
 	if trace.ok() {
 		// GoSysExit has to happen when we have a P, but before GoStart.
 		// So we emit it here.
-<<<<<<< go/./runtime/proc.go
-		if gp.syscallsp != 0 {
-			traceGoSysExit(gp.sysexitticks)
-=======
 		if !goexperiment.ExecTracer2 && gp.syscallsp != 0 {
 			trace.GoSysExit(true)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 		}
 		trace.GoStart()
 		traceRelease(trace)
@@ -4065,13 +3825,7 @@ func parkunlock_c(gp *g, lock unsafe.Pointer) bool {
 func park_m(gp *g) {
 	mp := getg().m
 
-<<<<<<< go/./runtime/proc.go
-	if traceEnabled() {
-		traceGoPark(mp.waittraceev, mp.waittraceskip)
-	}
-=======
 	trace := traceAcquire()
->>>>>>> /tmp/go122/src/./runtime/proc.go
 
 	// N.B. Not using casGToWaiting here because the waitreason is
 	// set by park_m's caller.
@@ -4150,12 +3904,6 @@ func gopreempt_m(gp *g) {
 //
 //go:systemstack
 func preemptPark(gp *g) {
-<<<<<<< go/./runtime/proc.go
-	if traceEnabled() {
-		traceGoPark(traceEvGoBlock, 0)
-	}
-=======
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	status := readgstatus(gp)
 	if status&^_Gscan != _Grunning {
 		dumpgstatus(gp)
@@ -4220,10 +3968,6 @@ func goyield_m(gp *g) {
 
 // Finishes execution of the current goroutine.
 func goexit1() {
-<<<<<<< go/./runtime/proc.go
-	if traceEnabled() {
-		traceGoEnd()
-=======
 	if raceenabled {
 		racegoend()
 	}
@@ -4231,7 +3975,6 @@ func goexit1() {
 	if trace.ok() {
 		trace.GoEnd()
 		traceRelease(trace)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 	mcall(goexit0)
 }
@@ -4343,20 +4086,11 @@ func reentersyscall(pc, sp uintptr) {
 	gp.syscallpc = pc
 	casgstatus(gp, _Grunning, _Gsyscall)
 
-<<<<<<< go/./runtime/proc.go
-	if traceEnabled() {
-		systemstack(traceGoSysCall)
-=======
 	if trace.ok() {
 		systemstack(func() {
 			trace.GoSysCall()
 			traceRelease(trace)
 		})
-		// systemstack itself clobbers g.sched.{pc,sp} and we might
-		// need them later when the G is genuinely blocked in a
-		// syscall
-		save(pc, sp)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 
 	if sched.sysmonwait.Load() {
@@ -4473,12 +4207,6 @@ func exitsyscall() {
 	if exitsyscallfast(oldp) {
 		// When exitsyscallfast returns success, we have a P so can now use
 		// write barriers
-<<<<<<< go/./runtime/proc.go
-		if traceEnabled() {
-			if oldp != gp.m.p.ptr() || gp.m.syscalltick != gp.m.p.ptr().syscalltick {
-				systemstack(traceGoStart)
-			}
-=======
 		if goroutineProfile.active {
 			// Make sure that gp has had its stack written out to the goroutine
 			// profile, exactly as it was when the goroutine profiler first
@@ -4506,7 +4234,6 @@ func exitsyscall() {
 					trace.GoStart()
 				}
 			})
->>>>>>> /tmp/go122/src/./runtime/proc.go
 		}
 		// There's a cpu for us, so we can run.
 		gp.m.p.ptr().syscalltick++
@@ -4535,14 +4262,6 @@ func exitsyscall() {
 		return
 	}
 
-<<<<<<< go/./runtime/proc.go
-	gp.sysexitticks = 0
-	if traceEnabled() {
-		// Wait till traceGoSysBlock event is emitted.
-		// This ensures consistency of the trace (the goroutine is started after it is blocked).
-		for oldp != nil && oldp.syscalltick == gp.m.syscalltick {
-			osyield()
-=======
 	if !goexperiment.ExecTracer2 {
 		// In the old tracer, because we don't have a P we can't
 		// actually record the true time we exited the syscall.
@@ -4551,16 +4270,7 @@ func exitsyscall() {
 		if trace.ok() {
 			trace.RecordSyscallExitedTime(gp, oldp)
 			traceRelease(trace)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 		}
-<<<<<<< go/./runtime/proc.go
-		// We can't trace syscall exit right now because we don't have a P.
-		// Tracing code can invoke write barriers that cannot run without a P.
-		// So instead we remember the syscall exit time and emit the event
-		// in execute when we have a P.
-		gp.sysexitticks = cputicks()
-=======
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	}
 
 	gp.m.locks--
@@ -4624,10 +4334,6 @@ func exitsyscallfast(oldp *p) bool {
 					trace.GoSysExit(true)
 					traceRelease(trace)
 				}
-<<<<<<< go/./runtime/proc.go
-				traceGoSysExit(0)
-=======
->>>>>>> /tmp/go122/src/./runtime/proc.go
 			}
 		})
 		if ok {
@@ -4650,12 +4356,6 @@ func exitsyscallfast_reacquired(trace traceLocker) {
 			// traceGoSysBlock for this syscall was already emitted,
 			// but here we effectively retake the p from the new syscall running on the same p.
 			systemstack(func() {
-<<<<<<< go/./runtime/proc.go
-				// Denote blocking of the new syscall.
-				traceGoSysBlock(gp.m.p.ptr())
-				// Denote completion of the current syscall.
-				traceGoSysExit(0)
-=======
 				if goexperiment.ExecTracer2 {
 					// In the experiment, we're stealing the P. It's treated
 					// as if it temporarily stopped running. Then, start running.
@@ -4667,7 +4367,6 @@ func exitsyscallfast_reacquired(trace traceLocker) {
 					// Denote completion of the current syscall.
 					trace.GoSysExit(true)
 				}
->>>>>>> /tmp/go122/src/./runtime/proc.go
 			})
 		}
 		gp.m.p.ptr().syscalltick++
@@ -4696,15 +4395,14 @@ func exitsyscallfast_pidle() bool {
 //
 //go:nowritebarrierrec
 func exitsyscall0(gp *g) {
-<<<<<<< go/./runtime/proc.go
-	casgstatus(gp, _Gsyscall, _Gexitingsyscall)
-=======
 	var trace traceLocker
 	if goexperiment.ExecTracer2 {
 		traceExitingSyscall()
 		trace = traceAcquire()
 	}
-	casgstatus(gp, _Gsyscall, _Grunnable)
+	casgstatus(gp, _Gsyscall, _Gexitingsyscall)
+	dropg()
+	casgstatus(gp, _Gexitingsyscall, _Grunnable)
 	if goexperiment.ExecTracer2 {
 		traceExitedSyscall()
 		if trace.ok() {
@@ -4716,9 +4414,6 @@ func exitsyscall0(gp *g) {
 			traceRelease(trace)
 		}
 	}
->>>>>>> /tmp/go122/src/./runtime/proc.go
-	dropg()
-	casgstatus(gp, _Gexitingsyscall, _Grunnable)
 	lock(&sched.lock)
 	var pp *p
 	if schedEnabled(gp) {
@@ -4908,7 +4603,6 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 		throw("newproc1: new g is not Gdead")
 	}
 
-<<<<<<< go/./runtime/proc.go
 	// Store the C function pointer into entryfn, take the address
 	// of entryfn, convert it to a Go function value, and store
 	// that in entry.
@@ -4924,31 +4618,6 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 	if _g_.m.curg != nil {
 		newg.labels = _g_.m.curg.labels
 	}
-=======
-	totalSize := uintptr(4*goarch.PtrSize + sys.MinFrameSize) // extra space in case of reads slightly beyond frame
-	totalSize = alignUp(totalSize, sys.StackAlign)
-	sp := newg.stack.hi - totalSize
-	if usesLR {
-		// caller's LR
-		*(*uintptr)(unsafe.Pointer(sp)) = 0
-		prepGoExitFrame(sp)
-	}
-	if GOARCH == "arm64" {
-		// caller's FP
-		*(*uintptr)(unsafe.Pointer(sp - goarch.PtrSize)) = 0
-	}
-
-	memclrNoHeapPointers(unsafe.Pointer(&newg.sched), unsafe.Sizeof(newg.sched))
-	newg.sched.sp = sp
-	newg.stktopsp = sp
-	newg.sched.pc = abi.FuncPCABI0(goexit) + sys.PCQuantum // +PCQuantum so that previous instruction is in same function
-	newg.sched.g = guintptr(unsafe.Pointer(newg))
-	gostartcallfn(&newg.sched, fn)
-	newg.parentGoid = callergp.goid
-	newg.gopc = callerpc
-	newg.ancestors = saveAncestors(callergp)
-	newg.startpc = fn.fn
->>>>>>> /tmp/go122/src/./runtime/proc.go
 	if isSystemGoroutine(newg, false) {
 		sched.ngsys.Add(1)
 	} else {
@@ -4962,57 +4631,25 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 	if newg.trackingSeq%gTrackingPeriod == 0 {
 		newg.tracking = true
 	}
-<<<<<<< go/./runtime/proc.go
-	casgstatus(newg, _Gdead, _Grunnable)
 	// gcController.addScannableStack(_p_, int64(newg.stack.hi-newg.stack.lo))
-=======
-	gcController.addScannableStack(pp, int64(newg.stack.hi-newg.stack.lo))
->>>>>>> /tmp/go122/src/./runtime/proc.go
 
-<<<<<<< go/./runtime/proc.go
-	if _p_.goidcache == _p_.goidcacheend {
-=======
 	// Get a goid and switch to runnable. Make all this atomic to the tracer.
 	trace := traceAcquire()
 	casgstatus(newg, _Gdead, _Grunnable)
-	if pp.goidcache == pp.goidcacheend {
->>>>>>> /tmp/go122/src/./runtime/proc.go
+	if _p_.goidcache == _p_.goidcacheend {
 		// Sched.goidgen is the last allocated id,
 		// this batch must be [sched.goidgen+1, sched.goidgen+GoidCacheBatch].
 		// At startup sched.goidgen=0, so main goroutine receives goid=1.
-<<<<<<< go/./runtime/proc.go
 		_p_.goidcache = sched.goidgen.Add(_GoidCacheBatch)
 		_p_.goidcache -= _GoidCacheBatch - 1
 		_p_.goidcacheend = _p_.goidcache + _GoidCacheBatch
-=======
-		pp.goidcache = sched.goidgen.Add(_GoidCacheBatch)
-		pp.goidcache -= _GoidCacheBatch - 1
-		pp.goidcacheend = pp.goidcache + _GoidCacheBatch
 	}
-	newg.goid = pp.goidcache
-	pp.goidcache++
+	newg.goid = int64(_p_.goidcache)
+	_p_.goidcache++
 	newg.trace.reset()
 	if trace.ok() {
 		trace.GoCreate(newg, newg.startpc)
 		traceRelease(trace)
-	}
-
-	// Set up race context.
-	if raceenabled {
-		newg.racectx = racegostart(callerpc)
-		newg.raceignore = 0
-		if newg.labels != nil {
-			// See note in proflabel.go on labelSync's role in synchronizing
-			// with the reads in the signal handler.
-			racereleasemergeg(newg, unsafe.Pointer(&labelSync))
-		}
->>>>>>> /tmp/go122/src/./runtime/proc.go
-	}
-<<<<<<< go/./runtime/proc.go
-	newg.goid = int64(_p_.goidcache)
-	_p_.goidcache++
-	if traceEnabled() {
-		traceGoCreate(newg, newg.startpc)
 	}
 
 	makeGContext(newg, sp, spsize)
@@ -5024,9 +4661,6 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 	if mainStarted {
 		wakep()
 	}
-=======
-	releasem(mp)
->>>>>>> /tmp/go122/src/./runtime/proc.go
 
 	return newg
 }

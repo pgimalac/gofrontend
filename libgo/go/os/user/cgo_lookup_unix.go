@@ -239,12 +239,7 @@ func (mb *memBuffer) free() {
 // retryWithBuffer repeatedly calls f(), increasing the size of the
 // buffer each time, until f succeeds, fails with a non-ERANGE error,
 // or the buffer exceeds a reasonable limit.
-<<<<<<< go/./os/user/cgo_lookup_unix.go
 func retryWithBuffer(buf *memBuffer, f func() syscall.Errno) error {
-=======
-func retryWithBuffer(kind bufferKind, f func([]byte) syscall.Errno) error {
-	buf := make([]byte, kind.initialSize())
->>>>>>> /tmp/go122/src/./os/user/cgo_lookup_unix.go
 	for {
 		errno := f()
 		if errno == 0 {

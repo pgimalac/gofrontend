@@ -1442,73 +1442,6 @@ func haveIdenticalUnderlyingType(T, V *rtype, cmpTags bool) bool {
 	return false
 }
 
-<<<<<<< go/./reflect/type.go
-=======
-// typelinks is implemented in package runtime.
-// It returns a slice of the sections in each module,
-// and a slice of *rtype offsets in each module.
-//
-// The types in each module are sorted by string. That is, the first
-// two linked types of the first module are:
-//
-//	d0 := sections[0]
-//	t1 := (*rtype)(add(d0, offset[0][0]))
-//	t2 := (*rtype)(add(d0, offset[0][1]))
-//
-// and
-//
-//	t1.String() < t2.String()
-//
-// Note that strings are not unique identifiers for types:
-// there can be more than one with a given string.
-// Only types we might want to look up are included:
-// pointers, channels, maps, slices, and arrays.
-func typelinks() (sections []unsafe.Pointer, offset [][]int32)
-
-func rtypeOff(section unsafe.Pointer, off int32) *abi.Type {
-	return (*abi.Type)(add(section, uintptr(off), "sizeof(rtype) > 0"))
-}
-
-// typesByString returns the subslice of typelinks() whose elements have
-// the given string representation.
-// It may be empty (no known types with that string) or may have
-// multiple elements (multiple types with that string).
-func typesByString(s string) []*abi.Type {
-	sections, offset := typelinks()
-	var ret []*abi.Type
-
-	for offsI, offs := range offset {
-		section := sections[offsI]
-
-		// We are looking for the first index i where the string becomes >= s.
-		// This is a copy of sort.Search, with f(h) replaced by (*typ[h].String() >= s).
-		i, j := 0, len(offs)
-		for i < j {
-			h := int(uint(i+j) >> 1) // avoid overflow when computing h
-			// i ≤ h < j
-			if !(stringFor(rtypeOff(section, offs[h])) >= s) {
-				i = h + 1 // preserves f(i-1) == false
-			} else {
-				j = h // preserves f(j) == true
-			}
-		}
-		// i == j, f(i-1) == false, and f(j) (= f(i)) == true  =>  answer is i.
-
-		// Having found the first, linear scan forward to find the last.
-		// We could do a second binary search, but the caller is going
-		// to do a linear scan anyway.
-		for j := i; j < len(offs); j++ {
-			typ := rtypeOff(section, offs[j])
-			if stringFor(typ) != s {
-				break
-			}
-			ret = append(ret, typ)
-		}
-	}
-	return ret
-}
-
->>>>>>> /tmp/go122/src/./reflect/type.go
 // The lookupCache caches ArrayOf, ChanOf, MapOf and SliceOf lookups.
 var lookupCache sync.Map // map[cacheKey]*rtype
 
@@ -2163,24 +2096,8 @@ func StructOf(fields []StructField) Type {
 			switch f.typ.Kind() {
 			case Interface:
 				ift := (*interfaceType)(unsafe.Pointer(ft))
-<<<<<<< go/./reflect/type.go
 				if len(ift.methods) > 0 {
 					panic("reflect.StructOf: embedded field with methods not implemented")
-=======
-				for _, m := range ift.Methods {
-					if pkgPath(ift.nameOff(m.Name)) != "" {
-						// TODO(sbinet).  Issue 15924.
-						panic("reflect: embedded interface with unexported method(s) not implemented")
-					}
-
-					fnStub := resolveReflectText(unsafe.Pointer(abi.FuncPCABIInternal(embeddedIfaceMethStub)))
-					methods = append(methods, abi.Method{
-						Name: resolveReflectName(ift.nameOff(m.Name)),
-						Mtyp: resolveReflectType(ift.typeOff(m.Typ)),
-						Ifn:  fnStub,
-						Tfn:  fnStub,
-					})
->>>>>>> /tmp/go122/src/./reflect/type.go
 				}
 			case Pointer:
 				ptr := (*ptrType)(unsafe.Pointer(ft))

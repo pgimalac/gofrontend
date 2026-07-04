@@ -2,12 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-<<<<<<< go/./math/big/arith_decl_pure.go
 //-go:build math_big_pure_go
 // -build math_big_pure_go
-=======
-//go:build math_big_pure_go
->>>>>>> /tmp/go122/src/./math/big/arith_decl_pure.go
 
 package big
 

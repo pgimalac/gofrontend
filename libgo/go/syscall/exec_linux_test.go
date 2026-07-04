@@ -7,15 +7,10 @@
 package syscall_test
 
 import (
-<<<<<<< go/./syscall/exec_linux_test.go
-=======
 	"bytes"
-	"errors"
->>>>>>> /tmp/go122/src/./syscall/exec_linux_test.go
 	"flag"
 	"fmt"
 	"internal/platform"
-	"internal/syscall/unix"
 	"internal/testenv"
 	"io"
 	"os"
@@ -27,7 +22,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 	"unsafe"
 )
 
@@ -480,225 +474,6 @@ func TestUnshareUidGidMapping(t *testing.T) {
 	}
 }
 
-<<<<<<< go/./syscall/exec_linux_test.go
-=======
-func prepareCgroupFD(t *testing.T) (int, string) {
-	t.Helper()
-
-	const O_PATH = 0x200000 // Same for all architectures, but for some reason not defined in syscall for 386||amd64.
-
-	// Requires cgroup v2.
-	const prefix = "/sys/fs/cgroup"
-	selfCg, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		if os.IsNotExist(err) || os.IsPermission(err) {
-			t.Skip(err)
-		}
-		t.Fatal(err)
-	}
-
-	// Expect a single line like this:
-	// 0::/user.slice/user-1000.slice/user@1000.service/app.slice/vte-spawn-891992a2-efbb-4f28-aedb-b24f9e706770.scope
-	// Otherwise it's either cgroup v1 or a hybrid hierarchy.
-	if bytes.Count(selfCg, []byte("\n")) > 1 {
-		t.Skip("cgroup v2 not available")
-	}
-	cg := bytes.TrimPrefix(selfCg, []byte("0::"))
-	if len(cg) == len(selfCg) { // No prefix found.
-		t.Skipf("cgroup v2 not available (/proc/self/cgroup contents: %q)", selfCg)
-	}
-
-	// Need an ability to create a sub-cgroup.
-	subCgroup, err := os.MkdirTemp(prefix+string(bytes.TrimSpace(cg)), "subcg-")
-	if err != nil {
-		// ErrPermission or EROFS (#57262) when running in an unprivileged container.
-		// ErrNotExist when cgroupfs is not mounted in chroot/schroot.
-		if os.IsNotExist(err) || testenv.SyscallIsNotSupported(err) {
-			t.Skipf("skipping: %v", err)
-		}
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { syscall.Rmdir(subCgroup) })
-
-	cgroupFD, err := syscall.Open(subCgroup, O_PATH, 0)
-	if err != nil {
-		t.Fatal(&os.PathError{Op: "open", Path: subCgroup, Err: err})
-	}
-	t.Cleanup(func() { syscall.Close(cgroupFD) })
-
-	return cgroupFD, "/" + path.Base(subCgroup)
-}
-
-func TestUseCgroupFD(t *testing.T) {
-	testenv.MustHaveExec(t)
-
-	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
-		// Read and print own cgroup path.
-		selfCg, err := os.ReadFile("/proc/self/cgroup")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-		fmt.Print(string(selfCg))
-		os.Exit(0)
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fd, suffix := prepareCgroupFD(t)
-
-	cmd := testenv.Command(t, exe, "-test.run=^TestUseCgroupFD$")
-	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    fd,
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if testenv.SyscallIsNotSupported(err) && !errors.Is(err, syscall.EINVAL) {
-			// Can be one of:
-			// - clone3 not supported (old kernel);
-			// - clone3 not allowed (by e.g. seccomp);
-			// - lack of CAP_SYS_ADMIN.
-			t.Skipf("clone3 with CLONE_INTO_CGROUP not available: %v", err)
-		}
-		t.Fatalf("Cmd failed with err %v, output: %s", err, out)
-	}
-	// NB: this wouldn't work with cgroupns.
-	if !bytes.HasSuffix(bytes.TrimSpace(out), []byte(suffix)) {
-		t.Fatalf("got: %q, want: a line that ends with %q", out, suffix)
-	}
-}
-
-func TestCloneTimeNamespace(t *testing.T) {
-	testenv.MustHaveExec(t)
-
-	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
-		timens, err := os.Readlink("/proc/self/ns/time")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-		fmt.Print(string(timens))
-		os.Exit(0)
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := testenv.Command(t, exe, "-test.run=^TestCloneTimeNamespace$")
-	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWTIME,
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if testenv.SyscallIsNotSupported(err) {
-			// CLONE_NEWTIME does not appear to be supported.
-			t.Skipf("skipping, CLONE_NEWTIME not supported: %v", err)
-		}
-		t.Fatalf("Cmd failed with err %v, output: %s", err, out)
-	}
-
-	// Inode number of the time namespaces should be different.
-	// Based on https://man7.org/linux/man-pages/man7/time_namespaces.7.html#EXAMPLES
-	timens, err := os.Readlink("/proc/self/ns/time")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	parentTimeNS := timens
-	childTimeNS := string(out)
-	if childTimeNS == parentTimeNS {
-		t.Fatalf("expected child time namespace to be different from parent time namespace: %s", parentTimeNS)
-	}
-}
-
-func testPidFD(t *testing.T, userns bool) error {
-	testenv.MustHaveExec(t)
-
-	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
-		// Child: wait for a signal.
-		time.Sleep(time.Hour)
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var pidfd int
-	cmd := testenv.Command(t, exe, "-test.run=^TestPidFD$")
-	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		PidFD: &pidfd,
-	}
-	if userns {
-		cmd.SysProcAttr.Cloneflags = syscall.CLONE_NEWUSER
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	defer func() {
-		cmd.Process.Kill()
-		cmd.Wait()
-	}()
-	t.Log("got pidfd:", pidfd)
-	// If pidfd is not supported by the kernel, -1 is returned.
-	if pidfd == -1 {
-		t.Skip("pidfd not supported")
-	}
-	defer syscall.Close(pidfd)
-
-	// Use pidfd to send a signal to the child.
-	sig := syscall.SIGINT
-	if err := unix.PidFDSendSignal(uintptr(pidfd), sig); err != nil {
-		if err != syscall.EINVAL && testenv.SyscallIsNotSupported(err) {
-			t.Skip("pidfd_send_signal syscall not supported:", err)
-		}
-		t.Fatal("pidfd_send_signal syscall failed:", err)
-	}
-	// Check if the child received our signal.
-	err = cmd.Wait()
-	if cmd.ProcessState == nil || cmd.ProcessState.Sys().(syscall.WaitStatus).Signal() != sig {
-		t.Fatal("unexpected child error:", err)
-	}
-	return nil
-}
-
-func TestPidFD(t *testing.T) {
-	if err := testPidFD(t, false); err != nil {
-		t.Fatal("can't start a process:", err)
-	}
-}
-
-func TestPidFDWithUserNS(t *testing.T) {
-	if err := testPidFD(t, true); err != nil {
-		if testenv.SyscallIsNotSupported(err) {
-			t.Skip("userns not supported:", err)
-		}
-		t.Fatal("can't start a process:", err)
-	}
-}
-
-func TestPidFDClone3(t *testing.T) {
-	*syscall.ForceClone3 = true
-	defer func() { *syscall.ForceClone3 = false }()
-
-	if err := testPidFD(t, false); err != nil {
-		if testenv.SyscallIsNotSupported(err) {
-			t.Skip("clone3 not supported:", err)
-		}
-		t.Fatal("can't start a process:", err)
-	}
-}
-
->>>>>>> /tmp/go122/src/./syscall/exec_linux_test.go
 type capHeader struct {
 	version uint32
 	pid     int32

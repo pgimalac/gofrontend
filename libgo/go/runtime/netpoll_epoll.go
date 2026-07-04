@@ -181,19 +181,12 @@ retry:
 			mode += 'w'
 		}
 		if mode != 0 {
-<<<<<<< go/./runtime/netpoll_epoll.go
+			// gccgo stores a raw *pollDesc in ev.data (see netpollopen),
+			// not a taggedPointer, so read it back directly. The epoll
+			// event struct uses lowercase libc field names (data/events).
 			pd := *(**pollDesc)(unsafe.Pointer(&ev.data))
 			pd.setEventErr(ev.events == _EPOLLERR, 0)
-			netpollready(&toRun, pd, mode)
-=======
-			tp := *(*taggedPointer)(unsafe.Pointer(&ev.Data))
-			pd := (*pollDesc)(tp.pointer())
-			tag := tp.tag()
-			if pd.fdseq.Load() == tag {
-				pd.setEventErr(ev.Events == syscall.EPOLLERR, tag)
-				delta += netpollready(&toRun, pd, mode)
-			}
->>>>>>> /tmp/go122/src/./runtime/netpoll_epoll.go
+			delta += netpollready(&toRun, pd, mode)
 		}
 	}
 	return toRun, delta

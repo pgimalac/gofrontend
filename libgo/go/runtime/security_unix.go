@@ -34,7 +34,6 @@ func secureEnv() {
 		envs = append(envs, "GOTRACEBACK=none")
 	}
 }
-<<<<<<< go/./runtime/security_unix.go
 
 func secureFDs() {
 	const (
@@ -66,5 +65,3 @@ func secureFDs() {
 		}
 	}
 }
-=======
->>>>>>> /tmp/go122/src/./runtime/security_unix.go

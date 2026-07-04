@@ -14,14 +14,3 @@ func archauxv(tag, val uintptr) {
 		cpu.HWCap = uint(val)
 	}
 }
-<<<<<<< go/./runtime/os_linux_arm64.go
-=======
-
-func osArchInit() {}
-
-//go:nosplit
-func cputicks() int64 {
-	// nanotime() is a poor approximation of CPU ticks that is enough for the profiler.
-	return nanotime()
-}
->>>>>>> /tmp/go122/src/./runtime/os_linux_arm64.go

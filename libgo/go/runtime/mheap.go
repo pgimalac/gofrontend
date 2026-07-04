@@ -228,17 +228,10 @@ var mheap_ mheap
 //
 //go:notinheap
 type heapArena struct {
-<<<<<<< go/./runtime/mheap.go
 	// bitmap stores the pointer/scalar bitmap for the words in
 	// this arena. See mbitmap.go for a description. Use the
 	// heapBits type to access this.
 	bitmap [heapArenaBitmapBytes]byte
-=======
-	_ sys.NotInHeap
-
-	// heapArenaPtrScalar contains pointer/scalar data about the heap for this heap arena.
-	heapArenaPtrScalar
->>>>>>> /tmp/go122/src/./runtime/mheap.go
 
 	// spans maps from virtual address page ID within this arena to *mspan.
 	// For allocated spans, their pages map to the span itself.
@@ -479,11 +472,6 @@ type mspan struct {
 	limit                 uintptr       // end of data in span
 	speciallock           mutex         // guards specials list and changes to pinnerBits
 	specials              *special      // linked list of special records sorted by offset.
-<<<<<<< go/./runtime/mheap.go
-=======
-	userArenaChunkFree    addrRange     // interval for managing chunk allocation
-	largeType             *_type        // malloc header for large objects.
->>>>>>> /tmp/go122/src/./runtime/mheap.go
 }
 
 func (s *mspan) base() uintptr {
@@ -1395,72 +1383,6 @@ HaveSpan:
 	}
 	memstats.heapStats.release()
 
-<<<<<<< go/./runtime/mheap.go
-=======
-	pageTraceAlloc(pp, now, base, npages)
-	return s
-}
-
-// initSpan initializes a blank span s which will represent the range
-// [base, base+npages*pageSize). typ is the type of span being allocated.
-func (h *mheap) initSpan(s *mspan, typ spanAllocType, spanclass spanClass, base, npages uintptr) {
-	// At this point, both s != nil and base != 0, and the heap
-	// lock is no longer held. Initialize the span.
-	s.init(base, npages)
-	if h.allocNeedsZero(base, npages) {
-		s.needzero = 1
-	}
-	nbytes := npages * pageSize
-	if typ.manual() {
-		s.manualFreeList = 0
-		s.nelems = 0
-		s.limit = s.base() + s.npages*pageSize
-		s.state.set(mSpanManual)
-	} else {
-		// We must set span properties before the span is published anywhere
-		// since we're not holding the heap lock.
-		s.spanclass = spanclass
-		if sizeclass := spanclass.sizeclass(); sizeclass == 0 {
-			s.elemsize = nbytes
-			s.nelems = 1
-			s.divMul = 0
-		} else {
-			s.elemsize = uintptr(class_to_size[sizeclass])
-			if goexperiment.AllocHeaders && !s.spanclass.noscan() && heapBitsInSpan(s.elemsize) {
-				// In the allocheaders experiment, reserve space for the pointer/scan bitmap at the end.
-				s.nelems = uint16((nbytes - (nbytes / goarch.PtrSize / 8)) / s.elemsize)
-			} else {
-				s.nelems = uint16(nbytes / s.elemsize)
-			}
-			s.divMul = class_to_divmagic[sizeclass]
-		}
-
-		// Initialize mark and allocation structures.
-		s.freeindex = 0
-		s.freeIndexForScan = 0
-		s.allocCache = ^uint64(0) // all 1s indicating all free.
-		s.gcmarkBits = newMarkBits(uintptr(s.nelems))
-		s.allocBits = newAllocBits(uintptr(s.nelems))
-
-		// It's safe to access h.sweepgen without the heap lock because it's
-		// only ever updated with the world stopped and we run on the
-		// systemstack which blocks a STW transition.
-		atomic.Store(&s.sweepgen, h.sweepgen)
-
-		// Now that the span is filled in, set its state. This
-		// is a publication barrier for the other fields in
-		// the span. While valid pointers into this span
-		// should never be visible until the span is returned,
-		// if the garbage collector finds an invalid pointer,
-		// access to the span may race with initialization of
-		// the span. We resolve this race by atomically
-		// setting the state after the span is fully
-		// initialized, and atomically checking the state in
-		// any situation where a pointer is suspect.
-		s.state.set(mSpanInUse)
-	}
-
->>>>>>> /tmp/go122/src/./runtime/mheap.go
 	// Publish the span in various locations.
 
 	// This is safe to call without the lock held because the slots

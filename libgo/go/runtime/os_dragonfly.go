@@ -95,49 +95,9 @@ func osinit() {
 		physPageSize = getPageSize()
 	}
 }
-<<<<<<< go/./runtime/os_dragonfly.go
-=======
-
-var urandom_dev = []byte("/dev/urandom\x00")
-
-//go:nosplit
-func readRandom(r []byte) int {
-	fd := open(&urandom_dev[0], 0 /* O_RDONLY */, 0)
-	n := read(fd, unsafe.Pointer(&r[0]), int32(len(r)))
-	closefd(fd)
-	return int(n)
-}
-
-func goenvs() {
-	goenvs_unix()
-}
-
-// Called to initialize a new m (including the bootstrap m).
-// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
-func mpreinit(mp *m) {
-	mp.gsignal = malg(32 * 1024)
-	mp.gsignal.m = mp
-}
-
-// Called to initialize a new m (including the bootstrap m).
-// Called on the new thread, cannot allocate memory.
-func minit() {
-	getg().m.procid = uint64(lwp_gettid())
-	minitSignals()
-}
-
-// Called from dropm to undo the effect of an minit.
-//
-//go:nosplit
-func unminit() {
-	unminitSignals()
-	getg().m.procid = 0
-}
-
-// Called from exitm, but not from drop, to undo the effect of thread-owned
-// resources in minit, semacreate, or elsewhere. Do not take locks after calling this.
-func mdestroy(mp *m) {
-}
+// goenvs, mpreinit, minit, unminit, mdestroy, urandom_dev, getRandomData
+// are provided by gccgo's shared os_gccgo.go, so they are omitted here to
+// avoid duplicate definitions.
 
 func sigtramp()
 
@@ -263,4 +223,3 @@ const sigPerThreadSyscall = 1 << 31
 func runPerThreadSyscall() {
 	throw("runPerThreadSyscall only valid on linux")
 }
->>>>>>> /tmp/go122/src/./runtime/os_dragonfly.go

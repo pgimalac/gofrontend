@@ -4,11 +4,7 @@
 
 package cpu
 
-<<<<<<< go/./internal/cpu/cpu_riscv64.go
 // const CacheLinePadSize = 32
-=======
-const CacheLinePadSize = 64
->>>>>>> /tmp/go122/src/./internal/cpu/cpu_riscv64.go
 
 func doinit() {
 }

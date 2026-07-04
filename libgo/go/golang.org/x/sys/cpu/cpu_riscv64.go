@@ -6,10 +6,6 @@
 
 package cpu
 
-<<<<<<< go/./golang.org/x/sys/cpu/cpu_riscv64.go
 // const cacheLineSize = 32
-=======
-const cacheLineSize = 64
->>>>>>> /tmp/go122/src/./vendor/golang.org/x/sys/cpu/cpu_riscv64.go
 
 func initOptions() {}

@@ -166,8 +166,6 @@ var trace struct {
 	buf     traceBufPtr // global trace buffer, used when running without a p
 }
 
-<<<<<<< go/./runtime/trace.go
-=======
 // gTraceState is per-G state for the tracer.
 type gTraceState struct {
 	sysExitTime        traceTime // timestamp when syscall has returned
@@ -207,7 +205,6 @@ func traceLockInit() {
 	lockInit(&trace.stackTab.lock, lockRankTraceStackTab)
 }
 
->>>>>>> /tmp/go122/src/./runtime/trace.go
 // traceBufHeader is per-P tracing buffer.
 //go:notinheap
 type traceBufHeader struct {
@@ -238,24 +235,6 @@ func (tp traceBufPtr) ptr() *traceBuf   { return (*traceBuf)(unsafe.Pointer(tp))
 func (tp *traceBufPtr) set(b *traceBuf) { *tp = traceBufPtr(unsafe.Pointer(b)) }
 func traceBufPtrOf(b *traceBuf) traceBufPtr {
 	return traceBufPtr(unsafe.Pointer(b))
-}
-
-<<<<<<< go/./runtime/trace.go
-=======
-// traceEnabled returns true if the trace is currently enabled.
-//
-// nosplit because it's called on the syscall path when stack movement is forbidden.
-//
-//go:nosplit
-func traceEnabled() bool {
-	return trace.enabled
-}
-
-// traceShuttingDown returns true if the trace is currently shutting down.
-//
-//go:nosplit
-func traceShuttingDown() bool {
-	return trace.shutdown
 }
 
 // traceLocker represents an M writing trace events. While a traceLocker value
@@ -304,7 +283,6 @@ func (tl traceLocker) ok() bool {
 func traceRelease(tl traceLocker) {
 }
 
->>>>>>> /tmp/go122/src/./runtime/trace.go
 // StartTrace enables tracing for the current process.
 // While tracing, the data will be buffered and available via [ReadTrace].
 // StartTrace returns an error if tracing is already enabled.
@@ -385,17 +363,11 @@ func StartTrace() error {
 			gp.sysblocktraced = false
 		}
 	})
-<<<<<<< go/./runtime/trace.go
-	traceProcStart()
-	traceGoStart()
-	// Note: ticksStart needs to be set after we emit traceEvGoInSyscall events.
-=======
 	// Use a dummy traceLocker. The trace isn't enabled yet, but we can still write events.
 	tl := traceLocker{}
 	tl.ProcStart()
 	tl.GoStart()
-	// Note: startTicks needs to be set after we emit traceEvGoInSyscall events.
->>>>>>> /tmp/go122/src/./runtime/trace.go
+	// Note: ticksStart needs to be set after we emit traceEvGoInSyscall events.
 	// If we do it the other way around, it is possible that exitsyscall will
 	// query sysexitticks after ticksStart but before traceEvGoInSyscall timestamp.
 	// It will lead to a false conclusion that cputicks is broken.
@@ -425,9 +397,6 @@ func StartTrace() error {
 
 	unlock(&sched.sysmonlock)
 
-<<<<<<< go/./runtime/trace.go
-	startTheWorldGC()
-=======
 	// Record the current state of HeapGoal to avoid information loss in trace.
 	//
 	// Use the same dummy trace locker. The trace can't end until after we start
@@ -435,7 +404,6 @@ func StartTrace() error {
 	tl.HeapGoal()
 
 	startTheWorldGC(stw)
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	return nil
 }
 
@@ -672,6 +640,11 @@ func traceEnabled() bool {
 func traceShuttingDown() bool {
 	return trace.shutdown
 }
+
+// traceBlockReason is the type of the reason a goroutine blocks, kept for
+// compatibility with the new tracer's API (see trace2runtime.go). In gccgo's
+// flat byte-based tracer it is just the traceEvGo* event byte.
+type traceBlockReason uint8
 
 // traceBlock* are the gc 1.21 names for the reason a goroutine blocks.
 // gccgo uses a flat byte-based tracer whose gopark takes a traceEv byte,
@@ -955,11 +928,7 @@ func traceReadCPU() {
 			}
 			stackID := trace.stackTab.put(buf.stk[:n])
 
-<<<<<<< go/./runtime/trace.go
 			traceEventLocked(0, nil, 0, bufp, traceEvCPUSample, stackID, 1, timestamp/traceTickDiv, ppid, goid)
-=======
-			traceEventLocked(0, nil, 0, bufp, traceEvCPUSample, stackID, 1, timestamp, ppid, goid)
->>>>>>> /tmp/go122/src/./runtime/trace.go
 		}
 	}
 }
@@ -1254,66 +1223,6 @@ func (tab *traceStackTable) dump() {
 	tab.mem.drop()
 	*tab = traceStackTable{}
 	lockInit(&((*tab).lock), lockRankTraceStackTab)
-<<<<<<< go/./runtime/trace.go
-=======
-
-	return bufp
-}
-
-// fpunwindExpand checks if pcBuf contains logical frames (which include inlined
-// frames) or physical frames (produced by frame pointer unwinding) using a
-// sentinel value in pcBuf[0]. Logical frames are simply returned without the
-// sentinel. Physical frames are turned into logical frames via inline unwinding
-// and by applying the skip value that's stored in pcBuf[0].
-func fpunwindExpand(pcBuf []uintptr) []uintptr {
-	if len(pcBuf) > 0 && pcBuf[0] == logicalStackSentinel {
-		// pcBuf contains logical rather than inlined frames, skip has already been
-		// applied, just return it without the sentinel value in pcBuf[0].
-		return pcBuf[1:]
-	}
-
-	var (
-		lastFuncID = abi.FuncIDNormal
-		newPCBuf   = make([]uintptr, 0, traceStackSize)
-		skip       = pcBuf[0]
-		// skipOrAdd skips or appends retPC to newPCBuf and returns true if more
-		// pcs can be added.
-		skipOrAdd = func(retPC uintptr) bool {
-			if skip > 0 {
-				skip--
-			} else {
-				newPCBuf = append(newPCBuf, retPC)
-			}
-			return len(newPCBuf) < cap(newPCBuf)
-		}
-	)
-
-outer:
-	for _, retPC := range pcBuf[1:] {
-		callPC := retPC - 1
-		fi := findfunc(callPC)
-		if !fi.valid() {
-			// There is no funcInfo if callPC belongs to a C function. In this case
-			// we still keep the pc, but don't attempt to expand inlined frames.
-			if more := skipOrAdd(retPC); !more {
-				break outer
-			}
-			continue
-		}
-
-		u, uf := newInlineUnwinder(fi, callPC)
-		for ; uf.valid(); uf = u.next(uf) {
-			sf := u.srcFunc(uf)
-			if sf.funcID == abi.FuncIDWrapper && elideWrapperCalling(lastFuncID) {
-				// ignore wrappers
-			} else if more := skipOrAdd(uf.pc + 1); !more {
-				break outer
-			}
-			lastFuncID = sf.funcID
-		}
-	}
-	return newPCBuf
->>>>>>> /tmp/go122/src/./runtime/trace.go
 }
 
 type traceFrame struct {
@@ -1429,10 +1338,6 @@ func (_ traceLocker) GCDone() {
 	traceEvent(traceEvGCDone, -1)
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGCSTWStart(kind int) {
-	traceEvent(traceEvGCSTWStart, -1, uint64(kind))
-=======
 func (_ traceLocker) STWStart(reason stwReason) {
 	// Don't trace if this STW is for trace start/stop, since traceEnabled
 	// switches during a STW.
@@ -1440,22 +1345,16 @@ func (_ traceLocker) STWStart(reason stwReason) {
 		return
 	}
 	getg().m.trace.tracedSTWStart = true
-	traceEvent(traceEvSTWStart, -1, uint64(reason))
->>>>>>> /tmp/go122/src/./runtime/trace.go
+	traceEvent(traceEvGCSTWStart, -1, uint64(reason))
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGCSTWDone() {
-	traceEvent(traceEvGCSTWDone, -1)
-=======
 func (_ traceLocker) STWDone() {
 	mp := getg().m
 	if !mp.trace.tracedSTWStart {
 		return
 	}
 	mp.trace.tracedSTWStart = false
-	traceEvent(traceEvSTWDone, -1)
->>>>>>> /tmp/go122/src/./runtime/trace.go
+	traceEvent(traceEvGCSTWDone, -1)
 }
 
 // traceGCSweepStart prepares to trace a sweep loop. This does not
@@ -1477,32 +1376,19 @@ func (_ traceLocker) GCSweepStart() {
 //
 // This may be called outside a traceGCSweepStart/traceGCSweepDone
 // pair; however, it will not emit any trace events in this case.
-<<<<<<< go/./runtime/trace.go
-func traceGCSweepSpan(bytesSwept uintptr) {
+func (_ traceLocker) GCSweepSpan(bytesSwept uintptr) {
 	_p_ := getg().m.p.ptr()
 	if _p_.traceSweep {
 		if _p_.traceSwept == 0 {
-=======
-func (_ traceLocker) GCSweepSpan(bytesSwept uintptr) {
-	pp := getg().m.p.ptr()
-	if pp.trace.inSweep {
-		if pp.trace.swept == 0 {
->>>>>>> /tmp/go122/src/./runtime/trace.go
 			traceEvent(traceEvGCSweepStart, 1)
 		}
 		_p_.traceSwept += bytesSwept
 	}
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGCSweepDone() {
+func (_ traceLocker) GCSweepDone() {
 	_p_ := getg().m.p.ptr()
 	if !_p_.traceSweep {
-=======
-func (_ traceLocker) GCSweepDone() {
-	pp := getg().m.p.ptr()
-	if !pp.trace.inSweep {
->>>>>>> /tmp/go122/src/./runtime/trace.go
 		throw("missing traceGCSweepStart")
 	}
 	if _p_.traceSwept != 0 {
@@ -1519,22 +1405,15 @@ func (_ traceLocker) GCMarkAssistDone() {
 	traceEvent(traceEvGCMarkAssistDone, -1)
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoCreate(newg *g, pc uintptr) {
+func (_ traceLocker) GoCreate(newg *g, pc uintptr) {
 	newg.traceseq = 0
 	newg.tracelastp = getg().m.p
-=======
-func (_ traceLocker) GoCreate(newg *g, pc uintptr) {
-	newg.trace.seq = 0
-	newg.trace.lastP = getg().m.p
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	// +PCQuantum because traceFrameForPC expects return PCs and subtracts PCQuantum.
 	id := trace.stackTab.put([]location{location{pc: startPCforTrace(pc) + sys.PCQuantum}})
 	traceEvent(traceEvGoCreate, 2, uint64(newg.goid), uint64(id))
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoStart() {
+func (_ traceLocker) GoStart() {
 	_g_ := getg().m.curg
 	_p_ := _g_.m.p
 	_g_.traceseq++
@@ -1542,16 +1421,6 @@ func traceGoStart() {
 		traceEvent(traceEvGoStartLabel, -1, uint64(_g_.goid), _g_.traceseq, trace.markWorkerLabels[_p_.ptr().gcMarkWorkerMode])
 	} else if _g_.tracelastp == _p_ {
 		traceEvent(traceEvGoStartLocal, -1, uint64(_g_.goid))
-=======
-func (_ traceLocker) GoStart() {
-	gp := getg().m.curg
-	pp := gp.m.p
-	gp.trace.seq++
-	if pp.ptr().gcMarkWorkerMode != gcMarkWorkerNotWorker {
-		traceEvent(traceEvGoStartLabel, -1, gp.goid, gp.trace.seq, trace.markWorkerLabels[pp.ptr().gcMarkWorkerMode])
-	} else if gp.trace.lastP == pp {
-		traceEvent(traceEvGoStartLocal, -1, gp.goid)
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	} else {
 		_g_.tracelastp = _p_
 		traceEvent(traceEvGoStart, -1, uint64(_g_.goid), _g_.traceseq)
@@ -1562,91 +1431,38 @@ func (_ traceLocker) GoEnd() {
 	traceEvent(traceEvGoEnd, -1)
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoSched() {
+func (_ traceLocker) GoSched() {
 	_g_ := getg()
 	_g_.tracelastp = _g_.m.p
-=======
-func (_ traceLocker) GoSched() {
-	gp := getg()
-	gp.trace.lastP = gp.m.p
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	traceEvent(traceEvGoSched, 1)
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoPreempt() {
+func (_ traceLocker) GoPreempt() {
 	_g_ := getg()
 	_g_.tracelastp = _g_.m.p
-=======
-func (_ traceLocker) GoPreempt() {
-	gp := getg()
-	gp.trace.lastP = gp.m.p
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	traceEvent(traceEvGoPreempt, 1)
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoPark(traceEv byte, skip int) {
-	if traceEv&traceFutileWakeup != 0 {
-		traceEvent(traceEvFutileWakeup, -1)
-	}
-	traceEvent(traceEv & ^traceFutileWakeup, skip)
-=======
 func (_ traceLocker) GoPark(reason traceBlockReason, skip int) {
 	// Convert the block reason directly to a trace event type.
 	// See traceBlockReason for more information.
 	traceEvent(byte(reason), skip)
->>>>>>> /tmp/go122/src/./runtime/trace.go
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoUnpark(gp *g, skip int) {
+func (_ traceLocker) GoUnpark(gp *g, skip int) {
 	_p_ := getg().m.p
 	gp.traceseq++
 	if gp.tracelastp == _p_ {
 		traceEvent(traceEvGoUnblockLocal, skip, uint64(gp.goid))
-=======
-func (_ traceLocker) GoUnpark(gp *g, skip int) {
-	pp := getg().m.p
-	gp.trace.seq++
-	if gp.trace.lastP == pp {
-		traceEvent(traceEvGoUnblockLocal, skip, gp.goid)
->>>>>>> /tmp/go122/src/./runtime/trace.go
 	} else {
 		gp.tracelastp = _p_
 		traceEvent(traceEvGoUnblock, skip, uint64(gp.goid), gp.traceseq)
 	}
 }
 
-<<<<<<< go/./runtime/trace.go
-func traceGoSysCall() {
-	traceEvent(traceEvGoSysCall, 1)
-}
-
-func traceGoSysExit(ts int64) {
-	if ts != 0 && ts < trace.ticksStart {
-		// There is a race between the code that initializes sysexitticks
-=======
 func (_ traceLocker) GoSysCall() {
-	var skip int
-	switch {
-	case tracefpunwindoff():
-		// Unwind by skipping 1 frame relative to gp.syscallsp which is captured 3
-		// frames above this frame. For frame pointer unwinding we produce the same
-		// results by hard coding the number of frames in between our caller and the
-		// actual syscall, see cases below.
-		// TODO(felixge): Implement gp.syscallbp to avoid this workaround?
-		skip = 1
-	case GOOS == "solaris" || GOOS == "illumos":
-		// These platforms don't use a libc_read_trampoline.
-		skip = 3
-	default:
-		// Skip the extra trampoline frame used on most systems.
-		skip = 4
-	}
 	getg().m.curg.trace.tracedSyscallEnter = true
-	traceEvent(traceEvGoSysCall, skip)
+	traceEvent(traceEvGoSysCall, 1)
 }
 
 func (_ traceLocker) GoSysExit(lostP bool) {
@@ -1660,10 +1476,9 @@ func (_ traceLocker) GoSysExit(lostP bool) {
 		return
 	}
 	gp.trace.tracedSyscallEnter = false
-	ts := gp.trace.sysExitTime
-	if ts != 0 && ts < trace.startTime {
-		// There is a race between the code that initializes sysExitTimes
->>>>>>> /tmp/go122/src/./runtime/trace.go
+	ts := int64(gp.trace.sysExitTime)
+	if ts != 0 && ts < trace.ticksStart {
+		// There is a race between the code that initializes sysexitticks
 		// (in exitsyscall, which runs without a P, and therefore is not
 		// stopped with the rest of the world) and the code that initializes
 		// a new trace. The recorded sysexitticks must therefore be treated
@@ -1803,18 +1618,7 @@ func trace_userLog(id uint64, category, message string) {
 // the start PC of a goroutine for tracing purposes. If pc is a wrapper,
 // it returns the PC of the wrapped function. Otherwise it returns pc.
 func startPCforTrace(pc uintptr) uintptr {
-<<<<<<< go/./runtime/trace.go
 	return pc
-=======
-	f := findfunc(pc)
-	if !f.valid() {
-		return pc // may happen for locked g in extra M since its pc is 0.
-	}
-	w := funcdata(f, abi.FUNCDATA_WrapInfo)
-	if w == nil {
-		return pc // not a wrapper
-	}
-	return f.datap.textAddr(*(*uint32)(w))
 }
 
 // OneNewExtraM registers the fact that a new extra M was created with
@@ -1849,8 +1653,7 @@ type traceTime uint64
 //
 //go:nosplit
 func traceClockNow() traceTime {
-	return traceTime(cputicks() / traceTimeDiv)
->>>>>>> /tmp/go122/src/./runtime/trace.go
+	return traceTime(cputicks() / traceTickDiv)
 }
 
 func traceExitingSyscall() {

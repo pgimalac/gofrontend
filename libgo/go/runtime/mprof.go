@@ -569,9 +569,6 @@ func saveblockevent(cycles, rate int64, skip int, which bucketType) {
 		// nstk = gcallers(gp.m.curg, skip, stk[:])
 		nstk = callersRaw(stk[:])
 	}
-<<<<<<< go/./runtime/mprof.go
-	b := stkbucket(which, 0, skip, stk[:nstk], true)
-=======
 
 	saveBlockEventStack(cycles, rate, stk[:nstk], which)
 }
@@ -802,8 +799,7 @@ func (prof *mLockProfile) store() {
 }
 
 func saveBlockEventStack(cycles, rate int64, stk []uintptr, which bucketType) {
-	b := stkbucket(which, 0, stk, true)
->>>>>>> /tmp/go122/src/./runtime/mprof.go
+	b := stkbucket(which, 0, 0, stk, true)
 	bp := b.bp()
 
 	lock(&profBlockLock)
@@ -1222,22 +1218,8 @@ type BlockProfileRecord struct {
 	StackRecord
 }
 
-<<<<<<< go/./runtime/mprof.go
 func harvestBlockMutexProfile(buckets *bucket, p []BlockProfileRecord) (n int, ok bool) {
 	for b := buckets; b != nil; b = b.allnext {
-=======
-// BlockProfile returns n, the number of records in the current blocking profile.
-// If len(p) >= n, BlockProfile copies the profile into p and returns n, true.
-// If len(p) < n, BlockProfile does not change p and returns n, false.
-//
-// Most clients should use the [runtime/pprof] package or
-// the [testing] package's -test.blockprofile flag instead
-// of calling BlockProfile directly.
-func BlockProfile(p []BlockProfileRecord) (n int, ok bool) {
-	lock(&profBlockLock)
-	head := (*bucket)(bbuckets.Load())
-	for b := head; b != nil; b = b.allnext {
->>>>>>> /tmp/go122/src/./runtime/mprof.go
 		n++
 	}
 	if n <= len(p) {
@@ -1346,8 +1328,6 @@ func goroutineProfileWithLabels(p []StackRecord, labels []unsafe.Pointer) (n int
 		labels = nil
 	}
 
-<<<<<<< go/./runtime/mprof.go
-=======
 	return goroutineProfileWithLabelsConcurrent(p, labels)
 }
 
@@ -1422,10 +1402,8 @@ func goroutineProfileWithLabelsConcurrent(p []StackRecord, labels []unsafe.Point
 	}
 
 	// Save current goroutine.
-	sp := getcallersp()
-	pc := getcallerpc()
 	systemstack(func() {
-		saveg(pc, sp, ourg, &p[0])
+		saveg(ourg, &p[0])
 	})
 	if labels != nil {
 		labels[0] = ourg.labels
@@ -1586,7 +1564,7 @@ func doRecordGoroutineProfile(gp1 *g) {
 	// set gp1.goroutineProfiled to goroutineProfileInProgress and so are still
 	// preventing it from being truly _Grunnable. So we'll use the system stack
 	// to avoid schedule delays.
-	systemstack(func() { saveg(^uintptr(0), ^uintptr(0), gp1, &goroutineProfile.records[offset]) })
+	systemstack(func() { saveg(gp1, &goroutineProfile.records[offset]) })
 
 	if goroutineProfile.labels != nil {
 		goroutineProfile.labels[offset] = gp1.labels
@@ -1594,7 +1572,6 @@ func doRecordGoroutineProfile(gp1 *g) {
 }
 
 func goroutineProfileWithLabelsSync(p []StackRecord, labels []unsafe.Pointer) (n int, ok bool) {
->>>>>>> /tmp/go122/src/./runtime/mprof.go
 	gp := getg()
 
 	isOK := func(gp1 *g) bool {
@@ -1647,15 +1624,11 @@ func goroutineProfileWithLabelsSync(p []StackRecord, labels []unsafe.Pointer) (n
 		})
 	}
 
-<<<<<<< go/./runtime/mprof.go
-	startTheWorld()
-=======
 	if raceenabled {
 		raceacquire(unsafe.Pointer(&labelSync))
 	}
 
 	startTheWorld(stw)
->>>>>>> /tmp/go122/src/./runtime/mprof.go
 	return n, ok
 }
 

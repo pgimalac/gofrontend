@@ -480,7 +480,6 @@ func BenchmarkSetTypeNode1024Slice(b *testing.B) {
 	benchSetType(b, make([]Node1024, 32))
 }
 
-<<<<<<< go/./runtime/gc_test.go
 func benchSetType(b *testing.B, x any) {
 	v := reflect.ValueOf(x)
 	t := v.Type()
@@ -492,22 +491,6 @@ func benchSetType(b *testing.B, x any) {
 	}
 	b.ResetTimer()
 	//runtime.BenchSetType(b.N, x)
-=======
-func benchSetType[T any](b *testing.B) {
-	if goexperiment.AllocHeaders {
-		b.Skip("not supported with allocation headers experiment")
-	}
-	b.SetBytes(int64(unsafe.Sizeof(*new(T))))
-	runtime.BenchSetType[T](b.N, b.ResetTimer)
-}
-
-func benchSetTypeSlice[T any](b *testing.B, len int) {
-	if goexperiment.AllocHeaders {
-		b.Skip("not supported with allocation headers experiment")
-	}
-	b.SetBytes(int64(unsafe.Sizeof(*new(T)) * uintptr(len)))
-	runtime.BenchSetTypeSlice[T](b.N, b.ResetTimer, len)
->>>>>>> /tmp/go122/src/./runtime/gc_test.go
 }
 
 func BenchmarkAllocation(b *testing.B) {

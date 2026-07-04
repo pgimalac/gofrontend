@@ -249,13 +249,8 @@ func run(fset *token.FileSet, cfg *Config, analyzers []*analysis.Analyzer) ([]re
 		files = append(files, f)
 	}
 	tc := &types.Config{
-<<<<<<< go/.//golang.org/x/tools/go/analysis/unitchecker/unitchecker.go
-		Importer:  importer,
-		Sizes:     types.SizesFor("gccgo", build.Default.GOARCH), // assume gccgo ≡ gc?
-=======
 		Importer:  makeTypesImporter(cfg, fset),
-		Sizes:     types.SizesFor("gc", build.Default.GOARCH), // TODO(adonovan): use cfg.Compiler
->>>>>>> /tmp/go122/src/./cmd/vendor/golang.org/x/tools/go/analysis/unitchecker/unitchecker.go
+		Sizes:     types.SizesFor("gccgo", build.Default.GOARCH), // assume gccgo ≡ gc?
 		GoVersion: cfg.GoVersion,
 	}
 	info := &types.Info{

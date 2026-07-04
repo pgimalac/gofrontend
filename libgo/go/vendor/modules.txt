@@ -1,10 +1,5 @@
-<<<<<<< go/./vendor/modules.txt
 # golang.org/x/crypto v0.33.0
 ## explicit; go 1.17
-=======
-# golang.org/x/crypto v0.16.1-0.20231129163542-152cdb1503eb
-## explicit; go 1.18
->>>>>>> /tmp/go122/src/./vendor/modules.txt
 golang.org/x/crypto/chacha20
 golang.org/x/crypto/chacha20poly1305
 golang.org/x/crypto/cryptobyte

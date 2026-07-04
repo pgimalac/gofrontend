@@ -603,16 +603,13 @@ func acquirem() *m {
 func releasem(mp *m) {
 	// _g_ := getg()
 	mp.locks--
-<<<<<<< go/./runtime/runtime1.go
-	// if mp.locks == 0 && _g_.preempt {
+	// gccgo uses fixed goroutine stacks and has no stack-preemption mechanism
+	// (no newstack/stackPreempt/stackguard0), so this preemption restore is
+	// intentionally disabled.
+	// if mp.locks == 0 && gp.preempt {
 	//	// restore the preemption request in case we've cleared it in newstack
-	//	_g_.stackguard0 = stackPreempt
+	//	gp.stackguard0 = stackPreempt
 	// }
-=======
-	if mp.locks == 0 && gp.preempt {
-		// restore the preemption request in case we've cleared it in newstack
-		gp.stackguard0 = stackPreempt
-	}
 }
 
 //go:linkname reflect_typelinks reflect.typelinks
@@ -681,5 +678,4 @@ func reflect_addReflectOff(ptr unsafe.Pointer) int32 {
 	}
 	reflectOffsUnlock()
 	return id
->>>>>>> /tmp/go122/src/./runtime/runtime1.go
 }

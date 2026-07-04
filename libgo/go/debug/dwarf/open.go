@@ -54,13 +54,8 @@ var errSegmentSelector = errors.New("non-zero segment_selector size not supporte
 
 // New returns a new [Data] object initialized from the given parameters.
 // Rather than calling this function directly, clients should typically use
-<<<<<<< go/./debug/dwarf/open.go
-// the DWARF method of the File type of the appropriate package debug/elf,
-// debug/macho, debug/pe, or debug/xcoff.
-=======
 // the DWARF method of the File type of the appropriate package [debug/elf],
 // [debug/macho], or [debug/pe].
->>>>>>> /tmp/go122/src/./debug/dwarf/open.go
 //
 // The []byte arguments are the data from the corresponding debug section
 // in the object file; for example, for an ELF object, abbrev is the contents of

@@ -5,15 +5,11 @@
 package math
 
 // Log10 returns the decimal logarithm of x.
-<<<<<<< go/./math/log10.go
-// The special cases are the same as for Log.
+// The special cases are the same as for [Log].
 
 //extern log10
 func libc_log10(float64) float64
 
-=======
-// The special cases are the same as for [Log].
->>>>>>> /tmp/go122/src/./math/log10.go
 func Log10(x float64) float64 {
 	return libc_log10(x)
 }
@@ -23,12 +19,7 @@ func log10(x float64) float64 {
 }
 
 // Log2 returns the binary logarithm of x.
-<<<<<<< go/./math/log10.go
-// The special cases are the same as for Log.
-
-=======
 // The special cases are the same as for [Log].
->>>>>>> /tmp/go122/src/./math/log10.go
 func Log2(x float64) float64 {
 	return log2(x)
 }

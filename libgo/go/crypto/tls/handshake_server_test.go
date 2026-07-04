@@ -489,12 +489,8 @@ func testCrossVersionResume(t *testing.T, version uint16) {
 		InsecureSkipVerify: true,
 		ClientSessionCache: NewLRUClientSessionCache(1),
 		ServerName:         "servername",
-<<<<<<< go/./crypto/tls/handshake_server_test.go
 		MinVersion:         VersionTLS10,
 		Time:               testTime,
-=======
-		MinVersion:         VersionTLS12,
->>>>>>> /tmp/go122/src/./crypto/tls/handshake_server_test.go
 	}
 
 	// Establish a session at TLS 1.3.

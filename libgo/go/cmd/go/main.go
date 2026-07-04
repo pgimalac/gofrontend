@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	rtrace "runtime/trace"
 	"slices"
 	"strings"
@@ -106,11 +107,14 @@ func main() {
 		return
 	}
 
-	if cfg.GOROOT == "" {
+	// For gccgo an empty or missing GOROOT is fine, carry on.
+	// Note that this check is imperfect as we have not yet parsed
+	// the -compiler flag.
+	if cfg.GOROOT == "" && runtime.Compiler != "gccgo" {
 		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set\n")
 		os.Exit(2)
 	}
-	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() && runtime.Compiler != "gccgo" {
 		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: %v\n", cfg.GOROOT)
 		os.Exit(2)
 	}
@@ -147,21 +151,6 @@ func main() {
 		}
 	}
 
-<<<<<<< go/./cmd/go/main.go
-	// For gccgo this is fine, carry on.
-	// Note that this check is imperfect as we have not yet parsed
-	// the -compiler flag.
-	if cfg.GOROOT == "" && runtime.Compiler != "gccgo" {
-		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: 'go' binary is trimmed and GOROOT is not set\n")
-		os.Exit(2)
-	}
-	if fi, err := os.Stat(cfg.GOROOT); err != nil || !fi.IsDir() && runtime.Compiler != "gccgo" {
-		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: %v\n", cfg.GOROOT)
-		os.Exit(2)
-	}
-
-=======
->>>>>>> /tmp/go122/src/./cmd/go/main.go
 	cmd, used := lookupCmd(args)
 	cfg.CmdName = strings.Join(args[:used], " ")
 	if len(cmd.Commands) > 0 {

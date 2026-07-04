@@ -2569,14 +2569,10 @@ func LinkerDeps(p *Package) ([]string, error) {
 	deps := []string{"runtime"}
 
 	// External linking mode forces an import of runtime/cgo.
-<<<<<<< go/./cmd/go/internal/load/pkg.go
-	if externalLinkingForced(p) {
-=======
 	if what := externalLinkingReason(p); what != "" && cfg.BuildContext.Compiler != "gccgo" {
 		if !cfg.BuildContext.CgoEnabled {
 			return nil, fmt.Errorf("%s requires external (cgo) linking, but cgo is not enabled", what)
 		}
->>>>>>> /tmp/go122/src/./cmd/go/internal/load/pkg.go
 		deps = append(deps, "runtime/cgo")
 	}
 	// On ARM with GOARM=5, it forces an import of math, for soft floating point.

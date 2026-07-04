@@ -575,15 +575,10 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 		// although we don't really have to.
 		gp.sig = sig
 		gp.sigcode0 = uintptr(c.sigcode())
-<<<<<<< go/./runtime/signal_unix.go
 		gp.sigcode1 = sigfault
 		gp.sigpc = sigpc
 
 		setg(gp)
-=======
-		gp.sigcode1 = c.fault()
-		gp.sigpc = c.sigpc()
->>>>>>> /tmp/go122/src/./runtime/signal_unix.go
 
 		// All signals were blocked due to the sigaction mask;
 		// unblock them.
@@ -629,17 +624,8 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 	level, _, docrash := gotraceback()
 	if level > 0 {
 		goroutineheader(gp)
-<<<<<<< go/./runtime/signal_unix.go
 		traceback(0)
-		if crashing == 0 {
-=======
-		tracebacktrap(c.sigpc(), c.sigsp(), c.siglr(), gp)
-		if crashing.Load() > 0 && gp != mp.curg && mp.curg != nil && readgstatus(mp.curg)&^_Gscan == _Grunning {
-			// tracebackothers on original m skipped this one; trace it now.
-			goroutineheader(mp.curg)
-			traceback(^uintptr(0), ^uintptr(0), 0, mp.curg)
-		} else if crashing.Load() == 0 {
->>>>>>> /tmp/go122/src/./runtime/signal_unix.go
+		if crashing.Load() == 0 {
 			tracebackothers(gp)
 			print("\n")
 		}
@@ -702,15 +688,7 @@ func fatalsignal(sig uint32, c *sigctxt, gp *g, mp *m) *g {
 		exit(2)
 	}
 
-<<<<<<< go/./runtime/signal_unix.go
 	print("PC=", hex(sigpc), " m=", mp.id, " sigcode=", c.sigcode(), "\n")
-=======
-	print("PC=", hex(c.sigpc()), " m=", mp.id, " sigcode=", c.sigcode())
-	if sig == _SIGSEGV || sig == _SIGBUS {
-		print(" addr=", hex(c.fault()))
-	}
-	print("\n")
->>>>>>> /tmp/go122/src/./runtime/signal_unix.go
 	if mp.incgo && gp == mp.g0 && mp.curg != nil {
 		print("signal arrived during cgo execution\n")
 		// Switch to curg so that we get a traceback of the Go code
@@ -1092,39 +1070,6 @@ func msigrestore(sigmask sigset) {
 	sigprocmask(_SIG_SETMASK, &sigmask, nil)
 }
 
-<<<<<<< go/./runtime/signal_unix.go
-=======
-// sigsetAllExiting is used by sigblock(true) when a thread is
-// exiting.
-var sigsetAllExiting = func() sigset {
-	res := sigset_all
-
-	// Apply GOOS-specific overrides here, rather than in osinit,
-	// because osinit may be called before sigsetAllExiting is
-	// initialized (#51913).
-	if GOOS == "linux" && iscgo {
-		// #42494 glibc and musl reserve some signals for
-		// internal use and require they not be blocked by
-		// the rest of a normal C runtime. When the go runtime
-		// blocks...unblocks signals, temporarily, the blocked
-		// interval of time is generally very short. As such,
-		// these expectations of *libc code are mostly met by
-		// the combined go+cgo system of threads. However,
-		// when go causes a thread to exit, via a return from
-		// mstart(), the combined runtime can deadlock if
-		// these signals are blocked. Thus, don't block these
-		// signals when exiting threads.
-		// - glibc: SIGCANCEL (32), SIGSETXID (33)
-		// - musl: SIGTIMER (32), SIGCANCEL (33), SIGSYNCCALL (34)
-		sigdelset(&res, 32)
-		sigdelset(&res, 33)
-		sigdelset(&res, 34)
-	}
-
-	return res
-}()
-
->>>>>>> /tmp/go122/src/./runtime/signal_unix.go
 // sigblock blocks signals in the current thread's signal mask.
 // This is used to block signals while setting up and tearing down g
 // when a non-Go thread calls a Go function. When a thread is exiting

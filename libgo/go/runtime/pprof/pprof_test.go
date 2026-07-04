@@ -1295,12 +1295,10 @@ func TestMutexProfile(t *testing.T) {
 
 		stks := stacks(p)
 		for _, want := range [][]string{
-<<<<<<< go/./runtime/pprof/pprof_test.go
-			// {"sync.(*Mutex).Unlock", "runtime/pprof.blockMutex.func1"},
-			{"sync.Mutex.Unlock", "runtime/pprof.blockMutex..func1"},
-=======
-			{"sync.(*Mutex).Unlock", "runtime/pprof.blockMutexN.func1"},
->>>>>>> /tmp/go122/src/./runtime/pprof/pprof_test.go
+			// gccgo mangles the value-method and closure names differently
+			// from gc: "sync.Mutex.Unlock" and a "..func1" closure suffix.
+			// {"sync.(*Mutex).Unlock", "runtime/pprof.blockMutexN.func1"},
+			{"sync.Mutex.Unlock", "runtime/pprof.blockMutexN..func1"},
 		} {
 			if !containsStack(stks, want) {
 				t.Errorf("No matching stack entry for %+v", want)

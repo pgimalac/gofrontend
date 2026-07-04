@@ -346,13 +346,8 @@ func globalRand() *Rand {
 	return r
 }
 
-<<<<<<< go/./math/rand/rand.go
-//go:linkname fastrand64 math_1rand.fastrand64
-func fastrand64() uint64
-=======
 //go:linkname runtime_rand runtime.rand
 func runtime_rand() uint64
->>>>>>> /tmp/go122/src/./math/rand/rand.go
 
 // runtimeSource is an implementation of Source64 that uses the runtime
 // fastrand functions.

@@ -5,12 +5,8 @@
 package runtime
 
 import (
-<<<<<<< go/./runtime/stubs.go
 	"internal/goarch"
 	"runtime/internal/math"
-=======
-	"internal/abi"
->>>>>>> /tmp/go122/src/./runtime/stubs.go
 	"unsafe"
 )
 
@@ -124,7 +120,11 @@ func memcmp(a, b unsafe.Pointer, size uintptr) int32
 // exported value for testing
 const hashLoad = float32(loadFactorNum) / float32(loadFactorDen)
 
-<<<<<<< go/./runtime/stubs.go
+// gccgo still uses the legacy fastrand family (fastrand/fastrandn/
+// fastrand64/fastrandu) alongside the newer cheaprand functions in rand.go:
+// some runtime callers and the math/rand stdlib link to these via the
+// //go:linkname exports below, so they are kept.
+//
 //go:nosplit
 func fastrand() uint32 {
 	mp := getg().m
@@ -210,8 +210,6 @@ func net_fastrandu() uint { return fastrandu() }
 //go:linkname os_fastrand os.fastrand
 func os_fastrand() uint32 { return fastrand() }
 
-=======
->>>>>>> /tmp/go122/src/./runtime/stubs.go
 // in internal/bytealg/equal_*.s
 //
 //go:noescape
@@ -305,8 +303,8 @@ func getcallerpc() uintptr
 //go:noescape
 func getcallersp() uintptr // implemented as an intrinsic on all platforms
 
-<<<<<<< go/./runtime/stubs.go
 // getsp returns the stack pointer (SP) of the caller of getsp.
+//
 //go:noinline
 func getsp() uintptr { return getcallersp() }
 
@@ -314,75 +312,6 @@ func asmcgocall(fn, arg unsafe.Pointer) int32 {
 	throw("asmcgocall")
 	return 0
 }
-=======
-// getclosureptr returns the pointer to the current closure.
-// getclosureptr can only be used in an assignment statement
-// at the entry of a function. Moreover, go:nosplit directive
-// must be specified at the declaration of caller function,
-// so that the function prolog does not clobber the closure register.
-// for example:
-//
-//	//go:nosplit
-//	func f(arg1, arg2, arg3 int) {
-//		dx := getclosureptr()
-//	}
-//
-// The compiler rewrites calls to this function into instructions that fetch the
-// pointer from a well-known register (DX on x86 architecture, etc.) directly.
-//
-// WARNING: PGO-based devirtualization cannot detect that caller of
-// getclosureptr require closure context, and thus must maintain a list of
-// these functions, which is in
-// cmd/compile/internal/devirtualize/pgo.maybeDevirtualizeFunctionCall.
-func getclosureptr() uintptr
-
-//go:noescape
-func asmcgocall(fn, arg unsafe.Pointer) int32
-
-func morestack()
-func morestack_noctxt()
-func rt0_go()
-
-// return0 is a stub used to return 0 from deferproc.
-// It is called at the very end of deferproc to signal
-// the calling Go function that it should not jump
-// to deferreturn.
-// in asm_*.s
-func return0()
-
-// in asm_*.s
-// not called directly; definitions here supply type information for traceback.
-// These must have the same signature (arg pointer map) as reflectcall.
-func call16(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call32(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call64(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call128(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call256(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call512(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call1024(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call2048(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call4096(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call8192(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call16384(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call32768(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call65536(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call131072(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call262144(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call524288(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call1048576(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call2097152(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call4194304(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call8388608(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call16777216(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call33554432(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call67108864(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call134217728(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call268435456(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call536870912(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-func call1073741824(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOffset, frameSize uint32, regArgs *abi.RegArgs)
-
-func systemstack_switch()
->>>>>>> /tmp/go122/src/./runtime/stubs.go
 
 // alignUp rounds n up to a multiple of a. a must be a power of 2.
 //
@@ -489,16 +418,10 @@ func (bv *bitvector) ptrbit(i uintptr) uint8 {
 
 // bool2int returns 0 if x is false or 1 if x is true.
 func bool2int(x bool) int {
-<<<<<<< go/./runtime/stubs.go
 	if x {
 		return 1
 	}
 	return 0
-=======
-	// Avoid branches. In the SSA compiler, this compiles to
-	// exactly what you would want it to.
-	return int(*(*uint8)(unsafe.Pointer(&x)))
->>>>>>> /tmp/go122/src/./runtime/stubs.go
 }
 
 // abort crashes the runtime in situations where even throw might not

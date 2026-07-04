@@ -16,8 +16,6 @@ func archauxv(tag, val uintptr) {
 		cpu.HWCap = uint(val)
 	}
 }
-<<<<<<< go/./runtime/os_linux_s390x.go
-=======
 
 func osArchInit() {}
 
@@ -31,4 +29,3 @@ func checkS390xCPU() {
 		exit(1)
 	}
 }
->>>>>>> /tmp/go122/src/./runtime/os_linux_s390x.go

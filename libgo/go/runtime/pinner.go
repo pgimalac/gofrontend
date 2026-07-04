@@ -139,33 +139,11 @@ func isPinned(ptr unsafe.Pointer) bool {
 	return pinState.isPinned()
 }
 
-<<<<<<< go/./runtime/pinner.go
-// isGoPointerWithoutSpan reports whether p points to a Go pointer that has
-// no heap span, i.e. it is a linker-allocated global or a zero-size object.
-//
-// For gccgo we cannot reliably detect the noptrdata/data/bss/noptrbss
-// segments (see the comment in SetFinalizer in mfinal.go), so we only
-// special-case zerobase and otherwise treat pointers without a span as
-// linker-allocated.
-func isGoPointerWithoutSpan(p unsafe.Pointer) bool {
-	// 0-length objects are okay.
-	if p == unsafe.Pointer(&zerobase) {
-		return true
-	}
-	// gccgo has no reliable way to detect linker-allocated globals, so
-	// assume any Go pointer without a span is one.
-	return true
-}
-
-// setPinned marks or unmarks a Go pointer as pinned.
-func setPinned(ptr unsafe.Pointer, pin bool) {
-=======
 // setPinned marks or unmarks a Go pointer as pinned, when the ptr is a Go pointer.
 // It will be ignored while try to pin a non-Go pointer,
 // and it will be panic while try to unpin a non-Go pointer,
 // which should not happen in normal usage.
 func setPinned(ptr unsafe.Pointer, pin bool) bool {
->>>>>>> /tmp/go122/src/./runtime/pinner.go
 	span := spanOfHeap(uintptr(ptr))
 	if span == nil {
 		if !pin {

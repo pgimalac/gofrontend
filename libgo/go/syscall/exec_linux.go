@@ -70,17 +70,7 @@ type SysProcAttr struct {
 	// This parameter is no-op if GidMappings == nil. Otherwise for unprivileged
 	// users this should be set to false for mappings work.
 	GidMappingsEnableSetgroups bool
-<<<<<<< go/./syscall/exec_linux.go
 	AmbientCaps                []uintptr // Ambient capabilities (Linux only)
-=======
-	AmbientCaps                []uintptr // Ambient capabilities.
-	UseCgroupFD                bool      // Whether to make use of the CgroupFD field.
-	CgroupFD                   int       // File descriptor of a cgroup to put the new process into.
-	// PidFD, if not nil, is used to store the pidfd of a child, if the
-	// functionality is supported by the kernel, or -1. Note *PidFD is
-	// changed only if the process starts successfully.
-	PidFD *int
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 }
 
 var (
@@ -114,11 +104,7 @@ func rawClone(flags _C_ulong, child_stack *byte, ptid *Pid_t, ctid *Pid_t, regs 
 func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (pid int, err Errno) {
 	// Set up and fork. This returns immediately in the parent or
 	// if there's an error.
-<<<<<<< go/./syscall/exec_linux.go
 	r1, err1, p, locked := forkAndExecInChild1(argv0, argv, envv, chroot, dir, attr, sys, pipe)
-=======
-	upid, pidfd, err, mapPipe, locked := forkAndExecInChild1(argv0, argv, envv, chroot, dir, attr, sys, pipe)
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	if locked {
 		runtime_AfterFork()
 	}
@@ -127,14 +113,7 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// parent; return PID
-<<<<<<< go/./syscall/exec_linux.go
 	pid = int(r1)
-=======
-	pid = int(upid)
-	if sys.PidFD != nil {
-		*sys.PidFD = int(pidfd)
-	}
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 
 	if sys.UidMappings != nil || sys.GidMappings != nil {
 		Close(p[0])
@@ -186,12 +165,7 @@ func capToMask(cap uintptr) uint32 { return 1 << uint(cap&31) }
 //
 //go:noinline
 //go:norace
-<<<<<<< go/./syscall/exec_linux.go
 func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (r1 uintptr, err1 Errno, p [2]int, locked bool) {
-=======
-//go:nocheckptr
-func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (pid uintptr, pidfd int32, err1 Errno, mapPipe [2]int, locked bool) {
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	// Defined in linux/prctl.h starting with Linux 4.3.
 	const (
 		PR_CAP_AMBIENT       = 0x2f
@@ -215,13 +189,7 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		puid, psetgroups, pgid    []byte
 		uidmap, setgroups, gidmap []byte
 	)
-	pidfd = -1
 
-<<<<<<< go/./syscall/exec_linux.go
-=======
-	rlim := origRlimitNofile.Load()
-
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	if sys.UidMappings != nil {
 		puid = []byte("/proc/self/uid_map\000")
 		uidmap = formatIDMappings(sys.UidMappings)
@@ -264,51 +232,13 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		}
 	}
 
-<<<<<<< go/./syscall/exec_linux.go
-=======
-	flags = sys.Cloneflags
-	if sys.Cloneflags&CLONE_NEWUSER == 0 && sys.Unshareflags&CLONE_NEWUSER == 0 {
-		flags |= CLONE_VFORK | CLONE_VM
-	}
-	if sys.PidFD != nil {
-		flags |= CLONE_PIDFD
-	}
-	// Whether to use clone3.
-	if sys.UseCgroupFD || flags&CLONE_NEWTIME != 0 || forceClone3 {
-		clone3 = &cloneArgs{
-			flags:      uint64(flags),
-			exitSignal: uint64(SIGCHLD),
-		}
-		if sys.UseCgroupFD {
-			clone3.flags |= CLONE_INTO_CGROUP
-			clone3.cgroup = uint64(sys.CgroupFD)
-		}
-		if sys.PidFD != nil {
-			clone3.pidFD = uint64(uintptr(unsafe.Pointer(&pidfd)))
-		}
-	}
-
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	// About to call fork.
 	// No more allocation or calls of non-assembly functions.
 	runtime_BeforeFork()
 	locked = true
-<<<<<<< go/./syscall/exec_linux.go
 	r2 = int(rawClone(_C_ulong(uintptr(SIGCHLD)|sys.Cloneflags), nil, nil, nil, unsafe.Pointer(nil)))
 	if r2 < 0 {
 		err1 = GetErrno()
-=======
-	if clone3 != nil {
-		pid, err1 = rawVforkSyscall(_SYS_clone3, uintptr(unsafe.Pointer(clone3)), unsafe.Sizeof(*clone3), 0)
-	} else {
-		flags |= uintptr(SIGCHLD)
-		if runtime.GOARCH == "s390x" {
-			// On Linux/s390, the first two arguments of clone(2) are swapped.
-			pid, err1 = rawVforkSyscall(SYS_CLONE, 0, flags, uintptr(unsafe.Pointer(&pidfd)))
-		} else {
-			pid, err1 = rawVforkSyscall(SYS_CLONE, flags, 0, uintptr(unsafe.Pointer(&pidfd)))
-		}
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	}
 	if r2 != 0 {
 		// If we're in the parent, we must return immediately
@@ -396,38 +326,22 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 			if fd1, err1 = rawOpenat(dirfd, &psetgroups[0], O_WRONLY, 0); err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			_, err1 = raw_write(fd1, &setgroups[0], len(setgroups))
-=======
-			pid, _, err1 = RawSyscall(SYS_WRITE, fd1, uintptr(unsafe.Pointer(&setgroups[0])), uintptr(len(setgroups)))
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 			if err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			if err1 = raw_close(fd1); err1 != 0 {
-=======
-			if _, _, err1 = RawSyscall(SYS_CLOSE, fd1, 0, 0); err1 != 0 {
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 				goto childerror
 			}
 
 			if fd1, err1 = rawOpenat(dirfd, &pgid[0], O_WRONLY, 0); err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			_, err1 = raw_write(fd1, &gidmap[0], len(gidmap))
-=======
-			pid, _, err1 = RawSyscall(SYS_WRITE, fd1, uintptr(unsafe.Pointer(&gidmap[0])), uintptr(len(gidmap)))
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 			if err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			if err1 = raw_close(fd1); err1 != 0 {
-=======
-			if _, _, err1 = RawSyscall(SYS_CLOSE, fd1, 0, 0); err1 != 0 {
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 				goto childerror
 			}
 		}
@@ -437,19 +351,11 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 			if fd1, err1 = rawOpenat(dirfd, &puid[0], O_WRONLY, 0); err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			_, err1 = raw_write(fd1, &uidmap[0], len(uidmap))
-=======
-			pid, _, err1 = RawSyscall(SYS_WRITE, fd1, uintptr(unsafe.Pointer(&uidmap[0])), uintptr(len(uidmap)))
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 			if err1 != 0 {
 				goto childerror
 			}
-<<<<<<< go/./syscall/exec_linux.go
 			if err1 = raw_close(fd1); err1 != 0 {
-=======
-			if _, _, err1 = RawSyscall(SYS_CLOSE, fd1, 0, 0); err1 != 0 {
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 				goto childerror
 			}
 		}
@@ -627,14 +533,6 @@ func forkAndExecInChild1(argv0 *byte, argv, envv []*byte, chroot, dir *byte, att
 		}
 	}
 
-<<<<<<< go/./syscall/exec_linux.go
-=======
-	// Restore original rlimit.
-	if rlim != nil {
-		rawSetrlimit(RLIMIT_NOFILE, rlim)
-	}
-
->>>>>>> /tmp/go122/src/./syscall/exec_linux.go
 	// Enable tracing if requested.
 	// Do this right before exec so that we don't unnecessarily trace the runtime
 	// setting up after the fork. See issue #21428.

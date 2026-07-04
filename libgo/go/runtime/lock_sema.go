@@ -43,7 +43,7 @@ const (
 )
 
 func mutexContended(l *mutex) bool {
-	return atomic.Loaduintptr(&l.key) > locked
+	return atomic.Loaduintptr(&l.key) > mutex_locked
 }
 
 func lock(l *mutex) {
@@ -76,12 +76,8 @@ Loop:
 		v := atomic.Loaduintptr(&l.key)
 		if v&mutex_locked == 0 {
 			// Unlocked. Try to lock.
-<<<<<<< go/./runtime/lock_sema.go
 			if atomic.Casuintptr(&l.key, v, v|mutex_locked) {
-=======
-			if atomic.Casuintptr(&l.key, v, v|locked) {
 				timer.end()
->>>>>>> /tmp/go122/src/./runtime/lock_sema.go
 				return
 			}
 			i = 0

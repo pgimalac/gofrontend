@@ -5,11 +5,7 @@
 package testinggoroutine
 
 import (
-<<<<<<< go/.//golang.org/x/tools/go/analysis/passes/testinggoroutine/testinggoroutine.go
-=======
-	_ "embed"
 	"fmt"
->>>>>>> /tmp/go122/src/./cmd/vendor/golang.org/x/tools/go/analysis/passes/testinggoroutine/testinggoroutine.go
 	"go/ast"
 	"go/token"
 	"go/types"

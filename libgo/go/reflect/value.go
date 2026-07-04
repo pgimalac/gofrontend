@@ -635,11 +635,6 @@ func (v Value) capNonSlice() int {
 func (v Value) Close() {
 	v.mustBe(Chan)
 	v.mustBeExported()
-	tt := (*chanType)(unsafe.Pointer(v.typ()))
-	if ChanDir(tt.Dir)&SendDir == 0 {
-		panic("reflect: close of receive-only channel")
-	}
-
 	chanclose(v.pointer())
 }
 
@@ -1049,31 +1044,15 @@ func (v Value) IsZero() bool {
 	case Complex64, Complex128:
 		return v.Complex() == 0
 	case Array:
-		if v.flag&flagIndir == 0 {
-			return v.ptr == nil
-		}
-		typ := (*abi.ArrayType)(unsafe.Pointer(v.typ()))
 		// If the type is comparable, then compare directly with zero.
-<<<<<<< go/./reflect/value.go
 		if v.typ.equal != nil && v.typ.size <= maxZero {
 			if v.flag&flagIndir == 0 {
 				return v.ptr == nil
 			}
 			return v.typ.equal(v.ptr, unsafe.Pointer(&zeroVal[0]))
-=======
-		if typ.Equal != nil && typ.Size() <= abi.ZeroValSize {
-			// v.ptr doesn't escape, as Equal functions are compiler generated
-			// and never escape. The escape analysis doesn't know, as it is a
-			// function pointer call.
-			return typ.Equal(noescape(v.ptr), unsafe.Pointer(&zeroVal[0]))
 		}
-		if typ.TFlag&abi.TFlagRegularMemory != 0 {
-			// For some types where the zero value is a value where all bits of this type are 0
-			// optimize it.
-			return isZero(unsafe.Slice(((*byte)(v.ptr)), typ.Size()))
->>>>>>> /tmp/go122/src/./reflect/value.go
-		}
-		n := int(typ.Len)
+
+		n := v.Len()
 		for i := 0; i < n; i++ {
 			if !v.Index(i).IsZero() {
 				return false
@@ -1085,27 +1064,12 @@ func (v Value) IsZero() bool {
 	case String:
 		return v.Len() == 0
 	case Struct:
-		if v.flag&flagIndir == 0 {
-			return v.ptr == nil
-		}
-		typ := (*abi.StructType)(unsafe.Pointer(v.typ()))
 		// If the type is comparable, then compare directly with zero.
-<<<<<<< go/./reflect/value.go
 		if v.typ.equal != nil && v.typ.size <= maxZero {
 			if v.flag&flagIndir == 0 {
 				return v.ptr == nil
 			}
 			return v.typ.equal(v.ptr, unsafe.Pointer(&zeroVal[0]))
-=======
-		if typ.Equal != nil && typ.Size() <= abi.ZeroValSize {
-			// See noescape justification above.
-			return typ.Equal(noescape(v.ptr), unsafe.Pointer(&zeroVal[0]))
-		}
-		if typ.TFlag&abi.TFlagRegularMemory != 0 {
-			// For some types where the zero value is a value where all bits of this type are 0
-			// optimize it.
-			return isZero(unsafe.Slice(((*byte)(v.ptr)), typ.Size()))
->>>>>>> /tmp/go122/src/./reflect/value.go
 		}
 
 		n := v.NumField()
@@ -2705,7 +2669,6 @@ func ValueOf(i any) Value {
 	if i == nil {
 		return Value{}
 	}
-<<<<<<< go/./reflect/value.go
 
 	// TODO: Maybe allow contents of a Value to live on the stack.
 	// For now we make the contents always escape to the heap. It
@@ -2713,8 +2676,6 @@ func ValueOf(i any) Value {
 	// comment below).
 	escapes(i)
 
-=======
->>>>>>> /tmp/go122/src/./reflect/value.go
 	return unpackEface(i)
 }
 
@@ -2731,11 +2692,7 @@ func Zero(typ Type) Value {
 	fl := flag(t.Kind())
 	if ifaceIndir(t) {
 		var p unsafe.Pointer
-<<<<<<< go/./reflect/value.go
 		if t.size <= maxZero {
-=======
-		if t.Size() <= abi.ZeroValSize {
->>>>>>> /tmp/go122/src/./reflect/value.go
 			p = unsafe.Pointer(&zeroVal[0])
 		} else {
 			p = unsafe_New(t)
@@ -2745,17 +2702,12 @@ func Zero(typ Type) Value {
 	return Value{t, nil, fl}
 }
 
-<<<<<<< go/./reflect/value.go
 // must match declarations in runtime/map.go.
 const maxZero = 1024
 
 // Using linkname here doesn't work for gofrontend.
 // //go:linkname zeroVal runtime.zeroVal
 var zeroVal [maxZero]byte
-=======
-//go:linkname zeroVal runtime.zeroVal
-var zeroVal [abi.ZeroValSize]byte
->>>>>>> /tmp/go122/src/./reflect/value.go
 
 // New returns a Value representing a pointer to a new zero value
 // for the specified type. That is, the returned Value's Type is PointerTo(typ).

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-<<<<<<< go/./runtime/mbitmap.go
 // Garbage collector: type and heap bitmaps.
 //
 // Stack, data, and bss bitmaps
@@ -44,8 +43,6 @@
 // checking either the noscan bit in the span or by consulting its
 // type's information.
 
-=======
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go
 package runtime
 
 import (
@@ -227,11 +224,7 @@ func (s *mspan) nextFreeIndex() uint16 {
 // been no preemption points since ensuring this (which could allow a
 // GC transition, which would allow the state to change).
 func (s *mspan) isFree(index uintptr) bool {
-<<<<<<< go/./runtime/mbitmap.go
-	if index < s.freeindex {
-=======
 	if index < uintptr(s.freeIndexForScan) {
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go
 		return false
 	}
 	bytep, mask := s.allocBits.bitp(index)
@@ -479,7 +472,6 @@ func (h heapBits) next() heapBits {
 	return h
 }
 
-<<<<<<< go/./runtime/mbitmap.go
 // nextArena advances h to the beginning of the next heap arena.
 //
 // This is a slow-path helper to next. gc's inliner knows that
@@ -600,7 +592,7 @@ func (h heapBits) isPointer() bool {
 // The pointer bitmap is not maintained for allocations containing
 // no pointers at all; any caller of bulkBarrierPreWrite must first
 // make sure the underlying allocation contains pointers, usually
-// by checking typ.PtrBytes.
+// by checking typ.ptrdata.
 //
 // Callers must perform cgo checks if goexperiment.CgoCheck2.
 //
@@ -700,8 +692,6 @@ func bulkBarrierPreWriteSrcOnly(dst, src, size uintptr) {
 	}
 }
 
-=======
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go
 // bulkBarrierBitmap executes write barriers for copying from [src,
 // src+size) to [dst, dst+size) using a 1-bit pointer bitmap. src is
 // assumed to start maskOffset bytes into the data covered by the
@@ -795,7 +785,6 @@ func typeBitsBulkBarrier(typ *_type, dst, src, size uintptr) {
 	}
 }
 
-<<<<<<< go/./runtime/mbitmap.go
 // The methods operating on spans all require that h has been returned
 // by heapBitsForSpan and that size, n, total are the span layout description
 // returned by the mspan's layout method.
@@ -835,8 +824,6 @@ func (h heapBits) initSpan(s *mspan) {
 	}
 }
 
-=======
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go
 // countAlloc returns the number of objects allocated in span s by
 // scanning the mark bitmap.
 func (s *mspan) countAlloc() int {
@@ -857,7 +844,6 @@ func (s *mspan) countAlloc() int {
 	return count
 }
 
-<<<<<<< go/./runtime/mbitmap.go
 // heapBitsSetType records that the new allocation [x, x+size)
 // holds in [x, x+dataSize) one or more values of type typ.
 // (The number of values is given by dataSize / typ.Size.)
@@ -1523,21 +1509,6 @@ Phase4:
 	}
 }
 
-=======
-// Read the bytes starting at the aligned pointer p into a uintptr.
-// Read is little-endian.
-func readUintptr(p *byte) uintptr {
-	x := *(*uintptr)(unsafe.Pointer(p))
-	if goarch.BigEndian {
-		if goarch.PtrSize == 8 {
-			return uintptr(sys.Bswap64(uint64(x)))
-		}
-		return uintptr(sys.Bswap32(uint32(x)))
-	}
-	return x
-}
-
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go
 var debugPtrmask struct {
 	lock mutex
 	data *byte
@@ -2020,7 +1991,6 @@ func reflect_gcbits(x any) []byte {
 	}
 	return ret
 }
-<<<<<<< go/./runtime/mbitmap.go
 
 // Returns GC type info for the pointer stored in ep for testing.
 // If ep points to the stack, only static live information will be returned
@@ -2069,5 +2039,3 @@ func getgcmask(ep any) (mask []byte) {
 	// For gccgo, may live on the stack, which is collected conservatively.
 	return
 }
-=======
->>>>>>> /tmp/go122/src/./runtime/mbitmap.go

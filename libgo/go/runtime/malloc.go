@@ -1178,13 +1178,9 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			header = &span.largeType
 		}
 	}
-<<<<<<< go/./runtime/malloc.go
 
 	var scanSize uintptr
-=======
->>>>>>> /tmp/go122/src/./runtime/malloc.go
 	if !noscan {
-<<<<<<< go/./runtime/malloc.go
 		heapBitsSetType(uintptr(x), size, dataSize, typ)
 		if dataSize > typ.size {
 			// Array allocation. If there are any
@@ -1192,30 +1188,11 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			// element.
 			if typ.ptrdata != 0 {
 				scanSize = dataSize - typ.size + typ.ptrdata
-=======
-		if goexperiment.AllocHeaders {
-			c.scanAlloc += heapSetType(uintptr(x), dataSize, typ, header, span)
-		} else {
-			var scanSize uintptr
-			heapBitsSetType(uintptr(x), size, dataSize, typ)
-			if dataSize > typ.Size_ {
-				// Array allocation. If there are any
-				// pointers, GC has to scan to the last
-				// element.
-				if typ.PtrBytes != 0 {
-					scanSize = dataSize - typ.Size_ + typ.PtrBytes
-				}
-			} else {
-				scanSize = typ.PtrBytes
->>>>>>> /tmp/go122/src/./runtime/malloc.go
 			}
-<<<<<<< go/./runtime/malloc.go
 		} else {
 			scanSize = typ.ptrdata
-=======
-			c.scanAlloc += scanSize
->>>>>>> /tmp/go122/src/./runtime/malloc.go
 		}
+		c.scanAlloc += scanSize
 	}
 
 	// Ensure that the stores above that initialize x to
@@ -1231,11 +1208,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	// This may be racing with GC so do it atomically if there can be
 	// a race marking the bit.
 	if gcphase != _GCoff {
-<<<<<<< go/./runtime/malloc.go
 		gcmarknewobject(span, uintptr(x), size, scanSize)
-=======
-		gcmarknewobject(span, uintptr(x))
->>>>>>> /tmp/go122/src/./runtime/malloc.go
 	}
 
 	if raceenabled {
