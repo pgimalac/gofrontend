@@ -212,6 +212,29 @@ func runfinq() {
 	}
 }
 
+// blockUntilEmptyFinalizerQueue blocks until either the finalizer
+// queue is emptied (and the finalizers have executed) or the timeout
+// is reached. Returns true if the finalizer queue was emptied.
+// This is used by the runtime and sync tests.
+//
+//go:linkname blockUntilEmptyFinalizerQueue
+func blockUntilEmptyFinalizerQueue(timeout int64) bool {
+	start := nanotime()
+	for nanotime()-start < timeout {
+		lock(&finlock)
+		// We know the queue has been drained when both finq is nil
+		// and the finalizer g has stopped executing.
+		empty := finq == nil
+		empty = empty && fing != nil && readgstatus(fing) == _Gwaiting && fing.waitreason == waitReasonFinalizerWait
+		unlock(&finlock)
+		if empty {
+			return true
+		}
+		Gosched()
+	}
+	return false
+}
+
 // SetFinalizer sets the finalizer associated with obj to the provided
 // finalizer function. When the garbage collector finds an unreachable block
 // with an associated finalizer, it clears the association and runs

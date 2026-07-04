@@ -272,6 +272,66 @@ Or (uint32_t *ptr, uint32_t val)
   __atomic_or_fetch (ptr, val, __ATOMIC_SEQ_CST);
 }
 
+uint32_t And32 (uint32_t *ptr, uint32_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And32")
+  __attribute__ ((no_split_stack));
+
+uint32_t
+And32 (uint32_t *ptr, uint32_t val)
+{
+  return __atomic_fetch_and (ptr, val, __ATOMIC_SEQ_CST);
+}
+
+uint32_t Or32 (uint32_t *ptr, uint32_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or32")
+  __attribute__ ((no_split_stack));
+
+uint32_t
+Or32 (uint32_t *ptr, uint32_t val)
+{
+  return __atomic_fetch_or (ptr, val, __ATOMIC_SEQ_CST);
+}
+
+uint64_t And64 (uint64_t *ptr, uint64_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And64")
+  __attribute__ ((no_split_stack));
+
+uint64_t
+And64 (uint64_t *ptr, uint64_t val)
+{
+  return __atomic_fetch_and (ptr, val, __ATOMIC_SEQ_CST);
+}
+
+uint64_t Or64 (uint64_t *ptr, uint64_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or64")
+  __attribute__ ((no_split_stack));
+
+uint64_t
+Or64 (uint64_t *ptr, uint64_t val)
+{
+  return __atomic_fetch_or (ptr, val, __ATOMIC_SEQ_CST);
+}
+
+uintptr_t Anduintptr (uintptr_t *ptr, uintptr_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Anduintptr")
+  __attribute__ ((no_split_stack));
+
+uintptr_t
+Anduintptr (uintptr_t *ptr, uintptr_t val)
+{
+  return __atomic_fetch_and (ptr, val, __ATOMIC_SEQ_CST);
+}
+
+uintptr_t Oruintptr (uintptr_t *ptr, uintptr_t val)
+  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Oruintptr")
+  __attribute__ ((no_split_stack));
+
+uintptr_t
+Oruintptr (uintptr_t *ptr, uintptr_t val)
+{
+  return __atomic_fetch_or (ptr, val, __ATOMIC_SEQ_CST);
+}
+
 _Bool Cas (uint32_t *ptr, uint32_t old, uint32_t new)
   __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Cas")
   __attribute__ ((no_split_stack));

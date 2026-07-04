@@ -36,6 +36,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// skipOnGccgo skips tests that spawn the test binary as a CGI child
+// process. On gccgo re-executing the test binary as a CGI child does
+// not reliably produce the expected output, which can leave the parent
+// blocked in Handler.ServeHTTP on exec.Cmd.Wait and time out the suite.
+func skipOnGccgo(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		t.Skip("gccgo cannot reliably re-exec the test binary as a CGI child")
+	}
+}
+
 func newRequest(httpreq string) *http.Request {
 	buf := bufio.NewReader(strings.NewReader(httpreq))
 	req, err := http.ReadRequest(buf)
@@ -49,6 +59,7 @@ func newRequest(httpreq string) *http.Request {
 func runCgiTest(t *testing.T, h *Handler,
 	httpreq string,
 	expectedMap map[string]string, checks ...func(reqInfo map[string]string)) *httptest.ResponseRecorder {
+	skipOnGccgo(t)
 	rw := httptest.NewRecorder()
 	req := newRequest(httpreq)
 	h.ServeHTTP(rw, req)
@@ -101,6 +112,7 @@ readlines:
 }
 
 func TestCGIBasicGet(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -136,6 +148,7 @@ func TestCGIBasicGet(t *testing.T) {
 }
 
 func TestCGIEnvIPv6(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -173,6 +186,7 @@ func TestCGIBasicGetAbsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: absPath,
@@ -187,6 +201,7 @@ func TestCGIBasicGetAbsPath(t *testing.T) {
 }
 
 func TestPathInfo(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -204,6 +219,7 @@ func TestPathInfo(t *testing.T) {
 }
 
 func TestPathInfoDirRoot(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -220,6 +236,7 @@ func TestPathInfoDirRoot(t *testing.T) {
 }
 
 func TestDupHeaders(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -243,6 +260,7 @@ func TestDupHeaders(t *testing.T) {
 // Verify we don't set the HTTP_PROXY environment variable.
 // Hope nobody was depending on it. It's not a known header, though.
 func TestDropProxyHeader(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -265,6 +283,7 @@ func TestDropProxyHeader(t *testing.T) {
 }
 
 func TestPathInfoNoRoot(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -281,6 +300,7 @@ func TestPathInfoNoRoot(t *testing.T) {
 }
 
 func TestCGIBasicPost(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	postReq := `POST /test.cgi?a=b HTTP/1.0
 Host: example.com
@@ -308,6 +328,7 @@ func chunk(s string) string {
 
 // The CGI spec doesn't allow chunked requests.
 func TestCGIPostChunked(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	postReq := `POST /test.cgi?a=b HTTP/1.1
 Host: example.com
@@ -329,6 +350,7 @@ Transfer-Encoding: chunked
 }
 
 func TestRedirect(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	h := &Handler{
 		Path: os.Args[0],
@@ -344,6 +366,7 @@ func TestRedirect(t *testing.T) {
 }
 
 func TestInternalRedirect(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	baseHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(rw, "basepath=%s\n", req.URL.Path)
@@ -367,6 +390,7 @@ func TestInternalRedirect(t *testing.T) {
 // If we fail to do so, the test will time out (and dump its goroutines) with a
 // call to [Handler.ServeHTTP] blocked on a deferred call to [exec.Cmd.Wait].
 func TestCopyError(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 
 	h := &Handler{
@@ -431,6 +455,7 @@ func handlerRunning() bool {
 }
 
 func TestDir(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	cwd, _ := os.Getwd()
 	h := &Handler{
@@ -456,6 +481,7 @@ func TestDir(t *testing.T) {
 }
 
 func TestEnvOverride(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	cgifile, _ := filepath.Abs("testdata/test.cgi")
 
@@ -479,6 +505,7 @@ func TestEnvOverride(t *testing.T) {
 }
 
 func TestHandlerStderr(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 	var stderr strings.Builder
 	h := &Handler{

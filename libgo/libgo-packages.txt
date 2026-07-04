@@ -187,6 +187,8 @@ internal/trace/traceviewer/format
 internal/trace/v2
 internal/trace/v2/event
 internal/trace/v2/event/go122
+internal/trace/v2/raw
+internal/trace/v2/testtrace
 internal/trace/v2/version
 internal/txtar
 internal/types/errors

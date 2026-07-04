@@ -3948,7 +3948,11 @@ func TestCertificateOIDPolicies(t *testing.T) {
 		t.Fatalf("ParseCertificate() unexpected error: %v", err)
 	}
 
-	if !slices.EqualFunc(cert.PolicyIdentifiers, expectPolicyIdentifiers, slices.Equal) {
+	// Note: gccgo cannot pass the generic slices.Equal as the
+	// comparison function here (it fails to instantiate it, which
+	// then corrupts later int type resolution), so use
+	// reflect.DeepEqual, which is equivalent for these slices.
+	if !reflect.DeepEqual(cert.PolicyIdentifiers, expectPolicyIdentifiers) {
 		t.Errorf("cert.PolicyIdentifiers = %v, want: %v", cert.PolicyIdentifiers, expectPolicyIdentifiers)
 	}
 

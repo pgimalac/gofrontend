@@ -186,6 +186,12 @@ func onceFuncPanic() {
 }
 
 func TestOnceXGC(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		// gccgo uses a conservative stack scan, so the captured
+		// buffer may be kept alive and its finalizer may not run
+		// on the schedule this test expects.
+		t.Skip("gccgo: conservative GC makes finalizer timing unreliable")
+	}
 	fns := map[string]func([]byte) func(){
 		"OnceFunc": func(buf []byte) func() {
 			return sync.OnceFunc(func() { buf[0] = 1 })

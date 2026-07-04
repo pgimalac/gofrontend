@@ -10,6 +10,7 @@ import (
 	"internal/testenv"
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -24,6 +25,13 @@ func MustSupportFeatureDetection(t *testing.T) {
 }
 
 func runDebugOptionsTest(t *testing.T, test string, options string) {
+	if runtime.Compiler == "gccgo" {
+		// The subprocess is spawned with a cleared environment
+		// (only GODEBUG is set), so a dynamically linked gccgo
+		// test binary cannot find libgo.so.
+		t.Skip("gccgo: subprocess cannot locate libgo.so without LD_LIBRARY_PATH")
+	}
+
 	MustHaveDebugOptionsSupport(t)
 
 	testenv.MustHaveExec(t)

@@ -461,6 +461,7 @@ esac
 # and internal ones (those in the main package).
 xgofiles=
 xpackage=
+npackage=
 for f in $gofiles; do
     package=`grep '^package[ 	]' $f | sed 1q`
     case "$package" in
@@ -469,6 +470,7 @@ for f in $gofiles; do
 	xgofiles="$xgofiles $f"
 	;;
     *)
+	npackage=`echo $package | sed -e 's/package[ 	]//' -e 's/[ 	]*$//'`
 	ngofiles="$ngofiles $f"
 	;;
     esac
@@ -495,6 +497,10 @@ fi
 set -e
 
 package=`echo ${srcdir} | sed -e 's|^.*libgo/go/||'`
+
+# The terminal directory component, used by symtogo to detect symbol
+# prefixes that must be remapped to the real Go package name.
+termdir=`basename ${srcdir}`
 
 pkgpatharg=
 xpkgpatharg=
@@ -568,6 +574,21 @@ symtogo() {
     # Screen out methods (X.Y.Z).
     if ! expr "$s" : '^[^.]*\.[^.]*$' >/dev/null 2>&1; then
       continue
+    fi
+    # The symbol prefix is the terminal directory component, which
+    # for version-suffixed directories (e.g. "v2") does not match the
+    # Go package name.  Rewrite it to the actual package name so the
+    # generated _testmain.go refers to a defined package identifier.
+    sym_pkg=$(echo "$s" | sed -e 's/\..*//')
+    sym_fun=$(echo "$s" | sed -e 's/^[^.]*\.//')
+    if test "$sym_pkg" = "${termdir}_test"; then
+      if test -n "$xpackage"; then
+        s="${xpackage}.${sym_fun}"
+      fi
+    elif test "$sym_pkg" = "$termdir"; then
+      if test -n "$npackage"; then
+        s="${npackage}.${sym_fun}"
+      fi
     fi
     tname=$(testname $s)
     # Skip TestMain.
@@ -746,7 +767,7 @@ exampleoutput() {
 				 -e 's/\(\\n\)*$//' > example2.txt
 		hasoutput=true
 		echo '	{"'$n'", '$j','
-		sed -e 's/^/		"/' -e 's/$/", /' < example2.txt
+		echo '		"'"$(cat example2.txt)"'",'
 		echo $unordered'},'
 		rm -f example.txt example2.txt
 	done

@@ -91,6 +91,7 @@ func (w *limitWriter) Write(p []byte) (n int, err error) {
 // If there's an error copying the child's output to the parent, test
 // that we kill the child.
 func TestKillChildAfterCopyError(t *testing.T) {
+	skipOnGccgo(t)
 	testenv.MustHaveExec(t)
 
 	h := &Handler{
