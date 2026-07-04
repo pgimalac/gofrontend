@@ -7,6 +7,7 @@
 package fuzz
 
 import (
+	"internal/unsafeheader"
 	"unsafe"
 )
 
@@ -17,5 +18,12 @@ import (
 func coverage() []byte {
 	addr := unsafe.Pointer(&_counters)
 	size := uintptr(unsafe.Pointer(&_ecounters)) - uintptr(addr)
-	return unsafe.Slice((*byte)(addr), int(size))
+
+	var res []byte
+	*(*unsafeheader.Slice)(unsafe.Pointer(&res)) = unsafeheader.Slice{
+		Data: addr,
+		Len:  int(size),
+		Cap:  int(size),
+	}
+	return res
 }

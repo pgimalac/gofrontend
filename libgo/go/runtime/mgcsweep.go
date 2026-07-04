@@ -33,9 +33,10 @@ var sweep sweepdata
 
 // State of background sweep.
 type sweepdata struct {
-	lock   mutex
-	g      *g
-	parked bool
+	lock    mutex
+	g       *g
+	parked  bool
+	started bool
 
 	nbgsweep    uint32
 	npausesweep uint32
@@ -280,34 +281,12 @@ func bgsweep(c chan int) {
 	goparkunlock(&sweep.lock, waitReasonGCSweepWait, traceEvGoBlock, 1)
 
 	for {
-		// bgsweep attempts to be a "low priority" goroutine by intentionally
-		// yielding time. It's OK if it doesn't run, because goroutines allocating
-		// memory will sweep and ensure that all spans are swept before the next
-		// GC cycle. We really only want to run when we're idle.
-		//
-		// However, calling Gosched after each span swept produces a tremendous
-		// amount of tracing events, sometimes up to 50% of events in a trace. It's
-		// also inefficient to call into the scheduler so much because sweeping a
-		// single span is in general a very fast operation, taking as little as 30 ns
-		// on modern hardware. (See #54767.)
-		//
-		// As a result, bgsweep sweeps in batches, and only calls into the scheduler
-		// at the end of every batch. Furthermore, it only yields its time if there
-		// isn't spare idle time available on other cores. If there's available idle
-		// time, helping to sweep can reduce allocation latencies by getting ahead of
-		// the proportional sweeper and having spans ready to go for allocation.
-		const sweepBatchSize = 10
-		nSwept := 0
 		for sweepone() != ^uintptr(0) {
 			sweep.nbgsweep++
-			nSwept++
-			if nSwept%sweepBatchSize == 0 {
-				goschedIfBusy()
-			}
+			Gosched()
 		}
 		for freeSomeWbufs(true) {
-			// N.B. freeSomeWbufs is already batched internally.
-			goschedIfBusy()
+			Gosched()
 		}
 		lock(&sweep.lock)
 		if !isSweepDone() {
@@ -459,8 +438,8 @@ func (s *mspan) ensureSwept() {
 	// Caller must disable preemption.
 	// Otherwise when this function returns the span can become unswept again
 	// (if GC is triggered on another goroutine).
-	gp := getg()
-	if gp.m.locks == 0 && gp.m.mallocing == 0 && gp != gp.m.g0 {
+	_g_ := getg()
+	if _g_.m.locks == 0 && _g_.m.mallocing == 0 && _g_ != _g_.m.g0 {
 		throw("mspan.ensureSwept: m is not locked")
 	}
 
@@ -498,8 +477,8 @@ func (s *mspan) ensureSwept() {
 func (sl *sweepLocked) sweep(preserve bool) bool {
 	// It's critical that we enter this function with preemption disabled,
 	// GC must not start while we are in the middle of this function.
-	gp := getg()
-	if gp.m.locks == 0 && gp.m.mallocing == 0 && gp != gp.m.g0 {
+	_g_ := getg()
+	if _g_.m.locks == 0 && _g_.m.mallocing == 0 && _g_ != _g_.m.g0 {
 		throw("mspan.sweep: m is not locked")
 	}
 
@@ -607,14 +586,13 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 				if debug.clobberfree != 0 {
 					clobberfree(unsafe.Pointer(x), size)
 				}
-				// User arenas are handled on explicit free.
-				if raceenabled && !s.isUserArenaChunk {
+				if raceenabled {
 					racefree(unsafe.Pointer(x), size)
 				}
-				if msanenabled && !s.isUserArenaChunk {
+				if msanenabled {
 					msanfree(unsafe.Pointer(x), size)
 				}
-				if asanenabled && !s.isUserArenaChunk {
+				if asanenabled {
 					asanpoison(unsafe.Pointer(x), size)
 				}
 			}
@@ -654,7 +632,6 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	s.allocCount = nalloc
 	s.freeindex = 0 // reset allocation index to start of span.
-	s.freeIndexForScan = 0
 	if trace.enabled {
 		getg().m.p.ptr().traceReclaimed += uintptr(nfreed) * s.elemsize
 	}
@@ -688,41 +665,6 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 	// At this point the mark bits are cleared and allocation ready
 	// to go so release the span.
 	atomic.Store(&s.sweepgen, sweepgen)
-
-	if s.isUserArenaChunk {
-		if preserve {
-			// This is a case that should never be handled by a sweeper that
-			// preserves the span for reuse.
-			throw("sweep: tried to preserve a user arena span")
-		}
-		if nalloc > 0 {
-			// There still exist pointers into the span or the span hasn't been
-			// freed yet. It's not ready to be reused. Put it back on the
-			// full swept list for the next cycle.
-			mheap_.central[spc].mcentral.fullSwept(sweepgen).push(s)
-			return false
-		}
-
-		// It's only at this point that the sweeper doesn't actually need to look
-		// at this arena anymore, so subtract from pagesInUse now.
-		mheap_.pagesInUse.Add(-s.npages)
-		s.state.set(mSpanDead)
-
-		// The arena is ready to be recycled. Remove it from the quarantine list
-		// and place it on the ready list. Don't add it back to any sweep lists.
-		systemstack(func() {
-			// It's the arena code's responsibility to get the chunk on the quarantine
-			// list by the time all references to the chunk are gone.
-			if s.list != &mheap_.userArena.quarantineList {
-				throw("user arena span is on the wrong list")
-			}
-			lock(&mheap_.lock)
-			mheap_.userArena.quarantineList.remove(s)
-			mheap_.userArena.readyList.insert(s)
-			unlock(&mheap_.lock)
-		})
-		return false
-	}
 
 	if spc.sizeclass() != 0 {
 		// Handle spans for small objects.

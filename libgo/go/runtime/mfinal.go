@@ -9,7 +9,6 @@ package runtime
 import (
 	"internal/goarch"
 	"runtime/internal/atomic"
-	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -19,9 +18,9 @@ import (
 // finblock is allocated from non-GC'd memory, so any heap pointers
 // must be specially handled. GC currently assumes that the finalizer
 // queue does not grow during marking (but it can shrink).
+//
 //go:notinheap
 type finblock struct {
-	_       sys.NotInHeap
 	alllink *finblock
 	next    *finblock
 	cnt     uint32
@@ -29,23 +28,13 @@ type finblock struct {
 	fin     [(_FinBlockSize - 2*goarch.PtrSize - 2*4) / unsafe.Sizeof(finalizer{})]finalizer
 }
 
-var fingStatus atomic.Uint32
-
-// finalizer goroutine status.
-const (
-	fingUninitialized uint32 = iota
-	fingCreated       uint32 = 1 << (iota - 1)
-	fingRunningFinalizer
-	fingWait
-	fingWake
-)
-
 var finlock mutex  // protects the following variables
 var fing *g        // goroutine that runs finalizers
 var finq *finblock // list of finalizers that are to be executed
 var finc *finblock // cache of free blocks
 var finptrmask [_FinBlockSize / goarch.PtrSize / 8]byte
-
+var fingwait bool
+var fingwake bool
 var allfin *finblock // list of all blocks
 
 // NOTE: Layout known to queuefinalizer.
@@ -54,12 +43,6 @@ type finalizer struct {
 	arg unsafe.Pointer // ptr to object (may be a heap pointer)
 	ft  *functype      // type of fn (unlikely, but may be a heap pointer)
 	ot  *ptrtype       // type of ptr to object (may be a heap pointer)
-}
-
-// lockRankMayQueueFinalizer records the lock ranking effects of a
-// function that may call queuefinalizer.
-func lockRankMayQueueFinalizer() {
-	lockWithRankMayAcquire(&finlock, getLockRank(&finlock))
 }
 
 func queuefinalizer(p unsafe.Pointer, fn *funcval, ft *functype, ot *ptrtype) {
@@ -104,8 +87,8 @@ func queuefinalizer(p unsafe.Pointer, fn *funcval, ft *functype, ot *ptrtype) {
 	f.ft = ft
 	f.ot = ot
 	f.arg = p
+	fingwake = true
 	unlock(&finlock)
-	fingStatus.Or(fingWake)
 }
 
 //go:nowritebarrier
@@ -119,10 +102,15 @@ func iterate_finq(callback func(*funcval, unsafe.Pointer, *functype, *ptrtype)) 
 }
 
 func wakefing() *g {
-	if ok := fingStatus.CompareAndSwap(fingCreated|fingWait|fingWake, fingCreated); ok {
-		return fing
+	var res *g
+	lock(&finlock)
+	if fingwait && fingwake {
+		fingwait = false
+		fingwake = false
+		res = fing
 	}
-	return nil
+	unlock(&finlock)
+	return res
 }
 
 var (
@@ -137,15 +125,7 @@ func createfing() {
 	}
 }
 
-func finalizercommit(gp *g, lock unsafe.Pointer) bool {
-	unlock((*mutex)(lock))
-	// fingStatus should be modified after fing is put into a waiting state
-	// to avoid waking fing in running state, even if it is about to be parked.
-	fingStatus.Or(fingWait)
-	return true
-}
-
-// This is the goroutine that runs all of the finalizers.
+// This is the goroutine that runs all of the finalizers
 func runfinq() {
 	setSystemGoroutine()
 
@@ -165,7 +145,8 @@ func runfinq() {
 		fb := finq
 		finq = nil
 		if fb == nil {
-			gopark(finalizercommit, unsafe.Pointer(&finlock), waitReasonFinalizerWait, traceEvGoBlock, 1)
+			fingwait = true
+			goparkunlock(&finlock, waitReasonFinalizerWait, traceEvGoBlock, 1)
 			continue
 		}
 		unlock(&finlock)
@@ -268,20 +249,11 @@ func runfinq() {
 // bufio.Writer, because the buffer would not be flushed at program exit.
 //
 // It is not guaranteed that a finalizer will run if the size of *obj is
-// zero bytes, because it may share same address with other zero-size
-// objects in memory. See https://go.dev/ref/spec#Size_and_alignment_guarantees.
+// zero bytes.
 //
 // It is not guaranteed that a finalizer will run for objects allocated
 // in initializers for package-level variables. Such objects may be
 // linker-allocated, not heap-allocated.
-//
-// Note that because finalizers may execute arbitrarily far into the future
-// after an object is no longer referenced, the runtime is allowed to perform
-// a space-saving optimization that batches objects together in a single
-// allocation slot. The finalizer for an unreferenced object in such an
-// allocation may never run if it always exists in the same batch as a
-// referenced object. Typically, this batching only happens for tiny
-// (on the order of 16 bytes or less) and pointer-free objects.
 //
 // A finalizer may run as soon as an object becomes unreachable.
 // In order to use finalizers correctly, the program must ensure that
@@ -333,11 +305,6 @@ func SetFinalizer(obj any, finalizer any) {
 	ot := (*ptrtype)(unsafe.Pointer(etyp))
 	if ot.elem == nil {
 		throw("nil elem type!")
-	}
-
-	if inUserArenaChunk(uintptr(e.data)) {
-		// Arena-allocated objects are not eligible for finalizers.
-		throw("runtime.SetFinalizer: first argument was allocated into an arena")
 	}
 
 	// find the containing object

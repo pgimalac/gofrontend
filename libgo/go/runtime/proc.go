@@ -2596,7 +2596,7 @@ top:
 	}
 
 	// Wake up the finalizer G.
-	if fingStatus.Load()&(fingWait|fingWake) == fingWait|fingWake {
+	if fingwait && fingwake {
 		if gp := wakefing(); gp != nil {
 			ready(gp, 0, true)
 		}

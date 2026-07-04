@@ -597,17 +597,18 @@ func makeheapobjbv(p uintptr, size uintptr) bitvector {
 		tmpbuf[i] = 0
 	}
 
-	hbits := heapBitsForAddr(p, size)
-	for {
-		var addr uintptr
-		hbits, addr = hbits.next()
-		if addr == 0 {
-			break
+	i := uintptr(0)
+	hbits := heapBitsForAddr(p)
+	for ; i < nptr; i++ {
+		if !hbits.morePointers() {
+			break // end of object
 		}
-		i := (addr - p) / goarch.PtrSize
-		tmpbuf[i/8] |= 1 << (i % 8)
+		if hbits.isPointer() {
+			tmpbuf[i/8] |= 1 << (i % 8)
+		}
+		hbits = hbits.next()
 	}
-	return bitvector{int32(nptr), &tmpbuf[0]}
+	return bitvector{int32(i), &tmpbuf[0]}
 }
 
 type gobitvector struct {

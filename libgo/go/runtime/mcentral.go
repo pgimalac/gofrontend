@@ -12,15 +12,12 @@
 
 package runtime
 
-import (
-	"runtime/internal/atomic"
-	"runtime/internal/sys"
-)
+import "runtime/internal/atomic"
 
 // Central list of free objects of a given size.
+//
 //go:notinheap
 type mcentral struct {
-	_         sys.NotInHeap
 	spanclass spanClass
 
 	// partial and full contain two mspan sets: one of swept in-use
@@ -253,6 +250,6 @@ func (c *mcentral) grow() *mspan {
 	// n := (npages << _PageShift) / size
 	n := s.divideByElemSize(npages << _PageShift)
 	s.limit = s.base() + size*n
-	s.initHeapBits(false)
+	heapBitsForAddr(s.base()).initSpan(s)
 	return s
 }
