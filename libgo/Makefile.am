@@ -315,6 +315,11 @@ toolexeclibgomath_DATA = \
 	math/cmplx.gox \
 	math/rand.gox
 
+toolexeclibgomathranddir = $(toolexeclibgomathdir)/rand
+
+toolexeclibgomathrand_DATA = \
+	math/rand/v2.gox
+
 toolexeclibgomimedir = $(toolexeclibgodir)/mime
 
 toolexeclibgomime_DATA = \
