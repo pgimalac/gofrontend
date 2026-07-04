@@ -180,7 +180,7 @@ havespan:
 		}
 	}
 	n := int(s.nelems) - int(s.allocCount)
-	if n == 0 || s.freeindex == s.nelems || s.allocCount == s.nelems {
+	if n == 0 || s.freeindex == s.nelems || uintptr(s.allocCount) == s.nelems {
 		throw("span has no free objects")
 	}
 	freeByteBase := s.freeindex &^ (64 - 1)

@@ -406,17 +406,17 @@ type mspan struct {
 	// undefined and should never be referenced.
 	//
 	// Object n starts at address n*elemsize + (start << pageShift).
-	freeindex uint16
+	freeindex uintptr
 	// TODO: Look up nelems from sizeclass and remove this field if it
 	// helps performance.
-	nelems uint16 // number of object in the span.
+	nelems uintptr // number of object in the span.
 	// freeIndexForScan is like freeindex, except that freeindex is
 	// used by the allocator whereas freeIndexForScan is used by the
 	// GC scanner. They are two fields so that the GC sees the object
 	// is allocated only when the object and the heap bits are
 	// initialized (see also the assignment of freeIndexForScan in
 	// mallocgc, and issue 54596).
-	freeIndexForScan uint16
+	freeIndexForScan uintptr
 
 	// Cache of the allocBits at freeindex. allocCache is shifted
 	// such that the lowest bit corresponds to the bit freeindex.
@@ -1253,15 +1253,16 @@ HaveSpan:
 			s.divMul = 0
 		} else {
 			s.elemsize = uintptr(class_to_size[sizeclass])
-			s.nelems = uint16(nbytes / s.elemsize)
+			s.nelems = nbytes / s.elemsize
 			s.divMul = class_to_divmagic[sizeclass]
 		}
 
 		// Initialize mark and allocation structures.
 		s.freeindex = 0
+		s.freeIndexForScan = 0
 		s.allocCache = ^uint64(0) // all 1s indicating all free.
-		s.gcmarkBits = newMarkBits(uintptr(s.nelems))
-		s.allocBits = newAllocBits(uintptr(s.nelems))
+		s.gcmarkBits = newMarkBits(s.nelems)
+		s.allocBits = newAllocBits(s.nelems)
 
 		// It's safe to access h.sweepgen without the heap lock because it's
 		// only ever updated with the world stopped and we run on the
