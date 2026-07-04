@@ -334,7 +334,9 @@ class Parse
   // Named_object for the (possibly cached) instance.
   Named_object* instantiate_generic_function(Generic_function_info*,
 					     const std::vector<std::vector<Token> >&,
-					     Location);
+					     Location,
+					     const std::map<std::string, std::string>*
+					       extra_pkg_aliases = NULL);
   // Switch this parser to read tokens from a captured token vector
   // instead of the lexer (used when re-parsing an instance).
   void set_replay_tokens(const std::vector<Token>* tokens);
@@ -358,13 +360,20 @@ class Parse
   // constraint tokens of each parameter.
   void type_parameter_names(std::vector<std::string>* names,
 			    std::vector<std::vector<Token> >* constraints = NULL);
-  // Parse a captured token sequence as a type.
-  Type* parse_type_from_tokens(const std::vector<Token>&);
+  // Parse a captured token sequence as a type.  ALIASES, if non-NULL, is the
+  // package-qualifier alias->pkgpath map used to resolve qualifiers in the
+  // tokens (so a cross-package type resolves to the exact package it came
+  // from, not an ambiguous same-named one).
+  Type* parse_type_from_tokens(const std::vector<Token>&,
+			       const std::map<std::string, std::string>*
+			         aliases = NULL);
   // Resolve a constraint type-set element's type without emitting errors,
   // resolving predeclared and package-global names through the global
   // bindings (which a throwaway re-parse cannot do for a name used only in
   // the constraint).  Returns NULL if it cannot be resolved.
-  Type* resolve_constraint_type(const std::vector<Token>&);
+  Type* resolve_constraint_type(const std::vector<Token>&,
+				const std::map<std::string, std::string>*
+				  aliases = NULL);
   // For constraint type inference: if constraint C is a single structural
   // type element (e.g. "~map[K]V"), return that type parsed with the
   // generic's type-parameter NAMES replaced by inference markers, so it

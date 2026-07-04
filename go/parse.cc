@@ -76,6 +76,13 @@ struct Constraint_obligation
   // the type parameters and is left to be checked when the instance body
   // is compiled, rather than resolved here.
   std::vector<std::string> tparams;
+  // The package-qualifier alias->pkgpath map to resolve qualifiers in "arg"
+  // and "constraint" when they are re-parsed later (deferred until after
+  // types are determined).  Combines the template's own imports with the
+  // caller's bindings for the type arguments, so a cross-package type
+  // argument resolves to the exact package it came from even when a
+  // same-named package is imported elsewhere.
+  std::map<std::string, std::string> pkg_aliases;
   Location location;
 };
 
@@ -4094,9 +4101,12 @@ split_top_level(const std::vector<Token>&, Operator);
 static void
 record_constraint_obligations(Gogo*, Generic_function_info*,
 			      const std::vector<std::vector<Token> >&,
-			      const std::string&, Location);
+			      const std::string&, Location,
+			      const std::map<std::string, std::string>*
+			        extra_pkg_aliases = NULL);
 static bool
-type_to_tokens(Type*, std::vector<Token>&, Location);
+type_to_tokens(Type*, std::vector<Token>&, Location,
+	       std::map<std::string, std::string>* pkg_bindings = NULL);
 
 // Generics: parse a "[name constraint, ...]" type parameter list,
 // collecting the parameter names.  The current token is "[".  Grouped
@@ -4669,12 +4679,15 @@ Parse::resolve_pending_generic_types()
 // constraints after types are determined).  Returns NULL on failure.
 
 Type*
-Parse::parse_type_from_tokens(const std::vector<Token>& toks)
+Parse::parse_type_from_tokens(const std::vector<Token>& toks,
+			      const std::map<std::string, std::string>* aliases)
 {
   std::vector<Token> t = toks;
   t.push_back(Token::make_eof_token(Linemap::unknown_location()));
   Parse p(this->lex_, this->gogo_);
   p.set_replay_tokens(&t);
+  if (aliases != NULL && !aliases->empty())
+    p.set_replay_pkg_aliases(aliases);
   if (!p.type_may_start_here())
     return NULL;
   return p.type();
@@ -4686,7 +4699,8 @@ Parse::parse_type_from_tokens(const std::vector<Token>& toks)
 // throwaway re-parse) still resolves.  Does not emit errors.
 
 Type*
-Parse::resolve_constraint_type(const std::vector<Token>& toks)
+Parse::resolve_constraint_type(const std::vector<Token>& toks,
+			       const std::map<std::string, std::string>* aliases)
 {
   if (toks.size() == 1 && toks[0].is_identifier())
     {
@@ -4707,7 +4721,7 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks)
 	return no->type_value();
       return NULL;
     }
-  return this->parse_type_from_tokens(toks);
+  return this->parse_type_from_tokens(toks, aliases);
 }
 
 // Generics: see the declaration.  For constraint type inference, return
@@ -4839,6 +4853,9 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 
   // Substitute type-parameter names with inference markers.
   std::vector<Token> subst;
+  // Package bindings for any cross-package solved types emitted below, so the
+  // re-parse resolves their qualifiers to the exact package.
+  std::map<std::string, std::string> pkg_bindings;
   for (size_t i = k; i < elem.size(); ++i)
     {
       const Token& t = elem[i];
@@ -4858,7 +4875,8 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 	  // inference marker to unify against a solved type.
 	  if (solved != NULL && (size_t) which < solved->size()
 	      && (*solved)[which] != NULL
-	      && type_to_tokens((*solved)[which], subst, t.location()))
+	      && type_to_tokens((*solved)[which], subst, t.location(),
+				&pkg_bindings))
 	    ;
 	  else
 	    {
@@ -4872,7 +4890,7 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
       else
 	subst.push_back(t);
     }
-  return this->parse_type_from_tokens(subst);
+  return this->parse_type_from_tokens(subst, &pkg_bindings);
 }
 
 // Generics: build the instance cache key for a set of type arguments.
@@ -5140,7 +5158,7 @@ Parse::check_generic_constraints()
       if (depends_on_tparam)
 	continue;
 
-      Type* argType = this->resolve_constraint_type(o->arg);
+      Type* argType = this->resolve_constraint_type(o->arg, &o->pkg_aliases);
       if (argType == NULL || argType->is_error_type())
 	continue;
 
@@ -5161,7 +5179,8 @@ Parse::check_generic_constraints()
 	  bool enforceable = true;
 	  for (size_t t = 0; t < terms.size(); ++t)
 	    {
-	      Type* tt = this->resolve_constraint_type(terms[t].second);
+	      Type* tt = this->resolve_constraint_type(terms[t].second,
+							   &o->pkg_aliases);
 	      if (tt == NULL || tt->is_error_type()
 		  || tt->interface_type() != NULL)
 		{
@@ -5219,9 +5238,9 @@ Parse::check_generic_constraints()
       if (!o->constraint.empty())
 	{
 	  if (o->constraint[0].is_keyword(KEYWORD_INTERFACE))
-	    ct = this->parse_type_from_tokens(o->constraint);
+	    ct = this->parse_type_from_tokens(o->constraint, &o->pkg_aliases);
 	  else if (o->constraint.size() == 1 && o->constraint[0].is_identifier())
-	    ct = this->resolve_constraint_type(o->constraint);
+	    ct = this->resolve_constraint_type(o->constraint, &o->pkg_aliases);
 	}
       if (ct != NULL && !ct->is_error_type()
 	  && ct->interface_type() != NULL)
@@ -5952,7 +5971,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
 // arguments).
 
 static bool
-type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
+type_to_tokens(Type* t, std::vector<Token>& out, Location loc,
+	       std::map<std::string, std::string>* pkg_bindings)
 {
   t = t->forwarded();
   if (t->is_abstract())
@@ -5995,6 +6015,16 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 	  out.push_back(
 	    Token::make_identifier_token(tpkg->package_name(), false, loc));
 	  out.push_back(Token::make_operator_token(OPERATOR_DOT, loc));
+	  // Record the package-name -> pkgpath binding so the instantiation
+	  // replay can resolve this qualifier to the exact package the type
+	  // argument came from.  Emitting only the package *name* is ambiguous
+	  // when two imported packages share a name (e.g. a package
+	  // "resolver" and an aliased "internal/resolver" also named
+	  // "resolver"); the by-name lookup during replay could otherwise pick
+	  // the wrong one and report the type as undefined.
+	  if (pkg_bindings != NULL)
+	    pkg_bindings->insert(std::make_pair(tpkg->package_name(),
+						tpkg->pkgpath()));
 	}
       out.push_back(Token::make_identifier_token(src, exported, loc));
       return true;
@@ -6003,7 +6033,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
   if (t->points_to() != NULL)
     {
       out.push_back(Token::make_operator_token(OPERATOR_MULT, loc));
-      return type_to_tokens(t->points_to(), out, loc);
+      return type_to_tokens(t->points_to(), out, loc, pkg_bindings);
     }
 
   Array_type* at = t->array_type();
@@ -6011,7 +6041,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
     {
       out.push_back(Token::make_operator_token(OPERATOR_LSQUARE, loc));
       out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
-      return type_to_tokens(at->element_type(), out, loc);
+      return type_to_tokens(at->element_type(), out, loc, pkg_bindings);
     }
   if (at != NULL && at->length() != NULL)
     {
@@ -6024,7 +6054,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 	  out.push_back(Token::make_integer_token(val, loc));
 	  out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
 	  mpz_clear(val);
-	  return type_to_tokens(at->element_type(), out, loc);
+	  return type_to_tokens(at->element_type(), out, loc, pkg_bindings);
 	}
       return false;
     }
@@ -6034,10 +6064,10 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
     {
       out.push_back(Token::make_keyword_token(KEYWORD_MAP, loc));
       out.push_back(Token::make_operator_token(OPERATOR_LSQUARE, loc));
-      if (!type_to_tokens(mt->key_type(), out, loc))
+      if (!type_to_tokens(mt->key_type(), out, loc, pkg_bindings))
 	return false;
       out.push_back(Token::make_operator_token(OPERATOR_RSQUARE, loc));
-      return type_to_tokens(mt->val_type(), out, loc);
+      return type_to_tokens(mt->val_type(), out, loc, pkg_bindings);
     }
 
   Channel_type* ct = t->channel_type();
@@ -6049,7 +6079,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
       out.push_back(Token::make_keyword_token(KEYWORD_CHAN, loc));
       if (ct->may_send() && !ct->may_receive())
 	out.push_back(Token::make_operator_token(OPERATOR_CHANOP, loc));
-      return type_to_tokens(ct->element_type(), out, loc);
+      return type_to_tokens(ct->element_type(), out, loc, pkg_bindings);
     }
 
   // A struct type "struct { name type; ...; EmbeddedType; ... }", as can
@@ -6081,7 +6111,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc)
 		  out.push_back(Token::make_identifier_token(
 		    src, Lex::is_exported_name(src), loc));
 		}
-	      if (!type_to_tokens(p->type(), out, loc))
+	      if (!type_to_tokens(p->type(), out, loc, pkg_bindings))
 		return false;
 	      if (p->has_tag())
 		out.push_back(Token::make_string_token(p->tag(), loc));
@@ -6354,6 +6384,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   // parameters supplied explicitly in a partial instantiation use those
   // tokens directly; the rest come from inference.
   std::vector<std::vector<Token> > type_args(nparams);
+  // Package-name -> pkgpath bindings for the (cross-package) types emitted as
+  // type arguments, so the instance re-parse resolves each qualifier to the
+  // exact package it came from even when another same-named package is in
+  // scope.
+  std::map<std::string, std::string> pkg_bindings;
   for (size_t i = 0; i < nparams; ++i)
     {
       if (partial != NULL && i < partial->size())
@@ -6397,7 +6432,7 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  return NULL;
 	}
       if (solved[i] == NULL
-	  || !type_to_tokens(solved[i], type_args[i], location))
+	  || !type_to_tokens(solved[i], type_args[i], location, &pkg_bindings))
 	{
 	  if (!quiet)
 	    go_error_at(location,
@@ -6409,7 +6444,8 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
     }
 
   Named_object* inst = this->instantiate_generic_function(info, type_args,
-							  location);
+							  location,
+							  &pkg_bindings);
 
   // Inference runs during the determine_types pass, after global names
   // have already been resolved once.  The freshly instantiated function
@@ -6517,16 +6553,18 @@ Parse::instantiate_generic_from_context(Generic_function_info* info,
     }
 
   std::vector<std::vector<Token> > type_args(nparams);
+  std::map<std::string, std::string> pkg_bindings;
   for (size_t i = 0; i < nparams; ++i)
     {
       if (solved[i] == NULL
 	  || type_has_infer_marker(this->gogo_, solved[i], 0)
-	  || !type_to_tokens(solved[i], type_args[i], location))
+	  || !type_to_tokens(solved[i], type_args[i], location, &pkg_bindings))
 	return NULL;
     }
 
   Named_object* inst = this->instantiate_generic_function(info, type_args,
-							  location);
+							  location,
+							  &pkg_bindings);
   this->gogo_->resolve_global_names();
   if (inst != NULL)
     this->gogo_->lower_builtin_calls_for(inst);
@@ -6539,9 +6577,17 @@ Parse::instantiate_generic_from_context(Generic_function_info* info,
 static void
 record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
 			      const std::vector<std::vector<Token> >& type_args,
-			      const std::string& what, Location location)
+			      const std::string& what, Location location,
+			      const std::map<std::string, std::string>*
+			        extra_pkg_aliases)
 {
   std::vector<std::vector<Token> >& cons = info->constraints();
+  // The alias map used when the obligation's tokens are re-parsed later: the
+  // template's own imports, plus the caller's bindings for the type-argument
+  // packages (template aliases win on a name collision).
+  std::map<std::string, std::string> aliases = info->package_aliases();
+  if (extra_pkg_aliases != NULL)
+    aliases.insert(extra_pkg_aliases->begin(), extra_pkg_aliases->end());
   for (size_t i = 0; i < type_args.size() && i < cons.size(); ++i)
     {
       if (cons[i].empty())
@@ -6551,6 +6597,7 @@ record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
       o->constraint = cons[i];
       o->what = what;
       o->tparams = info->type_param_names();
+      o->pkg_aliases = aliases;
       o->location = location;
       gogo->add_constraint_obligation(o);
     }
@@ -6645,7 +6692,9 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
 Named_object*
 Parse::instantiate_generic_function(Generic_function_info* info,
 				    const std::vector<std::vector<Token> >& type_args_in,
-				    Location location)
+				    Location location,
+				    const std::map<std::string, std::string>*
+				      extra_pkg_aliases)
 {
   // A type argument may name a function-local type, which is not visible at
   // the package scope where the instance is re-parsed.  Replace each such
@@ -6670,7 +6719,8 @@ Parse::instantiate_generic_function(Generic_function_info* info,
     }
 
   record_constraint_obligations(this->gogo_, info, type_args,
-				Gogo::message_name(info->name()), location);
+				Gogo::message_name(info->name()), location,
+				extra_pkg_aliases);
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
@@ -6699,7 +6749,22 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
-  ip.set_replay_pkg_aliases(&info->package_aliases());
+  // The replay resolves package qualifiers through the template's own
+  // alias->pkgpath map.  Layer in the type arguments' package bindings (from
+  // the caller) so that a cross-package type argument whose package name is
+  // not one the template imports -- or is ambiguous by name -- still resolves
+  // to the exact package it came from.  Template aliases take precedence on a
+  // name collision (insert does not overwrite).
+  std::map<std::string, std::string> merged_aliases;
+  if (extra_pkg_aliases != NULL && !extra_pkg_aliases->empty())
+    {
+      merged_aliases = info->package_aliases();
+      merged_aliases.insert(extra_pkg_aliases->begin(),
+			    extra_pkg_aliases->end());
+      ip.set_replay_pkg_aliases(&merged_aliases);
+    }
+  else
+    ip.set_replay_pkg_aliases(&info->package_aliases());
 
   Function_type* fntype = ip.signature(NULL, location);
   if (fntype == NULL)
