@@ -7344,6 +7344,7 @@ atomic_wrapper_c_type(const Type* t)
 
 bool
 Struct_type::can_write_to_c_header(
+    Gogo* gogo,
     std::vector<const Named_object*>* needs,
     std::vector<const Named_object*>* declare) const
 {
@@ -7355,8 +7356,12 @@ Struct_type::can_write_to_c_header(
        p != fields->end();
        ++p)
     {
-      if (!this->can_write_type_to_c_header(p->type(), needs, declare))
-	return false;
+      // We can always write a field: if we can't represent its type
+      // cleanly, we fall back to an opaque byte array of the field's
+      // size (see write_field_to_c_header).  We still call
+      // can_write_type_to_c_header so that it can populate NEEDS and
+      // DECLARE for the types we do represent cleanly.
+      this->can_write_type_to_c_header(gogo, p->type(), needs, declare);
       if (Gogo::message_name(p->field_name()) == "_")
 	sinks++;
     }
@@ -7369,6 +7374,7 @@ Struct_type::can_write_to_c_header(
 
 bool
 Struct_type::can_write_type_to_c_header(
+    Gogo* gogo,
     const Type* t,
     std::vector<const Named_object*>* needs,
     std::vector<const Named_object*>* declare) const
@@ -7398,18 +7404,24 @@ Struct_type::can_write_type_to_c_header(
 	  && !t->points_to()->is_slice_type())
 	return false;
 
+      // Only forward-declare a pointed-to struct that we can actually
+      // name in C, i.e. a struct defined in this package.  A pointer to
+      // a struct from another package is written as "void*", so there
+      // is nothing to declare.
       if (t->points_to()->named_type() != NULL
-	  && t->points_to()->struct_type() != NULL)
+	  && t->points_to()->struct_type() != NULL
+	  && t->points_to()->named_type()->named_object()->package() == NULL)
 	declare->push_back(t->points_to()->named_type()->named_object());
       return true;
 
     case TYPE_STRUCT:
-      return t->struct_type()->can_write_to_c_header(needs, declare);
+      return t->struct_type()->can_write_to_c_header(gogo, needs, declare);
 
     case TYPE_ARRAY:
       if (t->is_slice_type())
 	return true;
-      return this->can_write_type_to_c_header(t->array_type()->element_type(),
+      return this->can_write_type_to_c_header(gogo,
+					      t->array_type()->element_type(),
 					      needs, declare);
 
     case TYPE_NAMED:
@@ -7421,6 +7433,8 @@ Struct_type::can_write_type_to_c_header(
 	      return true;
 	    if (!atomic_wrapper_c_type(t).empty())
 	      return true;
+	    // A named type from another package that we can't represent
+	    // cleanly.  It will be emitted as an opaque byte array.
 	    return false;
 	  }
 	if (t->struct_type() != NULL)
@@ -7428,10 +7442,23 @@ Struct_type::can_write_type_to_c_header(
 	    // We will accept empty struct fields, but not print them.
 	    if (t->struct_type()->total_field_count() == 0)
 	      return true;
+	    // If the underlying struct can be written cleanly, record
+	    // that it needs to be emitted first and recurse.  If it
+	    // can't, don't push NO: the field will be emitted as an
+	    // opaque byte array instead.
+	    std::vector<const Named_object*> sub_needs;
+	    std::vector<const Named_object*> sub_declare;
+	    if (!t->struct_type()->can_write_to_c_header(gogo, &sub_needs,
+							 &sub_declare))
+	      return false;
 	    needs->push_back(no);
-	    return t->struct_type()->can_write_to_c_header(needs, declare);
+	    needs->insert(needs->end(), sub_needs.begin(), sub_needs.end());
+	    declare->insert(declare->end(), sub_declare.begin(),
+			    sub_declare.end());
+	    return true;
 	  }
-	return this->can_write_type_to_c_header(t->base(), needs, declare);
+	return this->can_write_type_to_c_header(gogo, t->base(), needs,
+						declare);
       }
 
     case TYPE_CALL_MULTIPLE_RESULT:
@@ -7445,7 +7472,7 @@ Struct_type::can_write_type_to_c_header(
 // Write this struct to a C header file.
 
 void
-Struct_type::write_to_c_header(std::ostream& os) const
+Struct_type::write_to_c_header(Gogo* gogo, std::ostream& os) const
 {
   const Struct_field_list* fields = this->fields_;
   for (Struct_field_list::const_iterator p = fields->begin();
@@ -7459,7 +7486,7 @@ Struct_type::write_to_c_header(std::ostream& os) const
 	continue;
 
       os << '\t';
-      this->write_field_to_c_header(os, p->field_name(), p->type());
+      this->write_field_to_c_header(gogo, os, p->field_name(), p->type());
       os << ';' << std::endl;
     }
 }
@@ -7467,7 +7494,8 @@ Struct_type::write_to_c_header(std::ostream& os) const
 // Write the type of a struct field to a C header file.
 
 void
-Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
+Struct_type::write_field_to_c_header(Gogo* gogo, std::ostream& os,
+				     const std::string& name,
 				     const Type *t) const
 {
   bool print_name = true;
@@ -7531,12 +7559,17 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
       {
 	std::vector<const Named_object*> needs;
 	std::vector<const Named_object*> declare;
-	if (!this->can_write_type_to_c_header(t->points_to(), &needs,
-					      &declare))
+	// A pointer to a (non-slice) array can't be written cleanly in C;
+	// write it as "void*".  Likewise for any pointed-to type we can't
+	// represent.
+	if ((t->points_to()->array_type() != NULL
+	     && !t->points_to()->is_slice_type())
+	    || !this->can_write_type_to_c_header(gogo, t->points_to(), &needs,
+						 &declare))
 	  os << "void*";
 	else
 	  {
-	    this->write_field_to_c_header(os, "", t->points_to());
+	    this->write_field_to_c_header(gogo, os, "", t->points_to());
 	    os << '*';
 	  }
       }
@@ -7559,7 +7592,7 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
 
     case TYPE_STRUCT:
       os << "struct {" << std::endl;
-      t->struct_type()->write_to_c_header(os);
+      t->struct_type()->write_to_c_header(gogo, os);
       os << "\t}";
       break;
 
@@ -7575,7 +7608,7 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
 	      array_types.push_back(ele);
 	      ele = ele->array_type()->element_type();
 	    }
-	  this->write_field_to_c_header(os, "", ele);
+	  this->write_field_to_c_header(gogo, os, "", ele);
 	  os << ' ' << Gogo::message_name(name);
 	  print_name = false;
 	  while (!array_types.empty())
@@ -7602,17 +7635,46 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
       {
 	const Named_object* no = t->named_type()->named_object();
 	std::string atomic_c = atomic_wrapper_c_type(t);
+	std::vector<const Named_object*> needs;
+	std::vector<const Named_object*> declare;
 	if (!atomic_c.empty())
 	  os << atomic_c;
-	else if (t->struct_type() != NULL)
-	  os << "struct " << no->message_name();
 	else if (t->is_unsafe_pointer_type())
 	  os << "void*";
 	else if (t == Type::lookup_integer_type("uintptr"))
 	  os << "uintptr_t";
+	else if (no->package() != NULL)
+	  {
+	    // A named type from another package that we can't represent
+	    // cleanly.  Emit it as an opaque byte array of its size.
+	    this->write_opaque_field_to_c_header(gogo, os, name, t);
+	    print_name = false;
+	  }
+	else if (t->struct_type() != NULL)
+	  {
+	    // A local named struct.  If we can write its fields cleanly,
+	    // refer to it by name; otherwise emit an opaque byte array.
+	    if (t->struct_type()->total_field_count() != 0
+		&& !t->struct_type()->can_write_to_c_header(gogo, &needs,
+							    &declare))
+	      {
+		this->write_opaque_field_to_c_header(gogo, os, name, t);
+		print_name = false;
+	      }
+	    else
+	      os << "struct " << no->message_name();
+	  }
+	else if (this->can_write_type_to_c_header(gogo, t->base(), &needs,
+						  &declare))
+	  {
+	    this->write_field_to_c_header(gogo, os, name, t->base());
+	    print_name = false;
+	  }
 	else
 	  {
-	    this->write_field_to_c_header(os, name, t->base());
+	    // A local named type whose underlying type we can't represent
+	    // cleanly (e.g. type X atomic.Uint32).  Emit opaque bytes.
+	    this->write_opaque_field_to_c_header(gogo, os, name, t);
 	    print_name = false;
 	  }
       }
@@ -7629,6 +7691,26 @@ Struct_type::write_field_to_c_header(std::ostream& os, const std::string& name,
 
   if (print_name && !name.empty())
     os << ' ' << Gogo::message_name(name);
+}
+
+// Write a struct field as an opaque byte array of the field's exact
+// size.  This is used for fields whose Go type can't be represented
+// cleanly in C (for example a struct type from another package, or a
+// named type wrapping such a struct).  The hand-written C runtime code
+// never accesses these fields, so only the size and offset matter.
+
+void
+Struct_type::write_opaque_field_to_c_header(Gogo* gogo, std::ostream& os,
+					    const std::string& name,
+					    const Type* t) const
+{
+  int64_t size;
+  if (!const_cast<Type*>(t)->backend_type_size(gogo, &size))
+    size = 0;
+  os << "uint8_t";
+  if (!name.empty())
+    os << ' ' << Gogo::message_name(name);
+  os << '[' << size << ']';
 }
 
 // Make a struct type.

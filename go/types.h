@@ -2721,12 +2721,12 @@ class Struct_type : public Type
   // Whether we can write this type to a C header file, to implement
   // -fgo-c-header.
   bool
-  can_write_to_c_header(std::vector<const Named_object*>*,
+  can_write_to_c_header(Gogo*, std::vector<const Named_object*>*,
 			std::vector<const Named_object*>*) const;
 
   // Write this type to a C header file, to implement -fgo-c-header.
   void
-  write_to_c_header(std::ostream&) const;
+  write_to_c_header(Gogo*, std::ostream&) const;
 
  protected:
   void
@@ -2776,12 +2776,19 @@ class Struct_type : public Type
 
  private:
   bool
-  can_write_type_to_c_header(const Type*,
+  can_write_type_to_c_header(Gogo*, const Type*,
 			     std::vector<const Named_object*>*,
 			     std::vector<const Named_object*>*) const;
 
   void
-  write_field_to_c_header(std::ostream&, const std::string&, const Type*) const;
+  write_field_to_c_header(Gogo*, std::ostream&, const std::string&,
+			  const Type*) const;
+
+  // Write a field as an opaque byte array of its exact size, used when
+  // the field's type cannot be represented cleanly in C.
+  void
+  write_opaque_field_to_c_header(Gogo*, std::ostream&, const std::string&,
+				 const Type*) const;
 
   // Used to merge method sets of identical unnamed structs.
   typedef Unordered_map_hash(Struct_type*, Struct_type*, Type_hash_identical,

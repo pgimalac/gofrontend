@@ -6016,7 +6016,7 @@ Gogo::write_c_header()
 
       std::vector<const Named_object*> needs;
       std::vector<const Named_object*> declare;
-      if (!no->type_value()->struct_type()->can_write_to_c_header(&needs,
+      if (!no->type_value()->struct_type()->can_write_to_c_header(this, &needs,
 								  &declare))
 	continue;
 
@@ -6057,7 +6057,7 @@ Gogo::write_c_header()
 	  std::vector<const Named_object*> dneeds;
 	  std::vector<const Named_object*> ddeclare;
 	  if (!(*pd)->type_value()->struct_type()->
-	      can_write_to_c_header(&dneeds, &ddeclare))
+	      can_write_to_c_header(this, &dneeds, &ddeclare))
 	    continue;
 
 	  bool done = false;
@@ -6082,7 +6082,7 @@ Gogo::write_c_header()
 
       out << std::endl;
       out << "struct " << no->message_name() << " {" << std::endl;
-      no->type_value()->struct_type()->write_to_c_header(out);
+      no->type_value()->struct_type()->write_to_c_header(this, out);
       out << "};" << std::endl;
       written.push_back(no);
     }
