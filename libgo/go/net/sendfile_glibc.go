@@ -41,15 +41,15 @@ func sendFile(c *netFD, r io.Reader) (written int64, err error, handled bool) {
 
 	var werr error
 	err = sc.Read(func(fd uintptr) bool {
-		written, werr = poll.SendFile(&c.pfd, int(fd), remain)
+		written, werr, handled = poll.SendFile(&c.pfd, int(fd), remain)
 		return true
 	})
-	if werr == nil {
-		werr = err
+	if err == nil {
+		err = werr
 	}
 
 	if lr != nil {
 		lr.N = remain - written
 	}
-	return written, wrapSyscallError("sendfile", err), written > 0
+	return written, wrapSyscallError("sendfile", err), handled
 }

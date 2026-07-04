@@ -183,6 +183,11 @@ internal/testenv
 internal/testlog
 internal/testpty
 internal/trace
+internal/trace/traceviewer/format
+internal/trace/v2
+internal/trace/v2/event
+internal/trace/v2/event/go122
+internal/trace/v2/version
 internal/txtar
 internal/types/errors
 internal/unsafeheader
@@ -191,7 +196,6 @@ internal/zstd
 io
 io/fs
 io/ioutil
-iter
 log
 log/internal
 log/slog
