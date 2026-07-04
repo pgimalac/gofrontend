@@ -225,6 +225,9 @@ func sysauxv(auxv []uintptr) int {
 			// The kernel provides a pointer to 16-bytes
 			// worth of random data.
 			startupRand = (*[16]byte)(unsafe.Pointer(val))[:]
+			// gccgo's runtime also reads startupRandomData (runtime2.go)
+			// via setRandomNumber; keep both populated.
+			startupRandomData = startupRand
 
 			setRandomNumber(uint32(startupRandomData[4]) | uint32(startupRandomData[5])<<8 |
 				uint32(startupRandomData[6])<<16 | uint32(startupRandomData[7])<<24)
