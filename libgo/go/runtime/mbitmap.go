@@ -64,6 +64,19 @@ const (
 	bitPointerAll = bitPointer | bitPointer<<heapBitsShift | bitPointer<<(2*heapBitsShift) | bitPointer<<(3*heapBitsShift)
 )
 
+// gccgo uses its own 2-bit heap bitmap (see above) and does not implement the
+// GOEXPERIMENT=allocheaders malloc-header scheme. These constants and helper
+// match the non-allocheaders variant so that the (dead, goexperiment.AllocHeaders
+// == false) code paths in malloc.go/mfinal.go still type-check.
+const (
+	mallocHeaderSize       = 0
+	minSizeForMallocHeader = ^uintptr(0)
+)
+
+func heapBitsInSpan(userSize uintptr) bool {
+	return userSize <= minSizeForMallocHeader
+}
+
 // addb returns the byte pointer p+n.
 //
 //go:nowritebarrier

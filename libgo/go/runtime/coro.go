@@ -4,7 +4,10 @@
 
 package runtime
 
-import "unsafe"
+import (
+	"internal/abi"
+	"unsafe"
+)
 
 // A coro represents extra concurrency without extra parallelism,
 // as would be needed for a coroutine implementation.
@@ -37,15 +40,85 @@ func newcoro(f func(*coro)) *coro {
 	pc := getcallerpc()
 	gp := getg()
 	systemstack(func() {
-		start := corostart
-		startfv := *(**funcval)(unsafe.Pointer(&start))
-		gp = newproc1(startfv, gp, pc)
+		gp = newcorog(pc)
 	})
 	gp.coroarg = c
 	gp.waitreason = waitReasonCoroutine
 	casgstatus(gp, _Grunnable, _Gwaiting)
 	c.gp.set(gp)
 	return c
+}
+
+// newcorog is the gccgo equivalent of gc's newproc1 for coroutines: it
+// creates a new goroutine that is Grunnable but not put on any run queue,
+// whose entry point is corostart. gccgo's g uses entryfn/entry/param and a
+// ucontext-based context set up by makeGContext, rather than gc's gobuf.
+func newcorog(callerpc uintptr) *g {
+	mp := acquirem()
+	pp := mp.p.ptr()
+	var (
+		sp     unsafe.Pointer
+		spsize uintptr
+	)
+	newg := gfget(pp)
+	if newg == nil {
+		newg = malg(true, false, &sp, &spsize)
+		casgstatus(newg, _Gidle, _Gdead)
+		allgadd(newg)
+	} else {
+		resetNewG(newg, &sp, &spsize)
+	}
+	newg.traceback = 0
+
+	if readgstatus(newg) != _Gdead {
+		throw("newcorog: new g is not Gdead")
+	}
+
+	// Set the entry function to corostartWrapper, which ignores its
+	// argument and calls corostart. corostart picks up its coro argument
+	// from gp.coroarg, set by newcoro after this returns. gccgo's kickoff
+	// trampoline runs gp.entry(gp.param) directly, so we can assign the Go
+	// func value straight into newg.entry.
+	newg.entry = corostartWrapper
+	newg.entryfn = abi.FuncPCABIInternal(corostartWrapper)
+
+	newg.param = nil
+	newg.gopc = callerpc
+	newg.ancestors = saveAncestors(getg())
+	newg.startpc = newg.entryfn
+	if isSystemGoroutine(newg, false) {
+		sched.ngsys.Add(1)
+	}
+	newg.trackingSeq = uint8(cheaprand())
+	if newg.trackingSeq%gTrackingPeriod == 0 {
+		newg.tracking = true
+	}
+
+	trace := traceAcquire()
+	casgstatus(newg, _Gdead, _Grunnable)
+	if pp.goidcache == pp.goidcacheend {
+		pp.goidcache = sched.goidgen.Add(_GoidCacheBatch)
+		pp.goidcache -= _GoidCacheBatch - 1
+		pp.goidcacheend = pp.goidcache + _GoidCacheBatch
+	}
+	newg.goid = int64(pp.goidcache)
+	pp.goidcache++
+	newg.trace.reset()
+	if trace.ok() {
+		trace.GoCreate(newg, newg.startpc)
+		traceRelease(trace)
+	}
+
+	makeGContext(newg, sp, spsize)
+
+	releasem(mp)
+
+	return newg
+}
+
+// corostartWrapper adapts corostart to gccgo's g.entry signature.
+func corostartWrapper(unsafe.Pointer) {
+	corostart()
 }
 
 //go:linkname corostart
@@ -161,5 +234,7 @@ func coroswitch_m(gp *g) {
 	}
 
 	// Switch to gnext. Does not return.
-	gogo(&gnext.sched)
+	// gccgo's gogo takes the target g directly (ucontext-based switch)
+	// rather than gc's gobuf pointer (&gnext.sched).
+	gogo(gnext)
 }

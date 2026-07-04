@@ -1226,10 +1226,9 @@ func scanobject(b uintptr, gcw *gcWork) {
 		// must be a large object, s.base() is the beginning
 		// of the object.
 		n = s.base() + s.elemsize - b
-		n = min(n, maxObletBytes)
+		n = min(n, uintptr(maxObletBytes))
 	}
 
-	hbits := heapBitsForAddr(b)
 	var i uintptr
 	for i = 0; i < n; i, hbits = i+goarch.PtrSize, hbits.next() {
 		// Load bits once. See CL 22712 and issue 16973 for discussion.

@@ -1631,7 +1631,7 @@ func (tl traceLocker) OneNewExtraM(gp *g) {
 	// while calling from C thread to Go.
 	tl.GoCreate(gp, 0) // no start pc
 	gp.trace.seq++
-	traceEvent(traceEvGoInSyscall, -1, gp.goid)
+	traceEvent(traceEvGoInSyscall, -1, uint64(gp.goid))
 }
 
 // Used only in the new tracer.

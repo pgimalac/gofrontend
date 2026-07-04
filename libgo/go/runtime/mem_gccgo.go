@@ -173,6 +173,13 @@ func sysNoHugePageOS(v unsafe.Pointer, n uintptr) {
 	}
 }
 
+// sysHugePageCollapseOS is best-effort. gccgo relies on system-header
+// derived madvise constants and MADV_COLLAPSE (Linux 6.1+) is not always
+// available, so this is a no-op. The huge-page collapse is only an
+// optimization; skipping it is harmless.
+func sysHugePageCollapseOS(v unsafe.Pointer, n uintptr) {
+}
+
 // Don't split the stack as this function may be invoked without a valid G,
 // which prevents us from allocating more stack.
 //

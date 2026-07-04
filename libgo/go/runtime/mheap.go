@@ -11,7 +11,6 @@ package runtime
 import (
 	"internal/cpu"
 	"internal/goarch"
-	"internal/goexperiment"
 	"runtime/internal/atomic"
 	"unsafe"
 )
@@ -1254,15 +1253,15 @@ HaveSpan:
 			s.divMul = 0
 		} else {
 			s.elemsize = uintptr(class_to_size[sizeclass])
-			s.nelems = nbytes / s.elemsize
+			s.nelems = uint16(nbytes / s.elemsize)
 			s.divMul = class_to_divmagic[sizeclass]
 		}
 
 		// Initialize mark and allocation structures.
 		s.freeindex = 0
 		s.allocCache = ^uint64(0) // all 1s indicating all free.
-		s.gcmarkBits = newMarkBits(s.nelems)
-		s.allocBits = newAllocBits(s.nelems)
+		s.gcmarkBits = newMarkBits(uintptr(s.nelems))
+		s.allocBits = newAllocBits(uintptr(s.nelems))
 
 		// It's safe to access h.sweepgen without the heap lock because it's
 		// only ever updated with the world stopped and we run on the

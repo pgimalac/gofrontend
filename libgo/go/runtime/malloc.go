@@ -1175,7 +1175,10 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 			}
 		}
 		if goexperiment.AllocHeaders && !noscan {
-			header = &span.largeType
+			// gccgo does not implement the allocheaders scheme; this
+			// branch is dead (goexperiment.AllocHeaders is false) and
+			// mspan has no largeType field.
+			header = nil
 		}
 	}
 

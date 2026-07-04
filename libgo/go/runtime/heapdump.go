@@ -13,7 +13,6 @@ package runtime
 
 import (
 	"internal/goarch"
-	"internal/goexperiment"
 	"unsafe"
 )
 

@@ -79,7 +79,7 @@ func makeslicecopy(et *_type, tolen int, fromlen int, from unsafe.Pointer) unsaf
 			// It's safe to pass a type to this function as an optimization because
 			// from and to only ever refer to memory representing whole values of
 			// type et. See the comment on bulkBarrierPreWrite.
-			bulkBarrierPreWriteSrcOnly(uintptr(to), uintptr(from), copymem, et)
+			bulkBarrierPreWriteSrcOnly(uintptr(to), uintptr(from), copymem)
 		}
 	}
 

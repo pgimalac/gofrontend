@@ -230,24 +230,24 @@ func typehash(t *_type, p unsafe.Pointer, h uintptr) uintptr {
 }
 
 func mapKeyError(t *maptype, p unsafe.Pointer) error {
-	if !t.HashMightPanic() {
+	if !t.hashMightPanic() {
 		return nil
 	}
-	return mapKeyError2(t.Key, p)
+	return mapKeyError2(t.key, p)
 }
 
 func mapKeyError2(t *_type, p unsafe.Pointer) error {
-	if t.TFlag&abi.TFlagRegularMemory != 0 {
+	if t.tflag&tflagRegularMemory != 0 {
 		return nil
 	}
-	switch t.Kind_ & kindMask {
+	switch t.kind & kindMask {
 	case kindFloat32, kindFloat64, kindComplex64, kindComplex128, kindString:
 		return nil
 	case kindInterface:
 		i := (*interfacetype)(unsafe.Pointer(t))
 		var t *_type
 		var pdata *unsafe.Pointer
-		if len(i.Methods) == 0 {
+		if len(i.methods) == 0 {
 			a := (*eface)(p)
 			t = a._type
 			if t == nil {
@@ -259,12 +259,12 @@ func mapKeyError2(t *_type, p unsafe.Pointer) error {
 			if a.tab == nil {
 				return nil
 			}
-			t = a.tab._type
+			t = *(**_type)(a.tab)
 			pdata = &a.data
 		}
 
-		if t.Equal == nil {
-			return errorString("hash of unhashable type " + toRType(t).string())
+		if t.equal == nil {
+			return errorString("hash of unhashable type " + t.string())
 		}
 
 		if isDirectIface(t) {
@@ -274,26 +274,26 @@ func mapKeyError2(t *_type, p unsafe.Pointer) error {
 		}
 	case kindArray:
 		a := (*arraytype)(unsafe.Pointer(t))
-		for i := uintptr(0); i < a.Len; i++ {
-			if err := mapKeyError2(a.Elem, add(p, i*a.Elem.Size_)); err != nil {
+		for i := uintptr(0); i < a.len; i++ {
+			if err := mapKeyError2(a.elem, add(p, i*a.elem.size)); err != nil {
 				return err
 			}
 		}
 		return nil
 	case kindStruct:
 		s := (*structtype)(unsafe.Pointer(t))
-		for _, f := range s.Fields {
-			if f.Name.IsBlank() {
+		for _, f := range s.fields {
+			if f.name != nil && *f.name == "_" {
 				continue
 			}
-			if err := mapKeyError2(f.Typ, add(p, f.Offset)); err != nil {
+			if err := mapKeyError2(f.typ, add(p, f.offset())); err != nil {
 				return err
 			}
 		}
 		return nil
 	default:
 		// Should never happen, keep this case for robustness.
-		return errorString("hash of unhashable type " + toRType(t).string())
+		return errorString("hash of unhashable type " + t.string())
 	}
 }
 

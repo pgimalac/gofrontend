@@ -211,7 +211,7 @@ func CPUProfile() []byte {
 
 //go:linkname runtime_pprof_runtime_cyclesPerSecond runtime_1pprof.runtime__cyclesPerSecond
 func runtime_pprof_runtime_cyclesPerSecond() int64 {
-	return ticksPerSecond()
+	return tickspersecond()
 }
 
 // readProfile, provided to runtime/pprof, returns the next chunk of

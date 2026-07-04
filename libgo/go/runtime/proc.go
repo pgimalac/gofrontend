@@ -710,8 +710,8 @@ func schedinit() {
 
 	mallocinit()
 	cpuinit()      // must run before alginit
-	alginit()      // maps, hash, fastrand must not be used before this call
-	fastrandinit() // must run before mcommoninit
+	alginit()  // maps, hash, rand must not be used before this call
+	randinit() // must run before mcommoninit
 	mcommoninit(gp.m, -1)
 
 	sigsave(&gp.m.sigmask)
@@ -724,11 +724,8 @@ func schedinit() {
 	parsedebugvars()
 	gcinit()
 
-	// Allocate stack space that can be used when crashing due to bad stack
-	// conditions, e.g. morestack on g0.
-	gcrash.stack = stackalloc(16384)
-	gcrash.stackguard0 = gcrash.stack.lo + 1000
-	gcrash.stackguard1 = gcrash.stack.lo + 1000
+	// gccgo uses fixed goroutine stacks and has no stackalloc / crash-stack
+	// (gcrash) mechanism, so the gc 1.22 crash-stack allocation is omitted.
 
 	// if disableMemoryProfiling is set, update MemProfileRate to 0 to turn off memprofile.
 	// Note: parsedebugvars may update MemProfileRate, but when disableMemoryProfiling is
@@ -2269,13 +2266,8 @@ func dropm() {
 
 	setg(nil)
 
-	// Clear g0 stack bounds to ensure that needm always refreshes the
-	// bounds when reusing this M.
-	g0 := mp.g0
-	g0.stack.hi = 0
-	g0.stack.lo = 0
-	g0.stackguard0 = 0
-	g0.stackguard1 = 0
+	// gccgo uses fixed goroutine stacks; g0 has no stack/stackguard0/
+	// stackguard1 fields, so there are no bounds to clear here.
 
 	putExtraM(mp)
 

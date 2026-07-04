@@ -8,6 +8,7 @@
 package runtime
 
 import (
+	"internal/abi"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
 	"unsafe"
@@ -194,13 +195,6 @@ func payloadOffset(typ bucketType, nstk uintptr) uintptr {
 		nstk = maxStack
 	}
 	return unsafe.Sizeof(bucket{}) + uintptr(nstk)*unsafe.Sizeof(uintptr(0))
-}
-
-func max(x, y uintptr) uintptr {
-	if x > y {
-		return x
-	}
-	return y
 }
 
 // mProfCycleHolder holds the global heap profile cycle number (wrapped at
@@ -529,7 +523,7 @@ func SetBlockProfileRate(rate int) {
 		r = 1 // profile everything
 	} else {
 		// convert ns to cycles, use float64 to prevent overflow during multiplication
-		r = int64(float64(rate) * float64(ticksPerSecond()) / (1000 * 1000 * 1000))
+		r = int64(float64(rate) * float64(tickspersecond()) / (1000 * 1000 * 1000))
 		if r == 0 {
 			r = 1
 		}
@@ -744,6 +738,7 @@ func (prof *mLockProfile) captureStack() {
 		// "runtime.unlock".
 		skip += 1 // runtime.unlockWithRank.func1
 	}
+	_ = skip // callersRaw does its own skip handling
 	prof.pending = 0
 
 	if debug.runtimeContentionStacks.Load() == 0 {
@@ -752,14 +747,11 @@ func (prof *mLockProfile) captureStack() {
 		return
 	}
 
+	// gccgo does not have the gc unwinder; use callersRaw like the other
+	// profile stack-capture paths in this file.
 	var nstk int
-	gp := getg()
-	sp := getcallersp()
-	pc := getcallerpc()
 	systemstack(func() {
-		var u unwinder
-		u.initAt(pc, sp, 0, gp, unwindSilentErrors|unwindJumpStack)
-		nstk = tracebackPCs(&u, skip, prof.stack[:])
+		nstk = callersRaw(prof.stack[:])
 	})
 	if nstk < len(prof.stack) {
 		prof.stack[nstk] = 0
@@ -1388,7 +1380,10 @@ func goroutineProfileWithLabelsConcurrent(p []StackRecord, labels []unsafe.Point
 	// doesn't change during the collection. So, check the finalizer goroutine
 	// in particular.
 	n = int(gcount())
-	if fingStatus.Load()&fingRunningFinalizer != 0 {
+	// gccgo tracks the finalizer goroutine's system-ness via
+	// fing.isSystemGoroutine (toggled off while it runs a finalizer, see
+	// mfinal.go) rather than gc's fingStatus/fingRunningFinalizer bits.
+	if fing != nil && !fing.isSystemGoroutine {
 		n++
 	}
 
