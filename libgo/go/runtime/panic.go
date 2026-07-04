@@ -5,6 +5,11 @@
 package runtime
 
 import (
+<<<<<<< go/./runtime/panic.go
+=======
+	"internal/abi"
+	"internal/goarch"
+>>>>>>> /tmp/go121/src/./runtime/panic.go
 	"runtime/internal/atomic"
 	"unsafe"
 )
@@ -659,7 +664,7 @@ func preprintpanics(p *_panic) {
 		case string:
 			throw(text + ": " + r)
 		default:
-			throw(text + ": type " + efaceOf(&r)._type.string())
+			throw(text + ": type " + toRType(efaceOf(&r)._type).string())
 		}
 	}()
 	for p != nil {
@@ -693,8 +698,234 @@ func printpanics(p *_panic) {
 	print("\n")
 }
 
+<<<<<<< go/./runtime/panic.go
+=======
+// addOneOpenDeferFrame scans the stack (in gentraceback order, from inner frames to
+// outer frames) for the first frame (if any) with open-coded defers. If it finds
+// one, it adds a single entry to the defer chain for that frame. The entry added
+// represents all the defers in the associated open defer frame, and is sorted in
+// order with respect to any non-open-coded defers.
+//
+// addOneOpenDeferFrame stops (possibly without adding a new entry) if it encounters
+// an in-progress open defer entry. An in-progress open defer entry means there has
+// been a new panic because of a defer in the associated frame. addOneOpenDeferFrame
+// does not add an open defer entry past a started entry, because that started entry
+// still needs to finished, and addOneOpenDeferFrame will be called when that started
+// entry is completed. The defer removal loop in gopanic() similarly stops at an
+// in-progress defer entry. Together, addOneOpenDeferFrame and the defer removal loop
+// ensure the invariant that there is no open defer entry further up the stack than
+// an in-progress defer, and also that the defer removal loop is guaranteed to remove
+// all not-in-progress open defer entries from the defer chain.
+//
+// If sp is non-nil, addOneOpenDeferFrame starts the stack scan from the frame
+// specified by sp. If sp is nil, it uses the sp from the current defer record (which
+// has just been finished). Hence, it continues the stack scan from the frame of the
+// defer that just finished. It skips any frame that already has a (not-in-progress)
+// open-coded _defer record in the defer chain.
+//
+// Note: All entries of the defer chain (including this new open-coded entry) have
+// their pointers (including sp) adjusted properly if the stack moves while
+// running deferred functions. Also, it is safe to pass in the sp arg (which is
+// the direct result of calling getcallersp()), because all pointer variables
+// (including arguments) are adjusted as needed during stack copies.
+func addOneOpenDeferFrame(gp *g, pc uintptr, sp unsafe.Pointer) {
+	var prevDefer *_defer
+	if sp == nil {
+		prevDefer = gp._defer
+		pc = prevDefer.framepc
+		sp = unsafe.Pointer(prevDefer.sp)
+	}
+	systemstack(func() {
+		var u unwinder
+	frames:
+		for u.initAt(pc, uintptr(sp), 0, gp, 0); u.valid(); u.next() {
+			frame := &u.frame
+			if prevDefer != nil && prevDefer.sp == frame.sp {
+				// Skip the frame for the previous defer that
+				// we just finished (and was used to set
+				// where we restarted the stack scan)
+				continue
+			}
+			f := frame.fn
+			fd := funcdata(f, abi.FUNCDATA_OpenCodedDeferInfo)
+			if fd == nil {
+				continue
+			}
+			// Insert the open defer record in the
+			// chain, in order sorted by sp.
+			d := gp._defer
+			var prev *_defer
+			for d != nil {
+				dsp := d.sp
+				if frame.sp < dsp {
+					break
+				}
+				if frame.sp == dsp {
+					if !d.openDefer {
+						throw("duplicated defer entry")
+					}
+					// Don't add any record past an
+					// in-progress defer entry. We don't
+					// need it, and more importantly, we
+					// want to keep the invariant that
+					// there is no open defer entry
+					// passed an in-progress entry (see
+					// header comment).
+					if d.started {
+						break frames
+					}
+					continue frames
+				}
+				prev = d
+				d = d.link
+			}
+			if frame.fn.deferreturn == 0 {
+				throw("missing deferreturn")
+			}
+
+			d1 := newdefer()
+			d1.openDefer = true
+			d1._panic = nil
+			// These are the pc/sp to set after we've
+			// run a defer in this frame that did a
+			// recover. We return to a special
+			// deferreturn that runs any remaining
+			// defers and then returns from the
+			// function.
+			d1.pc = frame.fn.entry() + uintptr(frame.fn.deferreturn)
+			d1.varp = frame.varp
+			d1.fd = fd
+			// Save the SP/PC associated with current frame,
+			// so we can continue stack trace later if needed.
+			d1.framepc = frame.pc
+			d1.sp = frame.sp
+			d1.link = d
+			if prev == nil {
+				gp._defer = d1
+			} else {
+				prev.link = d1
+			}
+			// Stop stack scanning after adding one open defer record
+			break
+		}
+	})
+}
+
+// readvarintUnsafe reads the uint32 in varint format starting at fd, and returns the
+// uint32 and a pointer to the byte following the varint.
+//
+// There is a similar function runtime.readvarint, which takes a slice of bytes,
+// rather than an unsafe pointer. These functions are duplicated, because one of
+// the two use cases for the functions would get slower if the functions were
+// combined.
+func readvarintUnsafe(fd unsafe.Pointer) (uint32, unsafe.Pointer) {
+	var r uint32
+	var shift int
+	for {
+		b := *(*uint8)((unsafe.Pointer(fd)))
+		fd = add(fd, unsafe.Sizeof(b))
+		if b < 128 {
+			return r + uint32(b)<<shift, fd
+		}
+		r += ((uint32(b) &^ 128) << shift)
+		shift += 7
+		if shift > 28 {
+			panic("Bad varint")
+		}
+	}
+}
+
+// runOpenDeferFrame runs the active open-coded defers in the frame specified by
+// d. It normally processes all active defers in the frame, but stops immediately
+// if a defer does a successful recover. It returns true if there are no
+// remaining defers to run in the frame.
+func runOpenDeferFrame(d *_defer) bool {
+	done := true
+	fd := d.fd
+
+	deferBitsOffset, fd := readvarintUnsafe(fd)
+	nDefers, fd := readvarintUnsafe(fd)
+	deferBits := *(*uint8)(unsafe.Pointer(d.varp - uintptr(deferBitsOffset)))
+
+	for i := int(nDefers) - 1; i >= 0; i-- {
+		// read the funcdata info for this defer
+		var closureOffset uint32
+		closureOffset, fd = readvarintUnsafe(fd)
+		if deferBits&(1<<i) == 0 {
+			continue
+		}
+		closure := *(*func())(unsafe.Pointer(d.varp - uintptr(closureOffset)))
+		d.fn = closure
+		deferBits = deferBits &^ (1 << i)
+		*(*uint8)(unsafe.Pointer(d.varp - uintptr(deferBitsOffset))) = deferBits
+		p := d._panic
+		// Call the defer. Note that this can change d.varp if
+		// the stack moves.
+		deferCallSave(p, d.fn)
+		if p != nil && p.aborted {
+			break
+		}
+		d.fn = nil
+		if d._panic != nil && d._panic.recovered {
+			done = deferBits == 0
+			break
+		}
+	}
+
+	return done
+}
+
+// deferCallSave calls fn() after saving the caller's pc and sp in the
+// panic record. This allows the runtime to return to the Goexit defer
+// processing loop, in the unusual case where the Goexit may be
+// bypassed by a successful recover.
+//
+// This is marked as a wrapper by the compiler so it doesn't appear in
+// tracebacks.
+func deferCallSave(p *_panic, fn func()) {
+	if p != nil {
+		p.argp = unsafe.Pointer(getargp())
+		p.pc = getcallerpc()
+		p.sp = unsafe.Pointer(getcallersp())
+	}
+	fn()
+	if p != nil {
+		p.pc = 0
+		p.sp = unsafe.Pointer(nil)
+	}
+}
+
+// A PanicNilError happens when code calls panic(nil).
+//
+// Before Go 1.21, programs that called panic(nil) observed recover returning nil.
+// Starting in Go 1.21, programs that call panic(nil) observe recover returning a *PanicNilError.
+// Programs can change back to the old behavior by setting GODEBUG=panicnil=1.
+type PanicNilError struct {
+	// This field makes PanicNilError structurally different from
+	// any other struct in this package, and the _ makes it different
+	// from any struct in other packages too.
+	// This avoids any accidental conversions being possible
+	// between this struct and some other struct sharing the same fields,
+	// like happened in go.dev/issue/56603.
+	_ [0]*PanicNilError
+}
+
+func (*PanicNilError) Error() string { return "panic called with nil argument" }
+func (*PanicNilError) RuntimeError() {}
+
+var panicnil = &godebugInc{name: "panicnil"}
+
+>>>>>>> /tmp/go121/src/./runtime/panic.go
 // The implementation of the predeclared function panic.
 func gopanic(e any) {
+	if e == nil {
+		if debug.panicnil.Load() != 1 {
+			e = new(PanicNilError)
+		} else {
+			panicnil.IncNonDefault()
+		}
+	}
+
 	gp := getg()
 	if gp.m.curg != gp {
 		print("panic: ")
@@ -1154,7 +1385,18 @@ func fatalthrow(t throwType) {
 		gp.m.throwing = t
 	}
 
+<<<<<<< go/./runtime/panic.go
 	startpanic_m()
+=======
+	// Switch to the system stack to avoid any stack growth, which may make
+	// things worse if the runtime is in a bad state.
+	systemstack(func() {
+		if isSecureMode() {
+			exit(2)
+		}
+
+		startpanic_m()
+>>>>>>> /tmp/go121/src/./runtime/panic.go
 
 	if dopanic_m(gp, pc, sp) {
 		crash()
@@ -1351,5 +1593,13 @@ func canpanic() bool {
 //
 //go:nosplit
 func isAbortPC(pc uintptr) bool {
+<<<<<<< go/./runtime/panic.go
 	return false
+=======
+	f := findfunc(pc)
+	if !f.valid() {
+		return false
+	}
+	return f.funcID == abi.FuncID_abort
+>>>>>>> /tmp/go121/src/./runtime/panic.go
 }

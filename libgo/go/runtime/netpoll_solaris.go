@@ -5,6 +5,7 @@
 package runtime
 
 import (
+	"internal/goarch"
 	"runtime/internal/atomic"
 	"unsafe"
 )
@@ -79,12 +80,18 @@ func port_associate(port, source int32, object uintptr, events uint32, user uint
 //extern port_dissociate
 func port_dissociate(port, source int32, object uintptr) int32
 
+<<<<<<< go/./runtime/netpoll_solaris.go
 //go:noescape
 //extern port_getn
 func port_getn(port int32, evs *portevent, max uint32, nget *uint32, timeout *timespec) int32
 
 //extern port_alert
 func port_alert(port int32, flags, events uint32, user uintptr) int32
+=======
+func port_create() int32 {
+	return int32(sysvicall0(&libc_port_create))
+}
+>>>>>>> /tmp/go121/src/./runtime/netpoll_solaris.go
 
 var (
 	netpollWakeSig uint32 // used to avoid duplicate calls of netpollBreak
@@ -116,7 +123,14 @@ func netpollopen(fd uintptr, pd *pollDesc) int32 {
 	// with the interested event set) will unblock port_getn right away
 	// because of the I/O readiness notification.
 	pd.user = 0
-	r := port_associate(portfd, _PORT_SOURCE_FD, fd, 0, uintptr(unsafe.Pointer(pd)))
+	tp := taggedPointerPack(unsafe.Pointer(pd), pd.fdseq.Load())
+	// Note that this won't work on a 32-bit system,
+	// as taggedPointer is always 64-bits but uintptr will be 32 bits.
+	// Fortunately we only support Solaris on amd64.
+	if goarch.PtrSize != 8 {
+		throw("runtime: netpollopen: unsupported pointer size")
+	}
+	r := port_associate(portfd, _PORT_SOURCE_FD, fd, 0, uintptr(tp))
 	unlock(&pd.lock)
 	if r < 0 {
 		return int32(errno())
@@ -145,7 +159,8 @@ func netpollupdate(pd *pollDesc, set, clear uint32) {
 		return
 	}
 
-	if events != 0 && port_associate(portfd, _PORT_SOURCE_FD, pd.fd, events, uintptr(unsafe.Pointer(pd))) != 0 {
+	tp := taggedPointerPack(unsafe.Pointer(pd), pd.fdseq.Load())
+	if events != 0 && port_associate(portfd, _PORT_SOURCE_FD, pd.fd, events, uintptr(tp)) != 0 {
 		print("runtime: port_associate failed (errno=", errno(), ")\n")
 		throw("runtime: netpollupdate failed")
 	}
@@ -262,7 +277,12 @@ retry:
 		if ev.portev_events == 0 {
 			continue
 		}
-		pd := (*pollDesc)(unsafe.Pointer(ev.portev_user))
+
+		tp := taggedPointer(uintptr(unsafe.Pointer(ev.portev_user)))
+		pd := (*pollDesc)(tp.pointer())
+		if pd.fdseq.Load() != tp.tag() {
+			continue
+		}
 
 		var mode, clear int32
 		if (ev.portev_events & (_POLLIN | _POLLHUP | _POLLERR)) != 0 {

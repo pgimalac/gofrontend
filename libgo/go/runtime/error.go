@@ -30,18 +30,18 @@ func (*TypeAssertionError) RuntimeError() {}
 func (e *TypeAssertionError) Error() string {
 	inter := "interface"
 	if e._interface != nil {
-		inter = e._interface.string()
+		inter = toRType(e._interface).string()
 	}
-	as := e.asserted.string()
+	as := toRType(e.asserted).string()
 	if e.concrete == nil {
 		return "interface conversion: " + inter + " is nil, not " + as
 	}
-	cs := e.concrete.string()
+	cs := toRType(e.concrete).string()
 	if e.missingMethod == "" {
 		msg := "interface conversion: " + inter + " is " + cs + ", not " + as
 		if cs == as {
 			// provide slightly clearer error message
-			if e.concrete.pkgpath() != e.asserted.pkgpath() {
+			if toRType(e.concrete).pkgpath() != toRType(e.asserted).pkgpath() {
 				msg += " (types from different packages)"
 			} else {
 				msg += " (types from different scopes)"
@@ -297,9 +297,13 @@ func printany(i any) {
 
 func printanycustomtype(i any) {
 	eface := efaceOf(&i)
-	typestring := eface._type.string()
+	typestring := toRType(eface._type).string()
 
+<<<<<<< go/./runtime/error.go
 	switch eface._type.kind & ((1 << 5) - 1) {
+=======
+	switch eface._type.Kind_ {
+>>>>>>> /tmp/go121/src/./runtime/error.go
 	case kindString:
 		print(typestring, `("`, *(*string)(eface.data), `")`)
 	case kindBool:
@@ -338,3 +342,37 @@ func printanycustomtype(i any) {
 		print("(", typestring, ") ", eface.data)
 	}
 }
+<<<<<<< go/./runtime/error.go
+=======
+
+// panicwrap generates a panic for a call to a wrapped value method
+// with a nil pointer receiver.
+//
+// It is called from the generated wrapper code.
+func panicwrap() {
+	pc := getcallerpc()
+	name := funcNameForPrint(funcname(findfunc(pc)))
+	// name is something like "main.(*T).F".
+	// We want to extract pkg ("main"), typ ("T"), and meth ("F").
+	// Do it by finding the parens.
+	i := bytealg.IndexByteString(name, '(')
+	if i < 0 {
+		throw("panicwrap: no ( in " + name)
+	}
+	pkg := name[:i-1]
+	if i+2 >= len(name) || name[i-1:i+2] != ".(*" {
+		throw("panicwrap: unexpected string after package name: " + name)
+	}
+	name = name[i+2:]
+	i = bytealg.IndexByteString(name, ')')
+	if i < 0 {
+		throw("panicwrap: no ) in " + name)
+	}
+	if i+2 >= len(name) || name[i:i+2] != ")." {
+		throw("panicwrap: unexpected string after type name: " + name)
+	}
+	typ := name[:i]
+	meth := name[i+2:]
+	panic(plainError("value method " + pkg + "." + typ + "." + meth + " called using nil *" + typ + " pointer"))
+}
+>>>>>>> /tmp/go121/src/./runtime/error.go

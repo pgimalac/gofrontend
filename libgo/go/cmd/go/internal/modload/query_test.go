@@ -35,7 +35,13 @@ func testMain(m *testing.M) int {
 	os.Setenv("GOPATH", dir)
 	cfg.BuildContext.GOPATH = dir
 	cfg.GOMODCACHE = filepath.Join(dir, "pkg/mod")
+<<<<<<< go/./cmd/go/internal/modload/query_test.go
 	return m.Run()
+=======
+	cfg.SumdbDir = filepath.Join(dir, "pkg/sumdb")
+	m.Run()
+	return nil
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modload/query_test.go
 }
 
 var (

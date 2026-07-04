@@ -72,6 +72,7 @@ func TestVet(t *testing.T) {
 		"composite",
 		"copylock",
 		"deadcode",
+		"directive",
 		"httpresponse",
 		"lostcancel",
 		"method",
@@ -79,6 +80,7 @@ func TestVet(t *testing.T) {
 		"print",
 		"rangeloop",
 		"shift",
+		"slog",
 		"structtag",
 		"testingpkg",
 		// "testtag" has its own test

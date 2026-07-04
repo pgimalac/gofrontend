@@ -150,7 +150,7 @@ func TestFreeOSMemory(t *testing.T) {
 		return
 	}
 	if after.HeapReleased-before.HeapReleased < bigBytes-slack {
-		t.Fatalf("less than %d released: %d -> %d", bigBytes, before.HeapReleased, after.HeapReleased)
+		t.Fatalf("less than %d released: %d -> %d", bigBytes-slack, before.HeapReleased, after.HeapReleased)
 	}
 }
 

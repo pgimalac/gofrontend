@@ -7,10 +7,7 @@ package types_test
 import (
 	"errors"
 	"fmt"
-	"go/ast"
 	"go/importer"
-	"go/parser"
-	"go/token"
 	"go/types"
 	"runtime"
 	"strings"
@@ -18,6 +15,7 @@ import (
 )
 
 func checkMono(t *testing.T, body string) error {
+<<<<<<< go/./go/types/mono_test.go
 	if runtime.Compiler == "gccgo" {
 		t.Skip("skipping for gofronted: fails to import unsafe")
 	}
@@ -28,13 +26,16 @@ func checkMono(t *testing.T, body string) error {
 		t.Fatal(err)
 	}
 	files := []*ast.File{file}
+=======
+	src := "package x; import `unsafe`; var _ unsafe.Pointer;\n" + body
+>>>>>>> /tmp/go121/src/./go/types/mono_test.go
 
 	var buf strings.Builder
 	conf := types.Config{
 		Error:    func(err error) { fmt.Fprintln(&buf, err) },
 		Importer: importer.Default(),
 	}
-	conf.Check("x", fset, files, nil)
+	typecheck(src, &conf, nil)
 	if buf.Len() == 0 {
 		return nil
 	}

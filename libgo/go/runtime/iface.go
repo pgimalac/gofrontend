@@ -105,9 +105,73 @@ type itabTableType struct {
 
 func itabHashFunc(inter *interfacetype, typ *_type) uintptr {
 	// compiler has provided some good hash codes for us.
-	return uintptr(inter.typ.hash ^ typ.hash)
+	return uintptr(inter.Type.Hash ^ typ.Hash)
 }
 
+<<<<<<< go/./runtime/iface.go
+=======
+func getitab(inter *interfacetype, typ *_type, canfail bool) *itab {
+	if len(inter.Methods) == 0 {
+		throw("internal error - misuse of itab")
+	}
+
+	// easy case
+	if typ.TFlag&abi.TFlagUncommon == 0 {
+		if canfail {
+			return nil
+		}
+		name := toRType(&inter.Type).nameOff(inter.Methods[0].Name)
+		panic(&TypeAssertionError{nil, typ, &inter.Type, name.Name()})
+	}
+
+	var m *itab
+
+	// First, look in the existing table to see if we can find the itab we need.
+	// This is by far the most common case, so do it without locks.
+	// Use atomic to ensure we see any previous writes done by the thread
+	// that updates the itabTable field (with atomic.Storep in itabAdd).
+	t := (*itabTableType)(atomic.Loadp(unsafe.Pointer(&itabTable)))
+	if m = t.find(inter, typ); m != nil {
+		goto finish
+	}
+
+	// Not found.  Grab the lock and try again.
+	lock(&itabLock)
+	if m = itabTable.find(inter, typ); m != nil {
+		unlock(&itabLock)
+		goto finish
+	}
+
+	// Entry doesn't exist yet. Make a new entry & add it.
+	m = (*itab)(persistentalloc(unsafe.Sizeof(itab{})+uintptr(len(inter.Methods)-1)*goarch.PtrSize, 0, &memstats.other_sys))
+	m.inter = inter
+	m._type = typ
+	// The hash is used in type switches. However, compiler statically generates itab's
+	// for all interface/type pairs used in switches (which are added to itabTable
+	// in itabsinit). The dynamically-generated itab's never participate in type switches,
+	// and thus the hash is irrelevant.
+	// Note: m.hash is _not_ the hash used for the runtime itabTable hash table.
+	m.hash = 0
+	m.init()
+	itabAdd(m)
+	unlock(&itabLock)
+finish:
+	if m.fun[0] != 0 {
+		return m
+	}
+	if canfail {
+		return nil
+	}
+	// this can only happen if the conversion
+	// was already done once using the , ok form
+	// and we have a cached negative result.
+	// The cached result doesn't record which
+	// interface function was missing, so initialize
+	// the itab again to get the missing function name.
+	panic(&TypeAssertionError{concrete: typ, asserted: &inter.Type, missingMethod: m.init()})
+}
+
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 // find finds the given interface/type pair in t.
 // Returns nil if the given interface/type pair isn't present.
 func (t *itabTableType) find(inter *interfacetype, typ *_type) *itab {
@@ -137,7 +201,7 @@ func (t *itabTableType) find(inter *interfacetype, typ *_type) *itab {
 // itabLock must be held.
 func itabAdd(m *itab) {
 	// Bugs can lead to calling this while mallocing is set,
-	// typically because this is called while panicing.
+	// typically because this is called while panicking.
 	// Crash reliably, rather than only when we need to grow
 	// the hash table.
 	if getg().m.mallocing != 0 {
@@ -207,6 +271,7 @@ func (t *itabTableType) add(m *itab) {
 // It is ok to call this multiple times on the same m, even concurrently.
 func (m *itab) init() string {
 	inter := m.inter
+<<<<<<< go/./runtime/iface.go
 	typ := m._type()
 	ni := len(inter.methods) + 1
 	methods := (*[1 << 16]unsafe.Pointer)(unsafe.Pointer(&m.methods[0]))[:ni:ni]
@@ -222,11 +287,58 @@ func (m *itab) init() string {
 				m.methods[1] = nil
 				return *lhsMethod.name
 			}
+=======
+	typ := m._type
+	x := typ.Uncommon()
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 
+<<<<<<< go/./runtime/iface.go
 			rhsMethod = &typ.methods[ri]
 			if (lhsMethod.name == rhsMethod.name || *lhsMethod.name == *rhsMethod.name) &&
 				(lhsMethod.pkgPath == rhsMethod.pkgPath || *lhsMethod.pkgPath == *rhsMethod.pkgPath) {
 				break
+=======
+	// both inter and typ have method sorted by name,
+	// and interface names are unique,
+	// so can iterate over both in lock step;
+	// the loop is O(ni+nt) not O(ni*nt).
+	ni := len(inter.Methods)
+	nt := int(x.Mcount)
+	xmhdr := (*[1 << 16]abi.Method)(add(unsafe.Pointer(x), uintptr(x.Moff)))[:nt:nt]
+	j := 0
+	methods := (*[1 << 16]unsafe.Pointer)(unsafe.Pointer(&m.fun[0]))[:ni:ni]
+	var fun0 unsafe.Pointer
+imethods:
+	for k := 0; k < ni; k++ {
+		i := &inter.Methods[k]
+		itype := toRType(&inter.Type).typeOff(i.Typ)
+		name := toRType(&inter.Type).nameOff(i.Name)
+		iname := name.Name()
+		ipkg := pkgPath(name)
+		if ipkg == "" {
+			ipkg = inter.PkgPath.Name()
+		}
+		for ; j < nt; j++ {
+			t := &xmhdr[j]
+			rtyp := toRType(typ)
+			tname := rtyp.nameOff(t.Name)
+			if rtyp.typeOff(t.Mtyp) == itype && tname.Name() == iname {
+				pkgPath := pkgPath(tname)
+				if pkgPath == "" {
+					pkgPath = rtyp.nameOff(x.PkgPath).Name()
+				}
+				if tname.IsExported() || pkgPath == ipkg {
+					if m != nil {
+						ifn := rtyp.textOff(t.Ifn)
+						if k == 0 {
+							fun0 = ifn // we'll set m.fun[0] at the end
+						} else {
+							methods[k] = ifn
+						}
+					}
+					continue imethods
+				}
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 			}
 
 			ri++
@@ -326,6 +438,7 @@ finish:
 	panic(&TypeAssertionError{nil, rhs, lhs, m.init()})
 }
 
+<<<<<<< go/./runtime/iface.go
 // Return the interface method table for a value of type rhs converted
 // to an interface of type lhs.  Panics if the conversion is impossible.
 func requireitab(lhs, rhs *_type) unsafe.Pointer {
@@ -357,6 +470,48 @@ func assertitab(lhs, rhs *_type) unsafe.Pointer {
 func panicdottype(lhs, rhs, inter *_type) {
 	panic(&TypeAssertionError{inter, rhs, lhs, ""})
 }
+=======
+// panicdottypeE is called when doing an e.(T) conversion and the conversion fails.
+// have = the dynamic type we have.
+// want = the static type we're trying to convert to.
+// iface = the static type we're converting from.
+func panicdottypeE(have, want, iface *_type) {
+	panic(&TypeAssertionError{iface, have, want, ""})
+}
+
+// panicdottypeI is called when doing an i.(T) conversion and the conversion fails.
+// Same args as panicdottypeE, but "have" is the dynamic itab we have.
+func panicdottypeI(have *itab, want, iface *_type) {
+	var t *_type
+	if have != nil {
+		t = have._type
+	}
+	panicdottypeE(t, want, iface)
+}
+
+// panicnildottype is called when doing an i.(T) conversion and the interface i is nil.
+// want = the static type we're trying to convert to.
+func panicnildottype(want *_type) {
+	panic(&TypeAssertionError{nil, nil, want, ""})
+	// TODO: Add the static type we're converting from as well.
+	// It might generate a better error message.
+	// Just to match other nil conversion errors, we don't for now.
+}
+
+// The specialized convTx routines need a type descriptor to use when calling mallocgc.
+// We don't need the type to be exact, just to have the correct size, alignment, and pointer-ness.
+// However, when debugging, it'd be nice to have some indication in mallocgc where the types came from,
+// so we use named types here.
+// We then construct interface values of these types,
+// and then extract the type word to use as needed.
+type (
+	uint16InterfacePtr uint16
+	uint32InterfacePtr uint32
+	uint64InterfacePtr uint64
+	stringInterfacePtr string
+	sliceInterfacePtr  []byte
+)
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 
 // Convert an empty interface to an empty interface, for a comma-ok
 // type assertion.
@@ -364,11 +519,60 @@ func ifaceE2E2(e eface) (eface, bool) {
 	return e, e._type != nil
 }
 
+<<<<<<< go/./runtime/iface.go
 // Convert a non-empty interface to an empty interface, for a comma-ok
 // type assertion.
 func ifaceI2E2(i iface) (eface, bool) {
 	if i.tab == nil {
 		return eface{nil, nil}, false
+=======
+// The conv and assert functions below do very similar things.
+// The convXXX functions are guaranteed by the compiler to succeed.
+// The assertXXX functions may fail (either panicking or returning false,
+// depending on whether they are 1-result or 2-result).
+// The convXXX functions succeed on a nil input, whereas the assertXXX
+// functions fail on a nil input.
+
+// convT converts a value of type t, which is pointed to by v, to a pointer that can
+// be used as the second word of an interface value.
+func convT(t *_type, v unsafe.Pointer) unsafe.Pointer {
+	if raceenabled {
+		raceReadObjectPC(t, v, getcallerpc(), abi.FuncPCABIInternal(convT))
+	}
+	if msanenabled {
+		msanread(v, t.Size_)
+	}
+	if asanenabled {
+		asanread(v, t.Size_)
+	}
+	x := mallocgc(t.Size_, t, true)
+	typedmemmove(t, x, v)
+	return x
+}
+func convTnoptr(t *_type, v unsafe.Pointer) unsafe.Pointer {
+	// TODO: maybe take size instead of type?
+	if raceenabled {
+		raceReadObjectPC(t, v, getcallerpc(), abi.FuncPCABIInternal(convTnoptr))
+	}
+	if msanenabled {
+		msanread(v, t.Size_)
+	}
+	if asanenabled {
+		asanread(v, t.Size_)
+	}
+
+	x := mallocgc(t.Size_, t, false)
+	memmove(x, v, t.Size_)
+	return x
+}
+
+func convT16(val uint16) (x unsafe.Pointer) {
+	if val < uint16(len(staticuint64s)) {
+		x = unsafe.Pointer(&staticuint64s[val])
+		if goarch.BigEndian {
+			x = add(x, 6)
+		}
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 	} else {
 		return eface{*(**_type)(i.tab), i.data}, true
 	}
@@ -452,10 +656,17 @@ func ifaceI2T2(t *_type, i iface, ret unsafe.Pointer) bool {
 	}
 }
 
+<<<<<<< go/./runtime/iface.go
 // Return whether we can convert a type to an interface type.
 func ifaceT2Ip(to, from *_type) bool {
 	if from == nil {
 		return false
+=======
+func assertI2I(inter *interfacetype, tab *itab) *itab {
+	if tab == nil {
+		// explicit conversions require non-nil interface value.
+		panic(&TypeAssertionError{nil, nil, &inter.Type, ""})
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 	}
 
 	if to.kind&kindMask != kindInterface {
@@ -492,7 +703,16 @@ func ifaceT2Ip(to, from *_type) bool {
 		ri++
 	}
 
+<<<<<<< go/./runtime/iface.go
 	return true
+=======
+func assertE2I(inter *interfacetype, t *_type) *itab {
+	if t == nil {
+		// explicit conversions require non-nil interface value.
+		panic(&TypeAssertionError{nil, nil, &inter.Type, ""})
+	}
+	return getitab(inter, t, false)
+>>>>>>> /tmp/go121/src/./runtime/iface.go
 }
 
 //go:linkname reflect_ifaceE2I reflect.ifaceE2I

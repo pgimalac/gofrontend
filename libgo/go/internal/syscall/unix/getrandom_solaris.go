@@ -12,7 +12,7 @@ import (
 //extern getrandom
 func libc_getrandom(*byte, uintptr, uint32) uintptr
 
-var getrandomUnsupported int32 // atomic
+var getrandomUnsupported atomic.Bool
 
 // GetRandomFlag is a flag supported by the getrandom system call.
 type GetRandomFlag uintptr
@@ -30,7 +30,7 @@ func GetRandom(p []byte, flags GetRandomFlag) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	if atomic.LoadInt32(&getrandomUnsupported) != 0 {
+	if getrandomUnsupported.Load() {
 		return 0, syscall.ENOSYS
 	}
 	syscall.Entersyscall()
@@ -39,7 +39,7 @@ func GetRandom(p []byte, flags GetRandomFlag) (n int, err error) {
 	if r1 == 0 {
 		errno := syscall.GetErrno()
 		if errno == syscall.ENOSYS {
-			atomic.StoreInt32(&getrandomUnsupported, 1)
+			getrandomUnsupported.Store(true)
 		}
 		return 0, errno
 	}

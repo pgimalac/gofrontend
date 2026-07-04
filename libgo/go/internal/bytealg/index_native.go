@@ -6,16 +6,16 @@
 
 package bytealg
 
-//go:noescape
-
 // Index returns the index of the first instance of b in a, or -1 if b is not present in a.
 // Requires 2 <= len(b) <= MaxLen.
-func Index(a, b []byte) int
-
+//
 //go:noescape
+func Index(a, b []byte) int
 
 // IndexString returns the index of the first instance of b in a, or -1 if b is not present in a.
 // Requires 2 <= len(b) <= MaxLen.
+//
+//go:noescape
 func IndexString(a, b string) int
 
 func Cutover(n int) int {

@@ -7,32 +7,41 @@ package codehost
 import (
 	"archive/zip"
 	"bytes"
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
+=======
+	"cmd/go/internal/cfg"
+	"cmd/go/internal/vcweb/vcstest"
+	"context"
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 	"flag"
 	"internal/testenv"
 	"io"
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
-	// needed for initializing the test environment variables as testing.Short
-	// and HasExternalNetwork
 	flag.Parse()
 	os.Exit(testMain(m))
 }
 
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 const (
 	gitrepo1 = "https://vcs-test.golang.org/git/gitrepo1"
 	hgrepo1  = "https://vcs-test.golang.org/hg/hgrepo1"
 )
+=======
+var gitrepo1, hgrepo1, vgotest1 string
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 
 var altRepos = []string{
 	"localGitRepo",
@@ -42,16 +51,92 @@ var altRepos = []string{
 // TODO: Convert gitrepo1 to svn, bzr, fossil and add tests.
 // For now, at least the hgrepo1 tests check the general vcs.go logic.
 
-// localGitRepo is like gitrepo1 but allows archive access.
-var localGitRepo, localGitURL string
+// localGitRepo is like gitrepo1 but allows archive access
+// (although that doesn't really matter after CL 120041),
+// and has a file:// URL instead of http:// or https://
+// (which might still matter).
+var localGitRepo string
 
+// localGitURL initializes the repo in localGitRepo and returns its URL.
+func localGitURL(t testing.TB) string {
+	testenv.MustHaveExecPath(t, "git")
+	if runtime.GOOS == "android" && strings.HasSuffix(testenv.Builder(), "-corellium") {
+		testenv.SkipFlaky(t, 59940)
+	}
+
+	localGitURLOnce.Do(func() {
+		// Clone gitrepo1 into a local directory.
+		// If we use a file:// URL to access the local directory,
+		// then git starts up all the usual protocol machinery,
+		// which will let us test remote git archive invocations.
+		_, localGitURLErr = Run(context.Background(), "", "git", "clone", "--mirror", gitrepo1, localGitRepo)
+		if localGitURLErr != nil {
+			return
+		}
+		_, localGitURLErr = Run(context.Background(), localGitRepo, "git", "config", "daemon.uploadarch", "true")
+	})
+
+	if localGitURLErr != nil {
+		t.Fatal(localGitURLErr)
+	}
+	// Convert absolute path to file URL. LocalGitRepo will not accept
+	// Windows absolute paths because they look like a host:path remote.
+	// TODO(golang.org/issue/32456): use url.FromFilePath when implemented.
+	if strings.HasPrefix(localGitRepo, "/") {
+		return "file://" + localGitRepo
+	} else {
+		return "file:///" + filepath.ToSlash(localGitRepo)
+	}
+}
+
+var (
+	localGitURLOnce sync.Once
+	localGitURLErr  error
+)
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 func testMain(m *testing.M) int {
+=======
+func testMain(m *testing.M) (err error) {
+	cfg.BuildX = testing.Verbose()
+
+	srv, err := vcstest.NewServer()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := srv.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+
+	gitrepo1 = srv.HTTP.URL + "/git/gitrepo1"
+	hgrepo1 = srv.HTTP.URL + "/hg/hgrepo1"
+	vgotest1 = srv.HTTP.URL + "/git/vgotest1"
+
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 	dir, err := os.MkdirTemp("", "gitrepo-test-")
 	if err != nil {
 		log.Fatal(err)
 	}
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	defer os.RemoveAll(dir)
+=======
+	defer func() {
+		if rmErr := os.RemoveAll(dir); err == nil {
+			err = rmErr
+		}
+	}()
 
+	localGitRepo = filepath.Join(dir, "gitrepo2")
+
+	// Redirect the module cache to a fresh directory to avoid crosstalk, and make
+	// it read/write so that the test can still clean it up easily when done.
+	cfg.GOMODCACHE = filepath.Join(dir, "modcache")
+	cfg.ModCacheRW = true
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	if testenv.HasExternalNetwork() && testenv.HasExec() {
 		if _, err := exec.LookPath("git"); err == nil {
 			// Clone gitrepo1 into a local directory.
@@ -74,16 +159,63 @@ func testMain(m *testing.M) int {
 			} else {
 				localGitURL = "file:///" + filepath.ToSlash(localGitRepo)
 			}
-		}
-	}
-
-	return m.Run()
+=======
+	m.Run()
+	return nil
 }
 
-func testRepo(t *testing.T, remote string) (Repo, error) {
+func testContext(t testing.TB) context.Context {
+	w := newTestWriter(t)
+	return cfg.WithBuildXWriter(context.Background(), w)
+}
+
+// A testWriter is an io.Writer that writes to a test's log.
+//
+// The writer batches written data until the last byte of a write is a newline
+// character, then flushes the batched data as a single call to Logf.
+// Any remaining unflushed data is logged during Cleanup.
+type testWriter struct {
+	t testing.TB
+
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func newTestWriter(t testing.TB) *testWriter {
+	w := &testWriter{t: t}
+
+	t.Cleanup(func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if b := w.buf.Bytes(); len(b) > 0 {
+			w.t.Logf("%s", b)
+			w.buf.Reset()
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+		}
+	})
+
+	return w
+}
+
+func (w *testWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.buf.Write(p)
+	if b := w.buf.Bytes(); len(b) > 0 && b[len(b)-1] == '\n' {
+		w.t.Logf("%s", b)
+		w.buf.Reset()
+	}
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
+
+	return m.Run()
+=======
+	return n, err
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+}
+
+func testRepo(ctx context.Context, t *testing.T, remote string) (Repo, error) {
 	if remote == "localGitRepo" {
-		testenv.MustHaveExecPath(t, "git")
-		return LocalGitRepo(localGitURL)
+		return LocalGitRepo(ctx, localGitURL(t))
 	}
 	vcs := "git"
 	for _, k := range []string{"hg"} {
@@ -91,6 +223,7 @@ func testRepo(t *testing.T, remote string) (Repo, error) {
 			vcs = k
 		}
 	}
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExecPath(t, vcs)
 	return NewRepo(vcs, remote)
 }
@@ -120,19 +253,48 @@ var tagsTests = []struct {
 		{"v1.2.4-annotated", "ede458df7cd0fdca520df19a33158086a8a68e81"},
 	}},
 	{gitrepo1, "2", []Tag{}},
+=======
+	if testing.Short() && vcsName == "hg" {
+		t.Skipf("skipping hg test in short mode: hg is slow")
+	}
+	testenv.MustHaveExecPath(t, vcsName)
+	if runtime.GOOS == "android" && strings.HasSuffix(testenv.Builder(), "-corellium") {
+		testenv.SkipFlaky(t, 59940)
+	}
+	return NewRepo(ctx, vcsName, remote)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 }
 
 func TestTags(t *testing.T) {
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExternalNetwork(t)
 	testenv.MustHaveExec(t)
+=======
+	t.Parallel()
 
+	type tagsTest struct {
+		repo   string
+		prefix string
+		tags   []Tag
+	}
+
+	runTest := func(tt tagsTest) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	for _, tt := range tagsTests {
 		f := func(t *testing.T) {
 			r, err := testRepo(t, tt.repo)
+=======
+			r, err := testRepo(ctx, t, tt.repo)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 			if err != nil {
 				t.Fatal(err)
 			}
-			tags, err := r.Tags(tt.prefix)
+			tags, err := r.Tags(ctx, tt.prefix)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,20 +359,40 @@ var latestTests = []struct {
 }
 
 func TestLatest(t *testing.T) {
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExternalNetwork(t)
 	testenv.MustHaveExec(t)
+=======
+	t.Parallel()
 
+	type latestTest struct {
+		repo string
+		info *RevInfo
+	}
+	runTest := func(tt latestTest) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	for _, tt := range latestTests {
 		f := func(t *testing.T) {
 			r, err := testRepo(t, tt.repo)
+=======
+			r, err := testRepo(ctx, t, tt.repo)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 			if err != nil {
 				t.Fatal(err)
 			}
-			info, err := r.Latest()
+			info, err := r.Latest(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(info, tt.info) {
+				if !reflect.DeepEqual(info.Tags, tt.info.Tags) {
+					testenv.SkipFlaky(t, 56881)
+				}
 				t.Errorf("Latest: incorrect info\nhave %+v (origin %+v)\nwant %+v (origin %+v)", info, info.Origin, tt.info, tt.info.Origin)
 			}
 		}
@@ -221,8 +403,13 @@ func TestLatest(t *testing.T) {
 			tt.info = &info
 			o := *info.Origin
 			info.Origin = &o
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 			o.URL = localGitURL
 			t.Run(path.Base(tt.repo), f)
+=======
+			o.URL = localGitURL(t)
+			t.Run(path.Base(tt.repo), runTest(tt))
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 		}
 	}
 }
@@ -255,16 +442,36 @@ var readFileTests = []struct {
 }
 
 func TestReadFile(t *testing.T) {
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExternalNetwork(t)
 	testenv.MustHaveExec(t)
+=======
+	t.Parallel()
 
+	type readFileTest struct {
+		repo string
+		rev  string
+		file string
+		err  string
+		data string
+	}
+	runTest := func(tt readFileTest) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	for _, tt := range readFileTests {
 		f := func(t *testing.T) {
 			r, err := testRepo(t, tt.repo)
+=======
+			r, err := testRepo(ctx, t, tt.repo)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, err := r.ReadFile(tt.rev, tt.file, 100)
+			data, err := r.ReadFile(ctx, tt.rev, tt.file, 100)
 			if err != nil {
 				if tt.err == "" {
 					t.Fatalf("ReadFile: unexpected error %v", err)
@@ -446,16 +653,36 @@ type zipFile struct {
 }
 
 func TestReadZip(t *testing.T) {
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExternalNetwork(t)
 	testenv.MustHaveExec(t)
+=======
+	t.Parallel()
 
+	type readZipTest struct {
+		repo   string
+		rev    string
+		subdir string
+		err    string
+		files  map[string]uint64
+	}
+	runTest := func(tt readZipTest) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	for _, tt := range readZipTests {
 		f := func(t *testing.T) {
 			r, err := testRepo(t, tt.repo)
+=======
+			r, err := testRepo(ctx, t, tt.repo)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 			if err != nil {
 				t.Fatal(err)
 			}
-			rc, err := r.ReadZip(tt.rev, tt.subdir, 100000)
+			rc, err := r.ReadZip(ctx, tt.rev, tt.subdir, 100000)
 			if err != nil {
 				if tt.err == "" {
 					t.Fatalf("ReadZip: unexpected error %v", err)
@@ -498,7 +725,153 @@ func TestReadZip(t *testing.T) {
 				}
 			}
 		}
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 		t.Run(path.Base(tt.repo)+"/"+tt.rev+"/"+tt.subdir, f)
+=======
+	}
+
+	for _, tt := range []readZipTest{
+		{
+			repo:   gitrepo1,
+			rev:    "v2.3.4",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/":       0,
+				"prefix/README": 0,
+				"prefix/v2":     3,
+			},
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "v2.3.4",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/.hg_archival.txt": ^uint64(0),
+				"prefix/README":           0,
+				"prefix/v2":               3,
+			},
+		},
+
+		{
+			repo:   gitrepo1,
+			rev:    "v2",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/":            0,
+				"prefix/README":      0,
+				"prefix/v2":          3,
+				"prefix/another.txt": 8,
+				"prefix/foo.txt":     13,
+			},
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "v2",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/.hg_archival.txt": ^uint64(0),
+				"prefix/README":           0,
+				"prefix/v2":               3,
+				"prefix/another.txt":      8,
+				"prefix/foo.txt":          13,
+			},
+		},
+
+		{
+			repo:   gitrepo1,
+			rev:    "v3",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/":                    0,
+				"prefix/v3/":                 0,
+				"prefix/v3/sub/":             0,
+				"prefix/v3/sub/dir/":         0,
+				"prefix/v3/sub/dir/file.txt": 16,
+				"prefix/README":              0,
+			},
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "v3",
+			subdir: "",
+			files: map[string]uint64{
+				"prefix/.hg_archival.txt":    ^uint64(0),
+				"prefix/.hgtags":             405,
+				"prefix/v3/sub/dir/file.txt": 16,
+				"prefix/README":              0,
+			},
+		},
+
+		{
+			repo:   gitrepo1,
+			rev:    "v3",
+			subdir: "v3/sub/dir",
+			files: map[string]uint64{
+				"prefix/":                    0,
+				"prefix/v3/":                 0,
+				"prefix/v3/sub/":             0,
+				"prefix/v3/sub/dir/":         0,
+				"prefix/v3/sub/dir/file.txt": 16,
+			},
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "v3",
+			subdir: "v3/sub/dir",
+			files: map[string]uint64{
+				"prefix/v3/sub/dir/file.txt": 16,
+			},
+		},
+
+		{
+			repo:   gitrepo1,
+			rev:    "v3",
+			subdir: "v3/sub",
+			files: map[string]uint64{
+				"prefix/":                    0,
+				"prefix/v3/":                 0,
+				"prefix/v3/sub/":             0,
+				"prefix/v3/sub/dir/":         0,
+				"prefix/v3/sub/dir/file.txt": 16,
+			},
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "v3",
+			subdir: "v3/sub",
+			files: map[string]uint64{
+				"prefix/v3/sub/dir/file.txt": 16,
+			},
+		},
+
+		{
+			repo:   gitrepo1,
+			rev:    "aaaaaaaaab",
+			subdir: "",
+			err:    "unknown revision",
+		},
+		{
+			repo:   hgrepo1,
+			rev:    "aaaaaaaaab",
+			subdir: "",
+			err:    "unknown revision",
+		},
+
+		{
+			repo:   vgotest1,
+			rev:    "submod/v1.0.4",
+			subdir: "submod",
+			files: map[string]uint64{
+				"prefix/":                0,
+				"prefix/submod/":         0,
+				"prefix/submod/go.mod":   53,
+				"prefix/submod/pkg/":     0,
+				"prefix/submod/pkg/p.go": 31,
+			},
+		},
+	} {
+		t.Run(path.Base(tt.repo)+"/"+tt.rev+"/"+tt.subdir, runTest(tt))
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 		if tt.repo == gitrepo1 {
 			tt.repo = "localGitRepo"
 			t.Run(path.Base(tt.repo)+"/"+tt.rev+"/"+tt.subdir, f)
@@ -615,16 +988,35 @@ var statTests = []struct {
 }
 
 func TestStat(t *testing.T) {
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	testenv.MustHaveExternalNetwork(t)
 	testenv.MustHaveExec(t)
+=======
+	t.Parallel()
 
+	type statTest struct {
+		repo string
+		rev  string
+		err  string
+		info *RevInfo
+	}
+	runTest := func(tt statTest) func(*testing.T) {
+		return func(t *testing.T) {
+			t.Parallel()
+			ctx := testContext(t)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
+
+<<<<<<< go/./cmd/go/internal/modfetch/codehost/git_test.go
 	for _, tt := range statTests {
 		f := func(t *testing.T) {
 			r, err := testRepo(t, tt.repo)
+=======
+			r, err := testRepo(ctx, t, tt.repo)
+>>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/codehost/git_test.go
 			if err != nil {
 				t.Fatal(err)
 			}
-			info, err := r.Stat(tt.rev)
+			info, err := r.Stat(ctx, tt.rev)
 			if err != nil {
 				if tt.err == "" {
 					t.Fatalf("Stat: unexpected error %v", err)
@@ -639,6 +1031,9 @@ func TestStat(t *testing.T) {
 			}
 			info.Origin = nil // TestLatest and ../../../testdata/script/reuse_git.txt test Origin well enough
 			if !reflect.DeepEqual(info, tt.info) {
+				if !reflect.DeepEqual(info.Tags, tt.info.Tags) {
+					testenv.SkipFlaky(t, 56881)
+				}
 				t.Errorf("Stat: incorrect info\nhave %+v\nwant %+v", *info, *tt.info)
 			}
 		}

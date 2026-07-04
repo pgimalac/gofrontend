@@ -82,8 +82,8 @@ func makeMethodValue(op string, v Value) Value {
 
 	// Ignoring the flagMethod bit, v describes the receiver, not the method type.
 	fl := v.flag & (flagRO | flagAddr | flagIndir)
-	fl |= flag(v.typ.Kind())
-	rcvr := Value{v.typ, v.ptr, fl}
+	fl |= flag(v.typ().Kind())
+	rcvr := Value{v.typ(), v.ptr, fl}
 
 	// v.Type returns the actual type of the method value.
 	ft := v.Type().(*rtype)
@@ -130,7 +130,11 @@ func makeValueMethod(v Value) Value {
 
 	makeFuncFFI(makeCIF(ftyp), unsafe.Pointer(impl))
 
+<<<<<<< go/./reflect/makefunc.go
 	return Value{t, unsafe.Pointer(&impl), v.flag&flagRO | flag(Func) | flagIndir}
+=======
+	return Value{ftyp.Common(), unsafe.Pointer(fv), v.flag&flagRO | flag(Func)}
+>>>>>>> /tmp/go121/src/./reflect/makefunc.go
 }
 
 // methodValueCallCodePtr and methodValueCall are only here to provide

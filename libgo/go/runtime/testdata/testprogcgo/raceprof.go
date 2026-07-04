@@ -2,7 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+<<<<<<< go/./runtime/testdata/testprogcgo/raceprof.go
+<<<<<<< go/./runtime/testdata/testprogcgo/raceprof.go
 //go:build ((linux && amd64) || (freebsd && amd64)) && !gccgo
+=======
+//go:build unix
+// +build unix
+>>>>>>> /tmp/go121/src/./runtime/testdata/testprogcgo/raceprof.go
+=======
+//go:build unix
+// +build unix
+>>>>>>> /tmp/go121/src/./runtime/testdata/testprogcgo/raceprof.go
 
 package main
 

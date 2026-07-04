@@ -7,4 +7,6 @@ package unix
 const (
 	AT_REMOVEDIR        = 0x1
 	AT_SYMLINK_NOFOLLOW = 0x1000
+
+	UTIME_OMIT = -0x2
 )
