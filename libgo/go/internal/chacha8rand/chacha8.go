@@ -15,7 +15,11 @@ const (
 )
 
 // block is the chacha8rand block function.
-func block(seed *[4]uint64, blocks *[32]uint64, counter uint32)
+// gccgo does not build the assembly implementations, so use the
+// pure-Go block_generic.
+func block(seed *[4]uint64, blocks *[32]uint64, counter uint32) {
+	block_generic(seed, blocks, counter)
+}
 
 // A State holds the state for a single random generator.
 // It must be used from one goroutine at a time.
