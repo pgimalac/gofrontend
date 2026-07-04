@@ -82,8 +82,8 @@ func makeMethodValue(op string, v Value) Value {
 
 	// Ignoring the flagMethod bit, v describes the receiver, not the method type.
 	fl := v.flag & (flagRO | flagAddr | flagIndir)
-	fl |= flag(v.typ().Kind())
-	rcvr := Value{v.typ(), v.ptr, fl}
+	fl |= flag(v.typ.Kind())
+	rcvr := Value{v.typ, v.ptr, fl}
 
 	// v.Type returns the actual type of the method value.
 	ft := v.Type().(*rtype)

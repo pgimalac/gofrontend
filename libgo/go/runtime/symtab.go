@@ -144,6 +144,18 @@ func runtime_FrameStartLine(f *Frame) int {
 	return f.startLine
 }
 
+// runtime_FrameSymbolName returns the full symbol name of the function in a
+// Frame. In the gc runtime this differs from f.Function for generic functions;
+// gccgo has no shape-name substitution, so f.Function is the full symbol name.
+//
+// The gccgo underscore-doubling mangling applies to the linkname target, as
+// for runtime_FrameStartLine above.
+//
+//go:linkname runtime_FrameSymbolName runtime_1pprof.runtime__FrameSymbolName
+func runtime_FrameSymbolName(f *Frame) string {
+	return f.Function
+}
+
 // runtime_expandFinalInlineFrame expands the final pc in stk to include all
 // "callers" if pc is inline.
 //

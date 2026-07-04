@@ -44,7 +44,7 @@ package syscall
 //sys	Seek(fd int, offset int64, whence int) (off int64, err error)
 //lseek(fd _C_int, offset Offset_t, whence _C_int) Offset_t
 
-//sysnb	Setrlimit(resource int, rlim *Rlimit) (err error)
+//sysnb	setrlimit(resource int, rlim *Rlimit) (err error)
 //setrlimit(resource int, rlim *Rlimit) _C_int
 
 //sys	Stat(path string, stat *Stat_t) (err error)

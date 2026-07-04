@@ -85,6 +85,16 @@ func pipe2(flags int32) (r, w int32, e int32) {
 //extern __go_fcntl_uintptr
 func fcntlUintptr(fd, cmd, arg uintptr) (uintptr, uintptr)
 
+// fcntl is pulled by internal/syscall/unix via
+// //go:linkname fcntl runtime.fcntl. It wraps the gccgo
+// __go_fcntl_uintptr helper and matches the gc runtime signature.
+//
+//go:linkname fcntl runtime.fcntl
+func fcntl(fd, cmd, arg int32) (int32, int32) {
+	r, errno := fcntlUintptr(uintptr(fd), uintptr(cmd), uintptr(arg))
+	return int32(r), int32(errno)
+}
+
 //go:nosplit
 func closeonexec(fd int32) {
 	fcntlUintptr(uintptr(fd), _F_SETFD, _FD_CLOEXEC)

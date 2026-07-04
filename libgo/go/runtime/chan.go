@@ -735,7 +735,7 @@ func selectnbrecv(elem unsafe.Pointer, c *hchan) (selected, received bool) {
 	return chanrecv(c, elem, false)
 }
 
-//go:linkname reflect_chansend reflect.chansend0
+//go:linkname reflect_chansend reflect.chansend
 func reflect_chansend(c *hchan, elem unsafe.Pointer, nb bool) (selected bool) {
 	return chansend(c, elem, !nb, getcallerpc())
 }

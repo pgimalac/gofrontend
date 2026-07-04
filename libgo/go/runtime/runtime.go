@@ -168,4 +168,8 @@ func writeErrStr(s string) {
 // It contains an even number of elements, (tag, value) pairs.
 var auxv []uintptr
 
+// The go:linkname is needed so that gccgo emits getAuxv under the
+// runtime.getAuxv symbol name pulled by x/sys/cpu via go:linkname.
+//
+//go:linkname getAuxv runtime.getAuxv
 func getAuxv() []uintptr { return auxv } // accessed from x/sys/cpu; see issue 57336

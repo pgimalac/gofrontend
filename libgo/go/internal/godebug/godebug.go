@@ -177,7 +177,7 @@ func setUpdate(update func(string, string))
 // registerMetric is provided by package runtime.
 // It forwards registrations to runtime/metrics.
 //
-//go:linkname registerMetric
+//go:linkname registerMetric internal_1godebug.registerMetric
 func registerMetric(name string, read func() uint64)
 
 // setNewIncNonDefault is provided by package runtime.
@@ -191,7 +191,7 @@ func registerMetric(name string, read func() uint64)
 //
 // since it cannot import godebug.
 //
-//go:linkname setNewIncNonDefault
+//go:linkname setNewIncNonDefault internal_1godebug.setNewIncNonDefault
 func setNewIncNonDefault(newIncNonDefault func(string) func())
 
 func init() {

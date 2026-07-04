@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	_ "unsafe" // for go:linkname
 )
 
 // A Reader implements convenience methods for reading requests
@@ -483,7 +484,10 @@ func (r *Reader) ReadMIMEHeader() (MIMEHeader, error) {
 }
 
 // readMIMEHeader is a version of ReadMIMEHeader which takes a limit on the header size.
-// It is called by the mime/multipart package.
+// It is called by the mime/multipart package via a go:linkname pull, so the
+// go:linkname below forces gccgo to emit it under the net/textproto symbol name.
+//
+//go:linkname readMIMEHeader net_1textproto.readMIMEHeader
 func readMIMEHeader(r *Reader, maxMemory, maxHeaders int64) (MIMEHeader, error) {
 	// Avoid lots of small slice allocations later by allocating one
 	// large one ahead of time which we'll cut up into smaller
