@@ -6211,18 +6211,33 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	  if (pi >= nparam)
 	    break;
 	  Expression* copy = (*pa)->copy();
-	  // Whether this argument is an untyped constant literal (e.g. 0).
-	  // Detected by classification, before determine_type_no_context gives
-	  // it a default type -- and without calling type(), which is unsafe on
-	  // an as-yet-unlowered expression such as an unknown reference.
-	  Expression::Expression_classification ec = copy->classification();
-	  bool untyped = (ec == Expression::EXPRESSION_INTEGER
-			  || ec == Expression::EXPRESSION_FLOAT
-			  || ec == Expression::EXPRESSION_COMPLEX
-			  || ec == Expression::EXPRESSION_STRING
-			  || ec == Expression::EXPRESSION_BOOLEAN);
-	  copy->determine_type_no_context(this->gogo_);
-	  Type* at = copy->type();
+	  // Whether this argument is an untyped constant (e.g. the literal 0,
+	  // or a named untyped constant such as "Small" or "math.MaxUint32").
+	  // is_untyped resolves through named-constant and unknown references
+	  // to report the underlying abstract type, and works before the
+	  // expression is given a default type.
+	  Type* utype = NULL;
+	  bool untyped = copy->is_untyped(&utype);
+	  Type* at;
+	  if (untyped)
+	    {
+	      // Do NOT call determine_type_no_context on an untyped constant:
+	      // for a named constant, copy() shares the underlying
+	      // Named_constant, so determining it here would permanently cache
+	      // its type as the default (e.g. int), poisoning the real argument
+	      // so it could no longer take the parameter's type at the call.
+	      // Unify against the constant's default type, exactly as a literal
+	      // would; the solved_untyped bookkeeping lets a later typed
+	      // argument override this.
+	      at = (utype != NULL && utype->is_abstract()
+		    ? utype->make_non_abstract_type()
+		    : utype);
+	    }
+	  else
+	    {
+	      copy->determine_type_no_context(this->gogo_);
+	      at = copy->type();
+	    }
 
 	  bool last_is_varargs = (is_varargs && pi + 1 == nparam);
 	  // An untyped nil argument carries no type information and must not
