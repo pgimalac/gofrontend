@@ -658,6 +658,10 @@ func sighandler(sig uint32, info *_siginfo_t, ctxt unsafe.Pointer, gp *g) {
 }
 
 func fatalsignal(sig uint32, c *sigctxt, gp *g, mp *m) *g {
+	// gccgo stores the faulting PC on the g (set from getSiginfo in
+	// sighandler); it has no general sigctxt.sigpc() accessor.
+	sigpc := gp.sigpc
+
 	if sig < uint32(len(sigtable)) {
 		print(sigtable[sig].name, "\n")
 	} else {
@@ -668,7 +672,7 @@ func fatalsignal(sig uint32, c *sigctxt, gp *g, mp *m) *g {
 		exit(2)
 	}
 
-	print("PC=", hex(c.sigpc()), " m=", mp.id, " sigcode=", c.sigcode(), "\n")
+	print("PC=", hex(sigpc), " m=", mp.id, " sigcode=", c.sigcode(), "\n")
 	if mp.incgo && gp == mp.g0 && mp.curg != nil {
 		print("signal arrived during cgo execution\n")
 		// Switch to curg so that we get a traceback of the Go code
@@ -688,7 +692,7 @@ func fatalsignal(sig uint32, c *sigctxt, gp *g, mp *m) *g {
 		// that could lead to printing an incomplete instruction).
 		// We're assuming here we can read at least the page containing the PC.
 		// I suppose it is possible that the page is mapped executable but not readable?
-		pc := uintptr(c.sigpc())
+		pc := uintptr(sigpc)
 		if n > physPageSize-pc%physPageSize {
 			n = physPageSize - pc%physPageSize
 		}
@@ -917,10 +921,10 @@ func noSignalStack(sig uint32) {
 // This is called if we receive a signal when there is a signal stack
 // but we are not on it. This can only happen if non-Go code called
 // sigaction without setting the SS_ONSTACK flag.
-func sigNotOnStack(sig uint32, sp uintptr, mp *m) {
+// gccgo's g has no stack field, so this does not print the signal
+// stack bounds and takes only the signal number.
+func sigNotOnStack(sig uint32) {
 	println("signal", sig, "received but handler not on signal stack")
-	print("mp.gsignal stack [", hex(mp.gsignal.stack.lo), " ", hex(mp.gsignal.stack.hi), "], ")
-	print("mp.g0 stack [", hex(mp.g0.stack.lo), " ", hex(mp.g0.stack.hi), "], sp=", hex(sp), "\n")
 	throw("non-Go code set up signal handler without SA_ONSTACK flag")
 }
 

@@ -81,17 +81,17 @@ func makechan64(t *chantype, size int64) *hchan {
 }
 
 func makechan(t *chantype, size int) *hchan {
-	elem := t.Elem
+	elem := t.elem
 
 	// compiler checks this but be safe.
-	if elem.Size_ >= 1<<16 {
+	if elem.size >= 1<<16 {
 		throw("makechan: invalid channel element type")
 	}
-	if hchanSize%maxAlign != 0 || elem.Align_ > maxAlign {
+	if hchanSize%maxAlign != 0 || elem.align > maxAlign {
 		throw("makechan: bad alignment")
 	}
 
-	mem, overflow := math.MulUintptr(elem.Size_, uintptr(size))
+	mem, overflow := math.MulUintptr(elem.size, uintptr(size))
 	if overflow || mem > maxAlloc-hchanSize || size < 0 {
 		panic(plainError("makechan: size out of range"))
 	}
@@ -107,7 +107,7 @@ func makechan(t *chantype, size int) *hchan {
 		c = (*hchan)(mallocgc(hchanSize, nil, true))
 		// Race detector uses this location for synchronization.
 		c.buf = c.raceaddr()
-	case elem.PtrBytes == 0:
+	case elem.ptrdata == 0:
 		// Elements do not contain pointers.
 		// Allocate hchan and buf in one call.
 		c = (*hchan)(mallocgc(hchanSize+mem, nil, true))
@@ -118,13 +118,13 @@ func makechan(t *chantype, size int) *hchan {
 		c.buf = mallocgc(mem, elem, true)
 	}
 
-	c.elemsize = uint16(elem.Size_)
+	c.elemsize = uint16(elem.size)
 	c.elemtype = elem
 	c.dataqsiz = uint(size)
 	lockInit(&c.lock, lockRankHchan)
 
 	if debugChan {
-		print("makechan: chan=", c, "; elemsize=", elem.Size_, "; dataqsiz=", size, "\n")
+		print("makechan: chan=", c, "; elemsize=", elem.size, "; dataqsiz=", size, "\n")
 	}
 	return c
 }
@@ -355,10 +355,10 @@ func sendDirect(t *_type, sg *sudog, src unsafe.Pointer) {
 	// be updated if the destination's stack gets copied (shrunk).
 	// So make sure that no preemption points can happen between read & use.
 	dst := sg.elem
-	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.Size_)
+	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
 	// No need for cgo write barrier checks because dst is always
 	// Go memory.
-	memmove(dst, src, t.Size_)
+	memmove(dst, src, t.size)
 }
 
 func recvDirect(t *_type, sg *sudog, dst unsafe.Pointer) {
@@ -366,8 +366,8 @@ func recvDirect(t *_type, sg *sudog, dst unsafe.Pointer) {
 	// The channel is locked, so src will not move during this
 	// operation.
 	src := sg.elem
-	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.Size_)
-	memmove(dst, src, t.Size_)
+	typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
+	memmove(dst, src, t.size)
 }
 
 func closechan(c *hchan) {

@@ -5,10 +5,8 @@
 package runtime
 
 import (
-	"internal/abi"
 	"internal/goarch"
 	"runtime/internal/atomic"
-	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -602,6 +600,7 @@ type m struct {
 	printlock   int8
 	incgo      bool          // m is executing a cgo call
 	isextra    bool          // m is an extra m
+	isExtraInC bool          // m is an extra m that is not executing Go code
 	freeWait   atomic.Uint32 // Whether it is safe to free g0 and delete m (one of freeMRef, freeMStack, freeMWait)
 	fastrand   uint64
 	needextram bool
@@ -721,6 +720,16 @@ type p struct {
 	// Cache of a single pinner object to reduce allocations from repeated
 	// pinner creation.
 	pinnerCache *pinner
+
+	tracebuf traceBufPtr
+
+	// traceSweep indicates the sweep events should be traced.
+	// This is used to defer the sweep start event until a span
+	// has actually been swept.
+	traceSweep bool
+	// traceSwept and traceReclaimed track the number of bytes
+	// swept and reclaimed by sweeping in the current sweep loop.
+	traceSwept, traceReclaimed uintptr
 
 	palloc persistentAlloc // per-P to avoid mutex
 
@@ -1034,6 +1043,14 @@ type _panic struct {
 	goexit bool
 }
 
+const (
+	_TraceRuntimeFrames = 1 << iota // include frames for internal runtime functions.
+	_TraceTrap                      // the initial PC, SP are from a trap, not a return PC from a call
+	_TraceJumpStack                 // if traceback is on a systemstack, resume trace at g that called into it
+)
+
+// The maximum number of frames we print for a traceback
+const _TracebackMaxFrames = 100
 
 // ancestorInfo records details of where a goroutine was started.
 type ancestorInfo struct {

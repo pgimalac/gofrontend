@@ -75,7 +75,7 @@ func CgocallDone() {
 func CgocallBack() {
 	gp := getg()
 	if gp == nil || gp.m == nil {
-		needm()
+		needm(false)
 		gp = getg()
 		mp := gp.m
 		mp.dropextram = true
@@ -159,3 +159,9 @@ func _cgo_panic(p *byte) {
 // gccgo does not need this.
 var cgo_yield = &_cgo_yield
 var _cgo_yield unsafe.Pointer
+
+// _cgo_pthread_key_created and _cgo_bindm are used by the gc 1.21 needm/bindm
+// mechanism to bind an extra M to a C thread on pthread platforms. gccgo does
+// not currently set these, so they remain nil and the bindm path is inert.
+var _cgo_pthread_key_created unsafe.Pointer
+var _cgo_bindm unsafe.Pointer

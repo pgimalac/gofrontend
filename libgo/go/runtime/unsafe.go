@@ -57,13 +57,13 @@ func unsafeslice(et *_type, ptr unsafe.Pointer, len int) {
 		panicunsafeslicelen1(getcallerpc())
 	}
 
-	if et.Size_ == 0 {
+	if et.size == 0 {
 		if ptr == nil && len > 0 {
 			panicunsafeslicenilptr1(getcallerpc())
 		}
 	}
 
-	mem, overflow := math.MulUintptr(et.Size_, uintptr(len))
+	mem, overflow := math.MulUintptr(et.size, uintptr(len))
 	if overflow || mem > -uintptr(ptr) {
 		if ptr == nil {
 			panicunsafeslicenilptr1(getcallerpc())

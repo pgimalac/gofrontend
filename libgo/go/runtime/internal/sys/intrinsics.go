@@ -104,8 +104,6 @@ func TrailingZeros8(x uint8) int {
 //extern __builtin_bswap64
 func bswap64(uint64) uint64
 
-//go:nosplit
-
 const len8tab = "" +
 	"\x00\x01\x02\x02\x03\x03\x03\x03\x04\x04\x04\x04\x04\x04\x04\x04" +
 	"\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05" +
@@ -192,6 +190,8 @@ func LeadingZeros8(x uint8) int { return 8 - Len8(x) }
 func Len8(x uint8) int {
 	return int(len8tab[x])
 }
+
+//go:nosplit
 
 // Bswap64 returns its input with byte order reversed
 // 0x0102030405060708 -> 0x0807060504030201

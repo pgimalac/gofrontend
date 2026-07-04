@@ -278,7 +278,7 @@ func (l *dlogger) p(x any) *dlogger {
 		l.w.uvarint(0)
 	} else {
 		v := efaceOf(&x)
-		switch v._type.Kind_ & kindMask {
+		switch v._type.kind & kindMask {
 		case kindChan, kindFunc, kindMap, kindPtr, kindUnsafePointer:
 			l.w.uvarint(uint64(uintptr(v.data)))
 		default:

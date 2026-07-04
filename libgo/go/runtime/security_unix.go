@@ -52,8 +52,10 @@ func secureFDs() {
 
 	devNull := []byte("/dev/null\x00")
 	for i := 0; i < 3; i++ {
-		ret, errno := fcntl(int32(i), F_GETFD, 0)
-		if ret >= 0 {
+		// gccgo uses fcntlUintptr, which returns (result, errno) where
+		// errno == 0 indicates success.
+		_, errno := fcntlUintptr(uintptr(i), F_GETFD, 0)
+		if errno == 0 {
 			continue
 		}
 		if errno != EBADF {

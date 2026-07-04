@@ -109,13 +109,11 @@ func pinnerGetPtr(i *any) unsafe.Pointer {
 	if etyp == nil {
 		panic(errorString("runtime.Pinner: argument is nil"))
 	}
-	if kind := etyp.Kind_ & kindMask; kind != kindPtr && kind != kindUnsafePointer {
-		panic(errorString("runtime.Pinner: argument is not a pointer: " + toRType(etyp).string()))
+	if kind := etyp.kind & kindMask; kind != kindPtr && kind != kindUnsafePointer {
+		panic(errorString("runtime.Pinner: argument is not a pointer: " + etyp.string()))
 	}
-	if inUserArenaChunk(uintptr(e.data)) {
-		// Arena-allocated objects are not eligible for pinning.
-		panic(errorString("runtime.Pinner: object was allocated into an arena"))
-	}
+	// gccgo does not implement user arenas, so there is no arena chunk to
+	// check against here.
 	return e.data
 }
 
@@ -141,6 +139,23 @@ func isPinned(ptr unsafe.Pointer) bool {
 	pinState := pinnerBits.ofObject(objIndex)
 	KeepAlive(ptr) // make sure ptr is alive until we are done so the span can't be freed
 	return pinState.isPinned()
+}
+
+// isGoPointerWithoutSpan reports whether p points to a Go pointer that has
+// no heap span, i.e. it is a linker-allocated global or a zero-size object.
+//
+// For gccgo we cannot reliably detect the noptrdata/data/bss/noptrbss
+// segments (see the comment in SetFinalizer in mfinal.go), so we only
+// special-case zerobase and otherwise treat pointers without a span as
+// linker-allocated.
+func isGoPointerWithoutSpan(p unsafe.Pointer) bool {
+	// 0-length objects are okay.
+	if p == unsafe.Pointer(&zerobase) {
+		return true
+	}
+	// gccgo has no reliable way to detect linker-allocated globals, so
+	// assume any Go pointer without a span is one.
+	return true
 }
 
 // setPinned marks or unmarks a Go pointer as pinned.
@@ -302,7 +317,9 @@ func (s *mspan) refreshPinnerBits() {
 	// newPinnerBits guarantees that pinnerBits will be 8-byte aligned, so we
 	// don't have to worry about edge cases, irrelevant bits will simply be
 	// zero.
-	for _, x := range unsafe.Slice((*uint64)(unsafe.Pointer(&p.x)), bytes/8) {
+	// gccgo's gcBits (and thus pinnerBits) is a uint8, so a pointer to
+	// the bits is just a pointer to the value itself.
+	for _, x := range unsafe.Slice((*uint64)(unsafe.Pointer(p)), bytes/8) {
 		if x != 0 {
 			hasPins = true
 			break
@@ -311,7 +328,7 @@ func (s *mspan) refreshPinnerBits() {
 
 	if hasPins {
 		newPinnerBits := s.newPinnerBits()
-		memmove(unsafe.Pointer(&newPinnerBits.x), unsafe.Pointer(&p.x), bytes)
+		memmove(unsafe.Pointer(newPinnerBits), unsafe.Pointer(p), bytes)
 		s.setPinnerBits(newPinnerBits)
 	} else {
 		s.setPinnerBits(nil)
@@ -363,7 +380,7 @@ func (span *mspan) decPinCounter(offset uintptr) bool {
 
 // only for tests
 func pinnerGetPinCounter(addr unsafe.Pointer) *uintptr {
-	_, span, objIndex := findObject(uintptr(addr), 0, 0)
+	_, span, objIndex := findObject(uintptr(addr), 0, 0, false)
 	offset := objIndex * span.elemsize
 	t, exists := span.specialFindSplicePoint(offset, _KindSpecialPinCounter)
 	if !exists {

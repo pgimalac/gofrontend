@@ -7,7 +7,6 @@
 package runtime
 
 import (
-	"internal/abi"
 	"internal/goarch"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
@@ -881,7 +880,7 @@ func gcDrain(gcw *gcWork, flags gcDrainFlags) {
 				// Flush the write barrier
 				// buffer; this may create
 				// more work.
-				wbBufFlush()
+				wbBufFlush(nil, 0)
 				b = gcw.tryGet()
 			}
 		}
@@ -960,7 +959,7 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 			if b == 0 {
 				// Flush the write barrier buffer;
 				// this may create more work.
-				wbBufFlush()
+				wbBufFlush(nil, 0)
 				b = gcw.tryGet()
 			}
 		}

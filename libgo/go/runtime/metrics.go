@@ -35,6 +35,13 @@ type metricData struct {
 	// compute is a function that populates a metricValue
 	// given a populated statAggregate structure.
 	compute func(in *statAggregate, out *metricValue)
+
+	// reader, if non-zero, is 1 + the index into godebugMetricReaders
+	// of the reader function for a dynamically registered godebug metric.
+	// gccgo's runtime forbids capturing closures from escaping to the
+	// heap, so instead of storing a closure in compute we store an index
+	// here and invoke the reader at sampling time (see readMetricsLocked).
+	reader int
 }
 
 func metricsLock() {
@@ -484,7 +491,15 @@ func (f metricReader) compute(_ *statAggregate, out *metricValue) {
 	out.scalar = f()
 }
 
-//go:linkname godebug_registerMetric internal/godebug.registerMetric
+// godebugMetricReaders holds the reader functions registered via
+// godebug_registerMetric. gccgo's runtime forbids a func parameter from
+// escaping to the heap (e.g. via a capturing closure stored in the metrics
+// map), but storing it into a package-level variable is allowed (the same
+// pattern used by sync_runtime_registerPoolCleanup). The compute closure
+// then captures only an int index by value, which does not escape.
+var godebugMetricReaders []func() uint64
+
+//go:linkname godebug_registerMetric internal_1godebug.registerMetric
 func godebug_registerMetric(name string, read func() uint64) {
 	metricsLock()
 	initMetrics()
@@ -492,7 +507,8 @@ func godebug_registerMetric(name string, read func() uint64) {
 	if !ok {
 		throw("runtime: unexpected metric registration for " + name)
 	}
-	d.compute = metricReader(read).compute
+	godebugMetricReaders = append(godebugMetricReaders, read)
+	d.reader = len(godebugMetricReaders) // 1 + index
 	metrics[name] = d
 	metricsUnlock()
 }
@@ -797,7 +813,7 @@ type metricName struct {
 // readMetricNames is the implementation of runtime/metrics.readMetricNames,
 // used by the runtime/metrics test and otherwise unreferenced.
 //
-//go:linkname readMetricNames runtime/metrics_test.runtime_readMetricNames
+//go:linkname readMetricNames runtime_1metrics_1test.runtime_readMetricNames
 func readMetricNames() []string {
 	metricsLock()
 	initMetrics()
@@ -843,8 +859,15 @@ func readMetrics(samplesp unsafe.Pointer, len int, cap int) {
 		// agg is populated lazily.
 		agg.ensure(&data.deps)
 
-		// Compute the value based on the stats we have.
-		data.compute(&agg, &sample.value)
+		if data.reader != 0 {
+			// Dynamically registered godebug metric: invoke its
+			// reader directly (see godebug_registerMetric).
+			sample.value.kind = metricKindUint64
+			sample.value.scalar = godebugMetricReaders[data.reader-1]()
+		} else {
+			// Compute the value based on the stats we have.
+			data.compute(&agg, &sample.value)
+		}
 	}
 
 	metricsUnlock()

@@ -181,7 +181,7 @@ retry:
 		}
 		if mode != 0 {
 			pd := *(**pollDesc)(unsafe.Pointer(&ev.data))
-			pd.setEventErr(ev.events == _EPOLLERR)
+			pd.setEventErr(ev.events == _EPOLLERR, 0)
 			netpollready(&toRun, pd, mode)
 		}
 	}

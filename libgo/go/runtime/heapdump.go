@@ -12,7 +12,6 @@
 package runtime
 
 import (
-	"internal/abi"
 	"internal/goarch"
 	"unsafe"
 )
@@ -169,7 +168,7 @@ func dumptype(t *_type) {
 
 	// If we've definitely serialized the type before,
 	// no need to do it again.
-	b := &typecache[t.Hash&(typeCacheBuckets-1)]
+	b := &typecache[t.hash&(typeCacheBuckets-1)]
 	if t == b.t[0] {
 		return
 	}
@@ -207,7 +206,7 @@ func dumptype(t *_type) {
 		dwritebyte('.')
 		dwrite(name.str, uintptr(name.len))
 	}
-	dumpbool(t.Kind_&kindDirectIface == 0 || t.PtrBytes != 0)
+	dumpbool(t.kind&kindDirectIface == 0 || t.ptrdata != 0)
 }
 
 // dump an object.

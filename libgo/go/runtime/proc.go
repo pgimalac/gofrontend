@@ -2712,7 +2712,7 @@ func execute(gp *g, inheritTime bool) {
 		// GoSysExit has to happen when we have a P, but before GoStart.
 		// So we emit it here.
 		if gp.syscallsp != 0 {
-			traceGoSysExit()
+			traceGoSysExit(gp.sysexitticks)
 		}
 		traceGoStart()
 	}
@@ -3981,7 +3981,7 @@ func exitsyscallfast(oldp *p) bool {
 						osyield()
 					}
 				}
-				traceGoSysExit()
+				traceGoSysExit(0)
 			}
 		})
 		if ok {
@@ -4007,7 +4007,7 @@ func exitsyscallfast_reacquired() {
 				// Denote blocking of the new syscall.
 				traceGoSysBlock(gp.m.p.ptr())
 				// Denote completion of the current syscall.
-				traceGoSysExit()
+				traceGoSysExit(0)
 			})
 		}
 		gp.m.p.ptr().syscalltick++

@@ -659,7 +659,7 @@ func preprintpanics(p *_panic) {
 		case string:
 			throw(text + ": " + r)
 		default:
-			throw(text + ": type " + toRType(efaceOf(&r)._type).string())
+			throw(text + ": type " + efaceOf(&r)._type.string())
 		}
 	}()
 	for p != nil {

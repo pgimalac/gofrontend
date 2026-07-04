@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Code to check that pointer writes follow the cgo rules.
-// These functions are invoked when GOEXPERIMENT=cgocheck2 is enabled.
+// These functions are invoked via the write barrier when debug.cgocheck > 1.
 
 package runtime
 
@@ -14,11 +14,61 @@ import (
 
 const cgoWriteBarrierFail = "unpinned Go pointer stored into non-Go memory"
 
+// cgoCheckWriteBarrier is called whenever a pointer is stored into memory.
+// It throws if the program is storing an unpinned Go pointer into non-Go
+// memory.
+//
+// This is called from the write barrier, so its entire call tree must
+// be nosplit.
+//
+//go:nosplit
+//go:nowritebarrier
+func cgoCheckWriteBarrier(dst *uintptr, src uintptr) {
+	if !cgoIsGoPointer(unsafe.Pointer(src)) {
+		return
+	}
+	if cgoIsGoPointer(unsafe.Pointer(dst)) {
+		return
+	}
+
+	// If we are running on the system stack then dst might be an
+	// address on the stack, which is OK.
+	gp := getg()
+	if gp == gp.m.g0 || gp == gp.m.gsignal {
+		return
+	}
+
+	// Allocating memory can write to various mfixalloc structs
+	// that look like they are non-Go memory.
+	if gp.m.mallocing != 0 {
+		return
+	}
+
+	// If the object is pinned, it's safe to store it in C memory. The GC
+	// ensures it will not be moved or freed.
+	if isPinned(unsafe.Pointer(src)) {
+		return
+	}
+
+	// It's OK if writing to memory allocated by persistentalloc.
+	// Do this check last because it is more expensive and rarely true.
+	// If it is false the expense doesn't matter since we are crashing.
+	if inPersistentAlloc(uintptr(unsafe.Pointer(dst))) {
+		return
+	}
+
+	systemstack(func() {
+		println("write of unpinned Go pointer", hex(src), "to non-Go memory", hex(uintptr(unsafe.Pointer(dst))))
+		throw(cgoWriteBarrierFail)
+	})
+}
+
 // cgoCheckPtrWrite is called whenever a pointer is stored into memory.
 // It throws if the program is storing an unpinned Go pointer into non-Go
 // memory.
 //
-// This is called from generated code when GOEXPERIMENT=cgocheck2 is enabled.
+// This is called from the write barrier, so its entire call tree must
+// be nosplit.
 //
 //go:nosplit
 //go:nowritebarrier
@@ -69,18 +119,6 @@ func cgoCheckPtrWrite(dst *unsafe.Pointer, src unsafe.Pointer) {
 }
 
 // cgoCheckMemmove is called when moving a block of memory.
-// It throws if the program is copying a block that contains an unpinned Go
-// pointer into non-Go memory.
-//
-// This is called from generated code when GOEXPERIMENT=cgocheck2 is enabled.
-//
-//go:nosplit
-//go:nowritebarrier
-func cgoCheckMemmove(typ *_type, dst, src unsafe.Pointer) {
-	cgoCheckMemmove2(typ, dst, src, 0, typ.Size_)
-}
-
-// cgoCheckMemmove2 is called when moving a block of memory.
 // dst and src point off bytes into the value to copy.
 // size is the number of bytes to copy.
 // It throws if the program is copying a block that contains an unpinned Go
@@ -88,8 +126,8 @@ func cgoCheckMemmove(typ *_type, dst, src unsafe.Pointer) {
 //
 //go:nosplit
 //go:nowritebarrier
-func cgoCheckMemmove2(typ *_type, dst, src unsafe.Pointer, off, size uintptr) {
-	if typ.PtrBytes == 0 {
+func cgoCheckMemmove(typ *_type, dst, src unsafe.Pointer, off, size uintptr) {
+	if typ.ptrdata == 0 {
 		return
 	}
 	if !cgoIsGoPointer(src) {
@@ -110,7 +148,7 @@ func cgoCheckMemmove2(typ *_type, dst, src unsafe.Pointer, off, size uintptr) {
 //go:nosplit
 //go:nowritebarrier
 func cgoCheckSliceCopy(typ *_type, dst, src unsafe.Pointer, n int) {
-	if typ.PtrBytes == 0 {
+	if typ.ptrdata == 0 {
 		return
 	}
 	if !cgoIsGoPointer(src) {
@@ -121,8 +159,8 @@ func cgoCheckSliceCopy(typ *_type, dst, src unsafe.Pointer, n int) {
 	}
 	p := src
 	for i := 0; i < n; i++ {
-		cgoCheckTypedBlock(typ, p, 0, typ.Size_)
-		p = add(p, typ.Size_)
+		cgoCheckTypedBlock(typ, p, 0, typ.size)
+		p = add(p, typ.size)
 	}
 }
 
@@ -133,16 +171,16 @@ func cgoCheckSliceCopy(typ *_type, dst, src unsafe.Pointer, n int) {
 //go:nosplit
 //go:nowritebarrier
 func cgoCheckTypedBlock(typ *_type, src unsafe.Pointer, off, size uintptr) {
-	// Anything past typ.PtrBytes is not a pointer.
-	if typ.PtrBytes <= off {
+	// Anything past typ.ptrdata is not a pointer.
+	if typ.ptrdata <= off {
 		return
 	}
-	if ptrdataSize := typ.PtrBytes - off; size > ptrdataSize {
+	if ptrdataSize := typ.ptrdata - off; size > ptrdataSize {
 		size = ptrdataSize
 	}
 
-	if typ.Kind_&kindGCProg == 0 {
-		cgoCheckBits(src, typ.GCData, off, size)
+	if typ.kind&kindGCProg == 0 {
+		cgoCheckBits(src, typ.gcdata, off, size)
 		return
 	}
 
@@ -183,7 +221,7 @@ func cgoCheckTypedBlock(typ *_type, src unsafe.Pointer, off, size uintptr) {
 		bits := hbits.bits()
 		if i >= off && bits&bitPointer != 0 {
 			v := *(*unsafe.Pointer)(add(src, i))
-			if cgoIsGoPointer(v) {
+			if cgoIsGoPointer(v) && !isPinned(v) {
 				throw(cgoWriteBarrierFail)
 			}
 		}
@@ -234,37 +272,37 @@ func cgoCheckBits(src unsafe.Pointer, gcbits *byte, off, size uintptr) {
 //go:nowritebarrier
 //go:systemstack
 func cgoCheckUsingType(typ *_type, src unsafe.Pointer, off, size uintptr) {
-	if typ.PtrBytes == 0 {
+	if typ.ptrdata == 0 {
 		return
 	}
 
-	// Anything past typ.PtrBytes is not a pointer.
-	if typ.PtrBytes <= off {
+	// Anything past typ.ptrdata is not a pointer.
+	if typ.ptrdata <= off {
 		return
 	}
-	if ptrdataSize := typ.PtrBytes - off; size > ptrdataSize {
+	if ptrdataSize := typ.ptrdata - off; size > ptrdataSize {
 		size = ptrdataSize
 	}
 
-	if typ.Kind_&kindGCProg == 0 {
-		cgoCheckBits(src, typ.GCData, off, size)
+	if typ.kind&kindGCProg == 0 {
+		cgoCheckBits(src, typ.gcdata, off, size)
 		return
 	}
-	switch typ.Kind_ & kindMask {
+	switch typ.kind & kindMask {
 	default:
 		throw("can't happen")
 	case kindArray:
 		at := (*arraytype)(unsafe.Pointer(typ))
-		for i := uintptr(0); i < at.Len; i++ {
-			if off < at.Elem.Size_ {
-				cgoCheckUsingType(at.Elem, src, off, size)
+		for i := uintptr(0); i < at.len; i++ {
+			if off < at.elem.size {
+				cgoCheckUsingType(at.elem, src, off, size)
 			}
-			src = add(src, at.Elem.Size_)
+			src = add(src, at.elem.size)
 			skipped := off
-			if skipped > at.Elem.Size_ {
-				skipped = at.Elem.Size_
+			if skipped > at.elem.size {
+				skipped = at.elem.size
 			}
-			checked := at.Elem.Size_ - skipped
+			checked := at.elem.size - skipped
 			off -= skipped
 			if size <= checked {
 				return
@@ -273,16 +311,16 @@ func cgoCheckUsingType(typ *_type, src unsafe.Pointer, off, size uintptr) {
 		}
 	case kindStruct:
 		st := (*structtype)(unsafe.Pointer(typ))
-		for _, f := range st.Fields {
-			if off < f.Typ.Size_ {
-				cgoCheckUsingType(f.Typ, src, off, size)
+		for _, f := range st.fields {
+			if off < f.typ.size {
+				cgoCheckUsingType(f.typ, src, off, size)
 			}
-			src = add(src, f.Typ.Size_)
+			src = add(src, f.typ.size)
 			skipped := off
-			if skipped > f.Typ.Size_ {
-				skipped = f.Typ.Size_
+			if skipped > f.typ.size {
+				skipped = f.typ.size
 			}
-			checked := f.Typ.Size_ - skipped
+			checked := f.typ.size - skipped
 			off -= skipped
 			if size <= checked {
 				return

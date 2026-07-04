@@ -87,7 +87,7 @@ func godebug_setUpdate(update func(string, string)) {
 	godebugNotify(false)
 }
 
-//go:linkname godebug_setNewIncNonDefault internal/godebug.setNewIncNonDefault
+//go:linkname godebug_setNewIncNonDefault internal_1godebug.setNewIncNonDefault
 func godebug_setNewIncNonDefault(newIncNonDefault func(string) func()) {
 	p := new(func(string) func())
 	*p = newIncNonDefault

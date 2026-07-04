@@ -207,7 +207,7 @@ func StartTrace() error {
 	// Do not stop the world during GC so we ensure we always see
 	// a consistent view of GC-related events (e.g. a start is always
 	// paired with an end).
-	stopTheWorldGC("start tracing")
+	stopTheWorldGC(stwStartTrace)
 
 	// Prevent sysmon from running any code that could generate events.
 	lock(&sched.sysmonlock)
@@ -317,7 +317,7 @@ func StartTrace() error {
 func StopTrace() {
 	// Stop the world so that we can collect the trace buffers from all p's below,
 	// and also to avoid races with traceEvent.
-	stopTheWorldGC("stop tracing")
+	stopTheWorldGC(stwStopTrace)
 
 	// See the comment in StartTrace.
 	lock(&sched.sysmonlock)
@@ -542,6 +542,28 @@ func traceEnabled() bool {
 func traceShuttingDown() bool {
 	return trace.shutdown
 }
+
+// traceBlock* are the gc 1.21 names for the reason a goroutine blocks.
+// gccgo uses a flat byte-based tracer whose gopark takes a traceEv byte,
+// so these are kept as untyped aliases of the corresponding traceEvGo*
+// event bytes for compatibility with the gc 1.21 call sites.
+const (
+	traceBlockGeneric         = traceEvGoBlock
+	traceBlockForever         = traceEvGoStop
+	traceBlockNet             = traceEvGoBlockNet
+	traceBlockSelect          = traceEvGoBlockSelect
+	traceBlockCondWait        = traceEvGoBlockCond
+	traceBlockSync            = traceEvGoBlockSync
+	traceBlockChanSend        = traceEvGoBlockSend
+	traceBlockChanRecv        = traceEvGoBlockRecv
+	traceBlockGCMarkAssist    = traceEvGoBlockGC
+	traceBlockGCSweep         = traceEvGoBlock
+	traceBlockSystemGoroutine = traceEvGoBlock
+	traceBlockPreempted       = traceEvGoBlock
+	traceBlockDebugCall       = traceEvGoBlock
+	traceBlockUntilGCEnds     = traceEvGoBlock
+	traceBlockSleep           = traceEvGoSleep
+)
 
 // traceReaderAvailable returns true if the trace reader is not currently
 // scheduled and should be. Callers should first check that trace.enabled

@@ -163,6 +163,16 @@ func sysHugePageOS(v unsafe.Pointer, n uintptr) {
 	}
 }
 
+func sysNoHugePageOS(v unsafe.Pointer, n uintptr) {
+	if physHugePageSize != 0 && _MADV_NOHUGEPAGE != 0 {
+		if uintptr(v)&(physPageSize-1) != 0 {
+			// madvise requires a page-aligned address.
+			throw("unaligned sysNoHugePageOS")
+		}
+		madvise(v, n, _MADV_NOHUGEPAGE)
+	}
+}
+
 // Don't split the stack as this function may be invoked without a valid G,
 // which prevents us from allocating more stack.
 //

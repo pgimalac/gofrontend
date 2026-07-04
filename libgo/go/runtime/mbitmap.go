@@ -719,13 +719,14 @@ func bulkBarrierBitmap(dst, src, size, maskOffset uintptr, bits *uint8) {
 		if *bits&mask != 0 {
 			dstx := (*uintptr)(unsafe.Pointer(dst + i))
 			if src == 0 {
-				p := buf.get1()
-				p[0] = *dstx
+				if !buf.putFast(*dstx, 0) {
+					wbBufFlush(nil, 0)
+				}
 			} else {
 				srcx := (*uintptr)(unsafe.Pointer(src + i))
-				p := buf.get2()
-				p[0] = *dstx
-				p[1] = *srcx
+				if !buf.putFast(*dstx, *srcx) {
+					wbBufFlush(nil, 0)
+				}
 			}
 		}
 		mask <<= 1
@@ -753,21 +754,21 @@ func typeBitsBulkBarrier(typ *_type, dst, src, size uintptr) {
 	if typ == nil {
 		throw("runtime: typeBitsBulkBarrier without type")
 	}
-	if typ.Size_ != size {
-		println("runtime: typeBitsBulkBarrier with type ", toRType(typ).string(), " of size ", typ.Size_, " but memory size", size)
+	if typ.size != size {
+		println("runtime: typeBitsBulkBarrier with type ", typ.string(), " of size ", typ.size, " but memory size", size)
 		throw("runtime: invalid typeBitsBulkBarrier")
 	}
-	if typ.Kind_&kindGCProg != 0 {
-		println("runtime: typeBitsBulkBarrier with type ", toRType(typ).string(), " with GC prog")
+	if typ.kind&kindGCProg != 0 {
+		println("runtime: typeBitsBulkBarrier with type ", typ.string(), " with GC prog")
 		throw("runtime: invalid typeBitsBulkBarrier")
 	}
 	if !writeBarrier.needed {
 		return
 	}
-	ptrmask := typ.GCData
+	ptrmask := typ.gcdata
 	buf := &getg().m.p.ptr().wbBuf
 	var bits uint32
-	for i := uintptr(0); i < typ.PtrBytes; i += goarch.PtrSize {
+	for i := uintptr(0); i < typ.ptrdata; i += goarch.PtrSize {
 		if i&(goarch.PtrSize*8-1) == 0 {
 			bits = uint32(*ptrmask)
 			ptrmask = addb(ptrmask, 1)
@@ -777,9 +778,9 @@ func typeBitsBulkBarrier(typ *_type, dst, src, size uintptr) {
 		if bits&1 != 0 {
 			dstx := (*uintptr)(unsafe.Pointer(dst + i))
 			srcx := (*uintptr)(unsafe.Pointer(src + i))
-			p := buf.get2()
-			p[0] = *dstx
-			p[1] = *srcx
+			if !buf.putFast(*dstx, *srcx) {
+				wbBufFlush(nil, 0)
+			}
 		}
 	}
 }

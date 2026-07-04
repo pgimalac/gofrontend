@@ -1016,7 +1016,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	}
 	var span *mspan
 	var x unsafe.Pointer
-	noscan := typ == nil || typ.PtrBytes == 0
+	noscan := typ == nil || typ.ptrdata == 0
 	// In some cases block zeroing can profitably (for latency reduction purposes)
 	// be delayed till preemption is possible; delayedZeroing tracks that state.
 	delayedZeroing := false
@@ -1142,15 +1142,15 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 	var scanSize uintptr
 	if !noscan {
 		heapBitsSetType(uintptr(x), size, dataSize, typ)
-		if dataSize > typ.Size_ {
+		if dataSize > typ.size {
 			// Array allocation. If there are any
 			// pointers, GC has to scan to the last
 			// element.
-			if typ.PtrBytes != 0 {
-				scanSize = dataSize - typ.Size_ + typ.PtrBytes
+			if typ.ptrdata != 0 {
+				scanSize = dataSize - typ.size + typ.ptrdata
 			}
 		} else {
-			scanSize = typ.PtrBytes
+			scanSize = typ.ptrdata
 		}
 		c.scanAlloc += scanSize
 	}
@@ -1292,25 +1292,25 @@ func memclrNoHeapPointersChunked(size uintptr, x unsafe.Pointer) {
 // compiler (both frontend and SSA backend) knows the signature
 // of this function
 func newobject(typ *_type) unsafe.Pointer {
-	return mallocgc(typ.Size_, typ, true)
+	return mallocgc(typ.size, typ, true)
 }
 
 //go:linkname reflect_unsafe_New reflect.unsafe__New
 func reflect_unsafe_New(typ *_type) unsafe.Pointer {
-	return mallocgc(typ.Size_, typ, true)
+	return mallocgc(typ.size, typ, true)
 }
 
 //go:linkname reflectlite_unsafe_New internal_1reflectlite.unsafe__New
 func reflectlite_unsafe_New(typ *_type) unsafe.Pointer {
-	return mallocgc(typ.Size_, typ, true)
+	return mallocgc(typ.size, typ, true)
 }
 
 // newarray allocates an array of n elements of type typ.
 func newarray(typ *_type, n int) unsafe.Pointer {
 	if n == 1 {
-		return mallocgc(typ.Size_, typ, true)
+		return mallocgc(typ.size, typ, true)
 	}
-	mem, overflow := math.MulUintptr(typ.Size_, uintptr(n))
+	mem, overflow := math.MulUintptr(typ.size, uintptr(n))
 	if overflow || mem > maxAlloc || n < 0 {
 		panic(plainError("runtime: allocation size out of range"))
 	}
