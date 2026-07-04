@@ -1776,6 +1776,11 @@ class For_range_statement : public Statement
 		    Block**, Expression**, Block**, Block**);
 
   void
+  lower_range_int(Gogo*, Block*, Block*, Named_object*, Temporary_statement*,
+		  Temporary_statement*, Temporary_statement*,
+		  Block**, Expression**, Block**, Block**);
+
+  void
   lower_range_string(Gogo*, Block*, Block*, Named_object*, Temporary_statement*,
 		     Temporary_statement*, Temporary_statement*,
 		     Block**, Expression**, Block**, Block**);

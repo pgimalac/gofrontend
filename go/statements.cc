@@ -6864,6 +6864,20 @@ For_range_statement::do_check_types(Gogo*)
 	  return;
 	}
     }
+  else if (range_type->integer_type() != NULL)
+    {
+      index_type = range_type;
+      if (index_type->is_abstract())
+	index_type = Type::lookup_integer_type("int");
+      value_type = NULL;
+      if (this->value_var_ != NULL)
+	{
+	  this->report_error(_("range over integer permits only one "
+			       "iteration variable"));
+	  this->set_is_error();
+	  return;
+	}
+    }
   else
     {
       this->report_error(_("range clause must have "
@@ -6920,6 +6934,13 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
   else if (range_type->channel_type() != NULL)
     {
       index_type = range_type->channel_type()->element_type();
+      go_assert(this->value_var_ == NULL);
+    }
+  else if (range_type->integer_type() != NULL)
+    {
+      index_type = range_type;
+      if (index_type->is_abstract())
+	index_type = Type::lookup_integer_type("int");
       go_assert(this->value_var_ == NULL);
     }
   else
@@ -7040,6 +7061,10 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
     this->lower_range_channel(gogo, temp_block, body, range_object, range_temp,
 			      index_temp, value_temp, &init, &cond, &iter_init,
 			      &post);
+  else if (range_type->integer_type() != NULL)
+    this->lower_range_int(gogo, temp_block, body, range_object, range_temp,
+			  index_temp, value_temp, &init, &cond, &iter_init,
+			  &post);
   else
     go_unreachable();
 
@@ -7208,6 +7233,78 @@ For_range_statement::lower_range_array(Gogo* gogo,
       iter_init->add_statement(s);
     }
   *piter_init = iter_init;
+
+  // Set *PPOST to
+  //   index_temp++
+
+  Block* post = new Block(enclosing, loc);
+  tref = Expression::make_temporary_reference(index_temp, loc);
+  tref->set_is_lvalue();
+  s = Statement::make_inc_statement(tref);
+  s->determine_types(gogo);
+  post->add_statement(s);
+  *ppost = post;
+}
+
+// Lower a for range over an integer.
+
+void
+For_range_statement::lower_range_int(Gogo* gogo,
+				     Block* enclosing,
+				     Block*,
+				     Named_object* range_object,
+				     Temporary_statement* range_temp,
+				     Temporary_statement* index_temp,
+				     Temporary_statement*,
+				     Block** pinit,
+				     Expression** pcond,
+				     Block** piter_init,
+				     Block** ppost)
+{
+  Location loc = this->location();
+
+  // The loop we generate:
+  //   bound_temp := range
+  //   for index_temp = 0; index_temp < bound_temp; index_temp++ {
+  //           index = index_temp
+  //           original body
+  //   }
+
+  // Set *PINIT to
+  //   bound_temp := range
+  //   index_temp = 0
+
+  Block* init = new Block(enclosing, loc);
+
+  Expression* ref = this->make_range_ref(range_object, range_temp, loc);
+  Temporary_statement* bound_temp =
+    Statement::make_temporary(index_temp->type(), ref, loc);
+  bound_temp->determine_types(gogo);
+  init->add_statement(bound_temp);
+
+  Expression* zexpr = Expression::make_integer_ul(0, index_temp->type(), loc);
+
+  Temporary_reference_expression* tref =
+    Expression::make_temporary_reference(index_temp, loc);
+  tref->set_is_lvalue();
+  Statement* s = Statement::make_assignment(tref, zexpr, loc);
+  s->determine_types(gogo);
+  init->add_statement(s);
+
+  *pinit = init;
+
+  // Set *PCOND to
+  //   index_temp < bound_temp
+
+  ref = Expression::make_temporary_reference(index_temp, loc);
+  Expression* ref2 = Expression::make_temporary_reference(bound_temp, loc);
+  Expression* lt = Expression::make_binary(OPERATOR_LT, ref, ref2, loc);
+
+  *pcond = lt;
+
+  // No iteration initialization; there is no value variable.
+
+  *piter_init = NULL;
 
   // Set *PPOST to
   //   index_temp++

@@ -8414,6 +8414,23 @@ Variable::type_from_range(Expression* expr, bool get_index_type,
 	  return Type::make_error_type();
 	}
     }
+  else if (t->integer_type() != NULL)
+    {
+      if (get_index_type)
+	{
+	  if (t->is_abstract())
+	    return Type::lookup_integer_type("int");
+	  return t;
+	}
+      else
+	{
+	  if (report_error)
+	    go_error_at(this->location(),
+			("range over integer permits only one "
+			 "iteration variable"));
+	  return Type::make_error_type();
+	}
+    }
   else
     {
       if (report_error)
