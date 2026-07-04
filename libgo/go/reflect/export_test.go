@@ -27,7 +27,20 @@ func FuncLayout(t Type, rcvr Type) (frametype Type, argSize, retOffset uintptr, 
 }
 
 func TypeLinks() []string {
+<<<<<<< go/./reflect/export_test.go
 	return nil
+=======
+	var r []string
+	sections, offset := typelinks()
+	for i, offs := range offset {
+		rodata := sections[i]
+		for _, off := range offs {
+			typ := (*rtype)(resolveTypeOff(rodata, off))
+			r = append(r, typ.String())
+		}
+	}
+	return r
+>>>>>>> /tmp/go122/src/./reflect/export_test.go
 }
 
 var GCBits = gcbits
@@ -92,3 +105,5 @@ type Buffer struct {
 }
 
 var MethodValueCallCodePtr = methodValueCallCodePtr
+
+var InternalIsZero = isZero

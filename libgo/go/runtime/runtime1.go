@@ -318,25 +318,28 @@ type dbgVar struct {
 // existing int var for that value, which may
 // already have an initial value.
 var debug struct {
-	cgocheck           int32
-	clobberfree        int32
-	dontfreezetheworld int32
-	efence             int32
-	gccheckmark        int32
-	gcpacertrace       int32
-	gcshrinkstackoff   int32
-	gcstoptheworld     int32
-	gctrace            int32
-	invalidptr         int32
-	madvdontneed       int32 // for Linux; issue 28466
-	scavtrace          int32
-	scheddetail        int32
-	schedtrace         int32
-	tracebackancestors int32
-	asyncpreemptoff    int32
-	harddecommit       int32
-	adaptivestackstart int32
-	tracefpunwindoff   int32
+	cgocheck                int32
+	clobberfree             int32
+	disablethp              int32
+	dontfreezetheworld      int32
+	efence                  int32
+	gccheckmark             int32
+	gcpacertrace            int32
+	gcshrinkstackoff        int32
+	gcstoptheworld          int32
+	gctrace                 int32
+	invalidptr              int32
+	madvdontneed            int32 // for Linux; issue 28466
+	runtimeContentionStacks atomic.Int32
+	scavtrace               int32
+	scheddetail             int32
+	schedtrace              int32
+	tracebackancestors      int32
+	asyncpreemptoff         int32
+	harddecommit            int32
+	adaptivestackstart      int32
+	tracefpunwindoff        int32
+	traceadvanceperiod      int32
 
 	// debug.malloc is used as a combined debug check
 	// in the malloc function and should be set
@@ -353,6 +356,7 @@ var dbgvars = []*dbgVar{
 	{name: "allocfreetrace", value: &debug.allocfreetrace},
 	{name: "clobberfree", value: &debug.clobberfree},
 	{name: "cgocheck", value: &debug.cgocheck},
+	{name: "disablethp", value: &debug.disablethp},
 	{name: "dontfreezetheworld", value: &debug.dontfreezetheworld},
 	{name: "efence", value: &debug.efence},
 	{name: "gccheckmark", value: &debug.gccheckmark},
@@ -362,6 +366,7 @@ var dbgvars = []*dbgVar{
 	{name: "gctrace", value: &debug.gctrace},
 	{name: "invalidptr", value: &debug.invalidptr},
 	{name: "madvdontneed", value: &debug.madvdontneed},
+	{name: "runtimecontentionstacks", atomic: &debug.runtimeContentionStacks},
 	{name: "sbrk", value: &debug.sbrk},
 	{name: "scavtrace", value: &debug.scavtrace},
 	{name: "scheddetail", value: &debug.scheddetail},
@@ -373,6 +378,7 @@ var dbgvars = []*dbgVar{
 	{name: "adaptivestackstart", value: &debug.adaptivestackstart},
 	{name: "tracefpunwindoff", value: &debug.tracefpunwindoff},
 	{name: "panicnil", atomic: &debug.panicnil},
+	{name: "traceadvanceperiod", value: &debug.traceadvanceperiod},
 }
 
 func parsedebugvars() {
@@ -397,6 +403,7 @@ func parsedebugvars() {
 		// Hence, default to MADV_DONTNEED.
 		debug.madvdontneed = 1
 	}
+	debug.traceadvanceperiod = defaultTraceAdvancePeriod
 
 	godebug := gogetenv("GODEBUG")
 
@@ -596,8 +603,83 @@ func acquirem() *m {
 func releasem(mp *m) {
 	// _g_ := getg()
 	mp.locks--
+<<<<<<< go/./runtime/runtime1.go
 	// if mp.locks == 0 && _g_.preempt {
 	//	// restore the preemption request in case we've cleared it in newstack
 	//	_g_.stackguard0 = stackPreempt
 	// }
+=======
+	if mp.locks == 0 && gp.preempt {
+		// restore the preemption request in case we've cleared it in newstack
+		gp.stackguard0 = stackPreempt
+	}
+}
+
+//go:linkname reflect_typelinks reflect.typelinks
+func reflect_typelinks() ([]unsafe.Pointer, [][]int32) {
+	modules := activeModules()
+	sections := []unsafe.Pointer{unsafe.Pointer(modules[0].types)}
+	ret := [][]int32{modules[0].typelinks}
+	for _, md := range modules[1:] {
+		sections = append(sections, unsafe.Pointer(md.types))
+		ret = append(ret, md.typelinks)
+	}
+	return sections, ret
+}
+
+// reflect_resolveNameOff resolves a name offset from a base pointer.
+//
+//go:linkname reflect_resolveNameOff reflect.resolveNameOff
+func reflect_resolveNameOff(ptrInModule unsafe.Pointer, off int32) unsafe.Pointer {
+	return unsafe.Pointer(resolveNameOff(ptrInModule, nameOff(off)).Bytes)
+}
+
+// reflect_resolveTypeOff resolves an *rtype offset from a base type.
+//
+//go:linkname reflect_resolveTypeOff reflect.resolveTypeOff
+func reflect_resolveTypeOff(rtype unsafe.Pointer, off int32) unsafe.Pointer {
+	return unsafe.Pointer(toRType((*_type)(rtype)).typeOff(typeOff(off)))
+}
+
+// reflect_resolveTextOff resolves a function pointer offset from a base type.
+//
+//go:linkname reflect_resolveTextOff reflect.resolveTextOff
+func reflect_resolveTextOff(rtype unsafe.Pointer, off int32) unsafe.Pointer {
+	return toRType((*_type)(rtype)).textOff(textOff(off))
+}
+
+// reflectlite_resolveNameOff resolves a name offset from a base pointer.
+//
+//go:linkname reflectlite_resolveNameOff internal/reflectlite.resolveNameOff
+func reflectlite_resolveNameOff(ptrInModule unsafe.Pointer, off int32) unsafe.Pointer {
+	return unsafe.Pointer(resolveNameOff(ptrInModule, nameOff(off)).Bytes)
+}
+
+// reflectlite_resolveTypeOff resolves an *rtype offset from a base type.
+//
+//go:linkname reflectlite_resolveTypeOff internal/reflectlite.resolveTypeOff
+func reflectlite_resolveTypeOff(rtype unsafe.Pointer, off int32) unsafe.Pointer {
+	return unsafe.Pointer(toRType((*_type)(rtype)).typeOff(typeOff(off)))
+}
+
+// reflect_addReflectOff adds a pointer to the reflection offset lookup map.
+//
+//go:linkname reflect_addReflectOff reflect.addReflectOff
+func reflect_addReflectOff(ptr unsafe.Pointer) int32 {
+	reflectOffsLock()
+	if reflectOffs.m == nil {
+		reflectOffs.m = make(map[int32]unsafe.Pointer)
+		reflectOffs.minv = make(map[unsafe.Pointer]int32)
+		reflectOffs.next = -1
+	}
+	id, found := reflectOffs.minv[ptr]
+	if !found {
+		id = reflectOffs.next
+		reflectOffs.next-- // use negative offsets as IDs to aid debugging
+		reflectOffs.m[id] = ptr
+		reflectOffs.minv[ptr] = id
+	}
+	reflectOffsUnlock()
+	return id
+>>>>>>> /tmp/go122/src/./runtime/runtime1.go
 }

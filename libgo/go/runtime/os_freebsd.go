@@ -170,6 +170,129 @@ func osinit() {
 	}
 }
 
+<<<<<<< go/./runtime/os_freebsd.go
+=======
+var urandom_dev = []byte("/dev/urandom\x00")
+
+//go:nosplit
+func readRandom(r []byte) int {
+	fd := open(&urandom_dev[0], 0 /* O_RDONLY */, 0)
+	n := read(fd, unsafe.Pointer(&r[0]), int32(len(r)))
+	closefd(fd)
+	return int(n)
+}
+
+func goenvs() {
+	goenvs_unix()
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+func mpreinit(mp *m) {
+	mp.gsignal = malg(32 * 1024)
+	mp.gsignal.m = mp
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, cannot allocate memory.
+func minit() {
+	getg().m.procid = uint64(thr_self())
+
+	// On FreeBSD before about April 2017 there was a bug such
+	// that calling execve from a thread other than the main
+	// thread did not reset the signal stack. That would confuse
+	// minitSignals, which calls minitSignalStack, which checks
+	// whether there is currently a signal stack and uses it if
+	// present. To avoid this confusion, explicitly disable the
+	// signal stack on the main thread when not running in a
+	// library. This can be removed when we are confident that all
+	// FreeBSD users are running a patched kernel. See issue #15658.
+	if gp := getg(); !isarchive && !islibrary && gp.m == &m0 && gp == gp.m.g0 {
+		st := stackt{ss_flags: _SS_DISABLE}
+		sigaltstack(&st, nil)
+	}
+
+	minitSignals()
+}
+
+// Called from dropm to undo the effect of an minit.
+//
+//go:nosplit
+func unminit() {
+	unminitSignals()
+	getg().m.procid = 0
+}
+
+// Called from exitm, but not from drop, to undo the effect of thread-owned
+// resources in minit, semacreate, or elsewhere. Do not take locks after calling this.
+func mdestroy(mp *m) {
+}
+
+func sigtramp()
+
+type sigactiont struct {
+	sa_handler uintptr
+	sa_flags   int32
+	sa_mask    sigset
+}
+
+// See os_freebsd2.go, os_freebsd_amd64.go for setsig function
+
+//go:nosplit
+//go:nowritebarrierrec
+func setsigstack(i uint32) {
+	var sa sigactiont
+	sigaction(i, nil, &sa)
+	if sa.sa_flags&_SA_ONSTACK != 0 {
+		return
+	}
+	sa.sa_flags |= _SA_ONSTACK
+	sigaction(i, &sa, nil)
+}
+
+//go:nosplit
+//go:nowritebarrierrec
+func getsig(i uint32) uintptr {
+	var sa sigactiont
+	sigaction(i, nil, &sa)
+	return sa.sa_handler
+}
+
+// setSignalstackSP sets the ss_sp field of a stackt.
+//
+//go:nosplit
+func setSignalstackSP(s *stackt, sp uintptr) {
+	s.ss_sp = sp
+}
+
+//go:nosplit
+//go:nowritebarrierrec
+func sigaddset(mask *sigset, i int) {
+	mask.__bits[(i-1)/32] |= 1 << ((uint32(i) - 1) & 31)
+}
+
+func sigdelset(mask *sigset, i int) {
+	mask.__bits[(i-1)/32] &^= 1 << ((uint32(i) - 1) & 31)
+}
+
+//go:nosplit
+func (c *sigctxt) fixsigcode(sig uint32) {
+}
+
+func setProcessCPUProfiler(hz int32) {
+	setProcessCPUProfilerTimer(hz)
+}
+
+func setThreadCPUProfiler(hz int32) {
+	setThreadCPUProfilerHz(hz)
+}
+
+//go:nosplit
+func validSIGPROF(mp *m, c *sigctxt) bool {
+	return true
+}
+
+>>>>>>> /tmp/go122/src/./runtime/os_freebsd.go
 func sysargs(argc int32, argv **byte) {
 	n := argc + 1
 
@@ -190,6 +313,7 @@ func sysargs(argc int32, argv **byte) {
 const (
 	_AT_NULL     = 0  // Terminates the vector
 	_AT_PAGESZ   = 6  // Page size in bytes
+	_AT_PLATFORM = 15 // string identifying platform
 	_AT_TIMEKEEP = 22 // Pointer to timehands.
 	_AT_HWCAP    = 25 // CPU feature flags
 	_AT_HWCAP2   = 26 // CPU feature flags 2

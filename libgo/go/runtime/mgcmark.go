@@ -8,6 +8,7 @@ package runtime
 
 import (
 	"internal/goarch"
+	"internal/goexperiment"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
 	"unsafe"
@@ -348,13 +349,48 @@ func gcAssistAlloc(gp *g) {
 		return
 	}
 
-	traced := false
+	// This extremely verbose boolean indicates whether we've
+	// entered mark assist from the perspective of the tracer.
+	//
+	// In the old tracer, this is just before we call gcAssistAlloc1
+	// *and* tracing is enabled. Because the old tracer doesn't
+	// do any extra tracking, we need to be careful to not emit an
+	// "end" event if there was no corresponding "begin" for the
+	// mark assist.
+	//
+	// In the new tracer, this is just before we call gcAssistAlloc1
+	// *regardless* of whether tracing is enabled. This is because
+	// the new tracer allows for tracing to begin (and advance
+	// generations) in the middle of a GC mark phase, so we need to
+	// record some state so that the tracer can pick it up to ensure
+	// a consistent trace result.
+	//
+	// TODO(mknyszek): Hide the details of inMarkAssist in tracer
+	// functions and simplify all the state tracking. This is a lot.
+	enteredMarkAssistForTracing := false
 retry:
 	if gcCPULimiter.limiting() {
 		// If the CPU limiter is enabled, intentionally don't
 		// assist to reduce the amount of CPU time spent in the GC.
-		if traced {
-			traceGCMarkAssistDone()
+		if enteredMarkAssistForTracing {
+			trace := traceAcquire()
+			if trace.ok() {
+				trace.GCMarkAssistDone()
+				// Set this *after* we trace the end to make sure
+				// that we emit an in-progress event if this is
+				// the first event for the goroutine in the trace
+				// or trace generation. Also, do this between
+				// acquire/release because this is part of the
+				// goroutine's trace state, and it must be atomic
+				// with respect to the tracer.
+				gp.inMarkAssist = false
+				traceRelease(trace)
+			} else {
+				// This state is tracked even if tracing isn't enabled.
+				// It's only used by the new tracer.
+				// See the comment on enteredMarkAssistForTracing.
+				gp.inMarkAssist = false
+			}
 		}
 		return
 	}
@@ -394,16 +430,60 @@ retry:
 		if scanWork == 0 {
 			// We were able to steal all of the credit we
 			// needed.
-			if traced {
-				traceGCMarkAssistDone()
+			if enteredMarkAssistForTracing {
+				trace := traceAcquire()
+				if trace.ok() {
+					trace.GCMarkAssistDone()
+					// Set this *after* we trace the end to make sure
+					// that we emit an in-progress event if this is
+					// the first event for the goroutine in the trace
+					// or trace generation. Also, do this between
+					// acquire/release because this is part of the
+					// goroutine's trace state, and it must be atomic
+					// with respect to the tracer.
+					gp.inMarkAssist = false
+					traceRelease(trace)
+				} else {
+					// This state is tracked even if tracing isn't enabled.
+					// It's only used by the new tracer.
+					// See the comment on enteredMarkAssistForTracing.
+					gp.inMarkAssist = false
+				}
 			}
 			return
 		}
 	}
-
-	if traceEnabled() && !traced {
-		traced = true
-		traceGCMarkAssistStart()
+	if !enteredMarkAssistForTracing {
+		trace := traceAcquire()
+		if trace.ok() {
+			if !goexperiment.ExecTracer2 {
+				// In the old tracer, enter mark assist tracing only
+				// if we actually traced an event. Otherwise a goroutine
+				// waking up from mark assist post-GC might end up
+				// writing a stray "end" event.
+				//
+				// This means inMarkAssist will not be meaningful
+				// in the old tracer; that's OK, it's unused.
+				//
+				// See the comment on enteredMarkAssistForTracing.
+				enteredMarkAssistForTracing = true
+			}
+			trace.GCMarkAssistStart()
+			// Set this *after* we trace the start, otherwise we may
+			// emit an in-progress event for an assist we're about to start.
+			gp.inMarkAssist = true
+			traceRelease(trace)
+		} else {
+			gp.inMarkAssist = true
+		}
+		if goexperiment.ExecTracer2 {
+			// In the new tracer, set enter mark assist tracing if we
+			// ever pass this point, because we must manage inMarkAssist
+			// correctly.
+			//
+			// See the comment on enteredMarkAssistForTracing.
+			enteredMarkAssistForTracing = true
+		}
 	}
 
 	// Perform assist work
@@ -448,8 +528,25 @@ retry:
 		// At this point either background GC has satisfied
 		// this G's assist debt, or the GC cycle is over.
 	}
-	if traced {
-		traceGCMarkAssistDone()
+	if enteredMarkAssistForTracing {
+		trace := traceAcquire()
+		if trace.ok() {
+			trace.GCMarkAssistDone()
+			// Set this *after* we trace the end to make sure
+			// that we emit an in-progress event if this is
+			// the first event for the goroutine in the trace
+			// or trace generation. Also, do this between
+			// acquire/release because this is part of the
+			// goroutine's trace state, and it must be atomic
+			// with respect to the tracer.
+			gp.inMarkAssist = false
+			traceRelease(trace)
+		} else {
+			// This state is tracked even if tracing isn't enabled.
+			// It's only used by the new tracer.
+			// See the comment on enteredMarkAssistForTracing.
+			gp.inMarkAssist = false
+		}
 	}
 }
 
@@ -472,7 +569,7 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 		// The gcBlackenEnabled check in malloc races with the
 		// store that clears it but an atomic check in every malloc
 		// would be a performance hit.
-		// Instead we recheck it here on the non-preemptable system
+		// Instead we recheck it here on the non-preemptible system
 		// stack to determine if we should perform an assist.
 
 		// GC is done, so ignore any remaining debt.
@@ -785,8 +882,68 @@ func scanSyscallStack(gp *g, gcw *gcWork) {
 			return
 		}
 
+<<<<<<< go/./runtime/mgcmark.go
 		// The signal was delivered at a bad time.  Try again.
 		osyield()
+=======
+		// Scan arguments to this frame.
+		if n := frame.argBytes(); n != 0 {
+			// TODO: We could pass the entry argument map
+			// to narrow this down further.
+			scanConservative(frame.argp, n, nil, gcw, state)
+		}
+
+		if isAsyncPreempt || isDebugCall {
+			// This function's frame contained the
+			// registers for the asynchronously stopped
+			// parent frame. Scan the parent
+			// conservatively.
+			state.conservative = true
+		} else {
+			// We only wanted to scan those two frames
+			// conservatively. Clear the flag for future
+			// frames.
+			state.conservative = false
+		}
+		return
+	}
+
+	locals, args, objs := frame.getStackMap(false)
+
+	// Scan local variables if stack frame has been allocated.
+	if locals.n > 0 {
+		size := uintptr(locals.n) * goarch.PtrSize
+		scanblock(frame.varp-size, size, locals.bytedata, gcw, state)
+	}
+
+	// Scan arguments.
+	if args.n > 0 {
+		scanblock(frame.argp, uintptr(args.n)*goarch.PtrSize, args.bytedata, gcw, state)
+	}
+
+	// Add all stack objects to the stack object list.
+	if frame.varp != 0 {
+		// varp is 0 for defers, where there are no locals.
+		// In that case, there can't be a pointer to its args, either.
+		// (And all args would be scanned above anyway.)
+		for i := range objs {
+			obj := &objs[i]
+			off := obj.off
+			base := frame.varp // locals base pointer
+			if off >= 0 {
+				base = frame.argp // arguments and return values base pointer
+			}
+			ptr := base + uintptr(off)
+			if ptr < frame.sp {
+				// object hasn't been allocated in the frame yet.
+				continue
+			}
+			if stackTraceDebug {
+				println("stkobj at", hex(ptr), "of size", obj.size)
+			}
+			state.addObject(ptr, obj)
+		}
+>>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 	}
 }
 
@@ -798,6 +955,28 @@ const (
 	gcDrainIdle
 	gcDrainFractional
 )
+
+// gcDrainMarkWorkerIdle is a wrapper for gcDrain that exists to better account
+// mark time in profiles.
+func gcDrainMarkWorkerIdle(gcw *gcWork) {
+	gcDrain(gcw, gcDrainIdle|gcDrainUntilPreempt|gcDrainFlushBgCredit)
+}
+
+// gcDrainMarkWorkerDedicated is a wrapper for gcDrain that exists to better account
+// mark time in profiles.
+func gcDrainMarkWorkerDedicated(gcw *gcWork, untilPreempt bool) {
+	flags := gcDrainFlushBgCredit
+	if untilPreempt {
+		flags |= gcDrainUntilPreempt
+	}
+	gcDrain(gcw, flags)
+}
+
+// gcDrainMarkWorkerFractional is a wrapper for gcDrain that exists to better account
+// mark time in profiles.
+func gcDrainMarkWorkerFractional(gcw *gcWork) {
+	gcDrain(gcw, gcDrainFractional|gcDrainUntilPreempt|gcDrainFlushBgCredit)
+}
 
 // gcDrain scans roots and objects in work buffers, blackening grey
 // objects until it is unable to get more work. It may return before
@@ -818,15 +997,26 @@ const (
 // credit to gcController.bgScanCredit every gcCreditSlack units of
 // scan work.
 //
-// gcDrain will always return if there is a pending STW.
+// gcDrain will always return if there is a pending STW or forEachP.
+//
+// Disabling write barriers is necessary to ensure that after we've
+// confirmed that we've drained gcw, that we don't accidentally end
+// up flipping that condition by immediately adding work in the form
+// of a write barrier buffer flush.
+//
+// Don't set nowritebarrierrec because it's safe for some callees to
+// have write barriers enabled.
 //
 //go:nowritebarrier
 func gcDrain(gcw *gcWork, flags gcDrainFlags) {
-	if !writeBarrier.needed {
+	if !writeBarrier.enabled {
 		throw("gcDrain phase incorrect")
 	}
 
+	// N.B. We must be running in a non-preemptible context, so it's
+	// safe to hold a reference to our P here.
 	gp := getg().m.curg
+	pp := gp.m.p.ptr()
 	preemptible := flags&gcDrainUntilPreempt != 0
 	flushBgCredit := flags&gcDrainFlushBgCredit != 0
 	idle := flags&gcDrainIdle != 0
@@ -848,8 +1038,9 @@ func gcDrain(gcw *gcWork, flags gcDrainFlags) {
 
 	// Drain root marking jobs.
 	if work.markrootNext < work.markrootJobs {
-		// Stop if we're preemptible or if someone wants to STW.
-		for !(gp.preempt && (preemptible || sched.gcwaiting.Load())) {
+		// Stop if we're preemptible, if someone wants to STW, or if
+		// someone is calling forEachP.
+		for !(gp.preempt && (preemptible || sched.gcwaiting.Load() || pp.runSafePointFn != 0)) {
 			job := atomic.Xadd(&work.markrootNext, +1) - 1
 			if job >= work.markrootJobs {
 				break
@@ -862,8 +1053,16 @@ func gcDrain(gcw *gcWork, flags gcDrainFlags) {
 	}
 
 	// Drain heap marking jobs.
-	// Stop if we're preemptible or if someone wants to STW.
-	for !(gp.preempt && (preemptible || sched.gcwaiting.Load())) {
+	//
+	// Stop if we're preemptible, if someone wants to STW, or if
+	// someone is calling forEachP.
+	//
+	// TODO(mknyszek): Consider always checking gp.preempt instead
+	// of having the preempt flag, and making an exception for certain
+	// mark workers in retake. That might be simpler than trying to
+	// enumerate all the reasons why we might want to preempt, even
+	// if we're supposed to be mostly non-preemptible.
+	for !(gp.preempt && (preemptible || sched.gcwaiting.Load() || pp.runSafePointFn != 0)) {
 		// Try to keep work available on the global queue. We used to
 		// check if there were waiting workers, but it's better to
 		// just keep work available than to make workers wait. In the
@@ -936,7 +1135,7 @@ done:
 //go:nowritebarrier
 //go:systemstack
 func gcDrainN(gcw *gcWork, scanWork int64) int64 {
-	if !writeBarrier.needed {
+	if !writeBarrier.enabled {
 		throw("gcDrainN phase incorrect")
 	}
 
@@ -1056,6 +1255,7 @@ func scanobject(b uintptr, gcw *gcWork) {
 		throw("scanobject n == 0")
 	}
 
+	var tp typePointers
 	if n > maxObletBytes {
 		// Large object. Break into oblets for better
 		// parallelism and lower latency.
@@ -1087,11 +1287,18 @@ func scanobject(b uintptr, gcw *gcWork) {
 		// must be a large object, s.base() is the beginning
 		// of the object.
 		n = s.base() + s.elemsize - b
-		if n > maxObletBytes {
-			n = maxObletBytes
+		n = min(n, maxObletBytes)
+		if goexperiment.AllocHeaders {
+			tp = s.typePointersOfUnchecked(s.base())
+			tp = tp.fastForward(b-tp.addr, b+n)
+		}
+	} else {
+		if goexperiment.AllocHeaders {
+			tp = s.typePointersOfUnchecked(b)
 		}
 	}
 
+<<<<<<< go/./runtime/mgcmark.go
 	var i uintptr
 	for i = 0; i < n; i, hbits = i+goarch.PtrSize, hbits.next() {
 		// Load bits once. See CL 22712 and issue 16973 for discussion.
@@ -1101,6 +1308,27 @@ func scanobject(b uintptr, gcw *gcWork) {
 		}
 		if bits&bitPointer == 0 {
 			continue // not a pointer
+=======
+	var hbits heapBits
+	if !goexperiment.AllocHeaders {
+		hbits = heapBitsForAddr(b, n)
+	}
+	var scanSize uintptr
+	for {
+		var addr uintptr
+		if goexperiment.AllocHeaders {
+			if tp, addr = tp.nextFast(); addr == 0 {
+				if tp, addr = tp.next(b + n); addr == 0 {
+					break
+				}
+			}
+		} else {
+			if hbits, addr = hbits.nextFast(); addr == 0 {
+				if hbits, addr = hbits.next(); addr == 0 {
+					break
+				}
+			}
+>>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 		}
 
 		// Work here is duplicated in scanblock and above.
@@ -1324,7 +1552,11 @@ func gcDumpObject(label string, obj, off uintptr) {
 //
 //go:nowritebarrier
 //go:nosplit
+<<<<<<< go/./runtime/mgcmark.go
 func gcmarknewobject(span *mspan, obj, size, scanSize uintptr) {
+=======
+func gcmarknewobject(span *mspan, obj uintptr) {
+>>>>>>> /tmp/go122/src/./runtime/mgcmark.go
 	if useCheckmark { // The world should be stopped so this should not happen.
 		throw("gcmarknewobject called while doing checkmark")
 	}
@@ -1340,7 +1572,7 @@ func gcmarknewobject(span *mspan, obj, size, scanSize uintptr) {
 	}
 
 	gcw := &getg().m.p.ptr().gcw
-	gcw.bytesMarked += uint64(size)
+	gcw.bytesMarked += uint64(span.elemsize)
 }
 
 // gcMarkTinyAllocs greys all active tiny alloc blocks.

@@ -285,9 +285,6 @@ func panicmemAddr(addr uintptr) {
 func deferproc(frame *bool, pfn uintptr, arg unsafe.Pointer) {
 	gp := getg()
 	d := newdefer()
-	if d._panic != nil {
-		throw("deferproc: d.panic != nil after newdefer")
-	}
 	d.link = gp._defer
 	gp._defer = d
 	d.frame = frame
@@ -296,6 +293,163 @@ func deferproc(frame *bool, pfn uintptr, arg unsafe.Pointer) {
 	d.arg = arg
 	d.retaddr = 0
 	d.makefunccanrecover = false
+}
+
+var rangeExitError = error(errorString("range function continued iteration after exit"))
+
+//go:noinline
+func panicrangeexit() {
+	panic(rangeExitError)
+}
+
+// deferrangefunc is called by functions that are about to
+// execute a range-over-function loop in which the loop body
+// may execute a defer statement. That defer needs to add to
+// the chain for the current function, not the func literal synthesized
+// to represent the loop body. To do that, the original function
+// calls deferrangefunc to obtain an opaque token representing
+// the current frame, and then the loop body uses deferprocat
+// instead of deferproc to add to that frame's defer lists.
+//
+// The token is an 'any' with underlying type *atomic.Pointer[_defer].
+// It is the atomically-updated head of a linked list of _defer structs
+// representing deferred calls. At the same time, we create a _defer
+// struct on the main g._defer list with d.head set to this head pointer.
+//
+// The g._defer list is now a linked list of deferred calls,
+// but an atomic list hanging off:
+//
+//		g._defer => d4 -> d3 -> drangefunc -> d2 -> d1 -> nil
+//	                             | .head
+//	                             |
+//	                             +--> dY -> dX -> nil
+//
+// with each -> indicating a d.link pointer, and where drangefunc
+// has the d.rangefunc = true bit set.
+// Note that the function being ranged over may have added
+// its own defers (d4 and d3), so drangefunc need not be at the
+// top of the list when deferprocat is used. This is why we pass
+// the atomic head explicitly.
+//
+// To keep misbehaving programs from crashing the runtime,
+// deferprocat pushes new defers onto the .head list atomically.
+// The fact that it is a separate list from the main goroutine
+// defer list means that the main goroutine's defers can still
+// be handled non-atomically.
+//
+// In the diagram, dY and dX are meant to be processed when
+// drangefunc would be processed, which is to say the defer order
+// should be d4, d3, dY, dX, d2, d1. To make that happen,
+// when defer processing reaches a d with rangefunc=true,
+// it calls deferconvert to atomically take the extras
+// away from d.head and then adds them to the main list.
+//
+// That is, deferconvert changes this list:
+//
+//		g._defer => drangefunc -> d2 -> d1 -> nil
+//	                 | .head
+//	                 |
+//	                 +--> dY -> dX -> nil
+//
+// into this list:
+//
+//	g._defer => dY -> dX -> d2 -> d1 -> nil
+//
+// It also poisons *drangefunc.head so that any future
+// deferprocat using that head will throw.
+// (The atomic head is ordinary garbage collected memory so that
+// it's not a problem if user code holds onto it beyond
+// the lifetime of drangefunc.)
+//
+// TODO: We could arrange for the compiler to call into the
+// runtime after the loop finishes normally, to do an eager
+// deferconvert, which would catch calling the loop body
+// and having it defer after the loop is done. If we have a
+// more general catch of loop body misuse, though, this
+// might not be worth worrying about in addition.
+//
+// See also ../cmd/compile/internal/rangefunc/rewrite.go.
+func deferrangefunc() any {
+	gp := getg()
+	if gp.m.curg != gp {
+		// go code on the system stack can't defer
+		throw("defer on system stack")
+	}
+
+	d := newdefer()
+	d.link = gp._defer
+	gp._defer = d
+	d.pc = getcallerpc()
+	// We must not be preempted between calling getcallersp and
+	// storing it to d.sp because getcallersp's result is a
+	// uintptr stack pointer.
+	d.sp = getcallersp()
+
+	d.rangefunc = true
+	d.head = new(atomic.Pointer[_defer])
+
+	return d.head
+}
+
+// badDefer returns a fixed bad defer pointer for poisoning an atomic defer list head.
+func badDefer() *_defer {
+	return (*_defer)(unsafe.Pointer(uintptr(1)))
+}
+
+// deferprocat is like deferproc but adds to the atomic list represented by frame.
+// See the doc comment for deferrangefunc for details.
+func deferprocat(fn func(), frame any) {
+	head := frame.(*atomic.Pointer[_defer])
+	if raceenabled {
+		racewritepc(unsafe.Pointer(head), getcallerpc(), abi.FuncPCABIInternal(deferprocat))
+	}
+	d1 := newdefer()
+	d1.fn = fn
+	for {
+		d1.link = head.Load()
+		if d1.link == badDefer() {
+			throw("defer after range func returned")
+		}
+		if head.CompareAndSwap(d1.link, d1) {
+			break
+		}
+	}
+
+	// Must be last - see deferproc above.
+	return0()
+}
+
+// deferconvert converts a rangefunc defer list into an ordinary list.
+// See the doc comment for deferrangefunc for details.
+func deferconvert(d *_defer) *_defer {
+	head := d.head
+	if raceenabled {
+		racereadpc(unsafe.Pointer(head), getcallerpc(), abi.FuncPCABIInternal(deferconvert))
+	}
+	tail := d.link
+	d.rangefunc = false
+	d0 := d
+
+	for {
+		d = head.Load()
+		if head.CompareAndSwap(d, badDefer()) {
+			break
+		}
+	}
+	if d == nil {
+		freedefer(d0)
+		return tail
+	}
+	for d1 := d; ; d1 = d1.link {
+		d1.sp = d0.sp
+		d1.pc = d0.pc
+		if d1.link == nil {
+			d1.link = tail
+			break
+		}
+	}
+	freedefer(d0)
+	return d
 }
 
 // deferprocStack queues a new deferred function with a defer record on the stack.
@@ -308,16 +462,29 @@ func deferprocStack(d *_defer, frame *bool, pfn uintptr, arg unsafe.Pointer) {
 		// go code on the system stack can't defer
 		throw("defer on system stack")
 	}
+<<<<<<< go/./runtime/panic.go
 	d.pfn = pfn
 	d.retaddr = 0
 	d.makefunccanrecover = false
+=======
+	// fn is already set.
+	// The other fields are junk on entry to deferprocStack and
+	// are initialized here.
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	d.heap = false
+<<<<<<< go/./runtime/panic.go
+=======
+	d.rangefunc = false
+	d.sp = getcallersp()
+	d.pc = getcallerpc()
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	// The lines below implement:
 	//   d.frame = frame
 	//   d.arg = arg
 	//   d._panic = nil
 	//   d.panicStack = gp._panic
 	//   d.link = gp._defer
+<<<<<<< go/./runtime/panic.go
 	// But without write barriers. They are writes to the stack so they
 	// don't need a write barrier, and furthermore are to uninitialized
 	// memory, so they must not use a write barrier.
@@ -325,7 +492,22 @@ func deferprocStack(d *_defer, frame *bool, pfn uintptr, arg unsafe.Pointer) {
 	*(*uintptr)(unsafe.Pointer(&d.arg)) = uintptr(unsafe.Pointer(arg))
 	*(*uintptr)(unsafe.Pointer(&d._panic)) = 0
 	*(*uintptr)(unsafe.Pointer(&d.panicStack)) = uintptr(unsafe.Pointer(gp._panic))
+=======
+	//   d.head = nil
+	//   gp._defer = d
+	// But without write barriers. The first three are writes to
+	// the stack so they don't need a write barrier, and furthermore
+	// are to uninitialized memory, so they must not use a write barrier.
+	// The fourth write does not require a write barrier because we
+	// explicitly mark all the defer structures, so we don't need to
+	// keep track of pointers to them with a write barrier.
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	*(*uintptr)(unsafe.Pointer(&d.link)) = uintptr(unsafe.Pointer(gp._defer))
+<<<<<<< go/./runtime/panic.go
+=======
+	*(*uintptr)(unsafe.Pointer(&d.head)) = 0
+	*(*uintptr)(unsafe.Pointer(&gp._defer)) = uintptr(unsafe.Pointer(d))
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 
 	gp._defer = d
 }
@@ -375,10 +557,14 @@ func freedefer(d *_defer) {
 	d.link = nil
 	// After this point we can copy the stack.
 
+<<<<<<< go/./runtime/panic.go
 	if d._panic != nil {
 		freedeferpanic()
 	}
 	if d.pfn != 0 {
+=======
+	if d.fn != nil {
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 		freedeferfn()
 	}
 	if !d.heap {
@@ -422,16 +608,12 @@ func freedefer(d *_defer) {
 
 // Separate function so that it can split stack.
 // Windows otherwise runs out of stack space.
-func freedeferpanic() {
-	// _panic must be cleared before d is unlinked from gp.
-	throw("freedefer with d._panic != nil")
-}
-
 func freedeferfn() {
 	// fn must be cleared before d is unlinked from gp.
 	throw("freedefer with d.fn != nil")
 }
 
+<<<<<<< go/./runtime/panic.go
 // deferreturn is called to undefer the stack.
 // The compiler inserts a call to this function as a finally clause
 // wrapped around the body of any function that calls defer.
@@ -548,7 +730,22 @@ func checkdefer(frame *bool) {
 			// Just return and continue executing Go code.
 			*frame = true
 			return
+=======
+// deferreturn runs deferred functions for the caller's frame.
+// The compiler inserts a call to this at the end of any
+// function which calls defer.
+func deferreturn() {
+	var p _panic
+	p.deferreturn = true
+
+	p.start(getcallerpc(), unsafe.Pointer(getcallersp()))
+	for {
+		fn, ok := p.nextDefer()
+		if !ok {
+			break
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 		}
+<<<<<<< go/./runtime/panic.go
 
 		// We are panicking through this function.
 		*frame = false
@@ -564,6 +761,9 @@ func checkdefer(frame *bool) {
 		*frame = true
 
 		return
+=======
+		fn()
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	}
 
 	// This is some other defer function. It was already run by
@@ -599,24 +799,30 @@ func unwindStack() {
 // the program continues execution of other goroutines.
 // If all other goroutines exit, the program crashes.
 func Goexit() {
+<<<<<<< go/./runtime/panic.go
 	// Run all deferred functions for the current goroutine.
 	// This code is similar to gopanic, see that implementation
 	// for detailed comments.
 	gp := getg()
 	gp.goexiting = true
 
+=======
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	// Create a panic object for Goexit, so we can recognize when it might be
 	// bypassed by a recover().
 	var p _panic
 	p.goexit = true
-	p.link = gp._panic
-	gp._panic = (*_panic)(noescape(unsafe.Pointer(&p)))
 
+<<<<<<< go/./runtime/panic.go
+=======
+	p.start(getcallerpc(), unsafe.Pointer(getcallersp()))
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	for {
-		d := gp._defer
-		if d == nil {
+		fn, ok := p.nextDefer()
+		if !ok {
 			break
 		}
+<<<<<<< go/./runtime/panic.go
 
 		pfn := d.pfn
 		if pfn == 0 {
@@ -643,8 +849,15 @@ func Goexit() {
 		gp._defer = d.link
 		freedefer(d)
 		// Note: we ignore recovers here because Goexit isn't a panic
+=======
+		fn()
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	}
+<<<<<<< go/./runtime/panic.go
 	gp.goexiting = false
+=======
+
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	goexit1()
 }
 
@@ -693,6 +906,31 @@ func printpanics(p *_panic) {
 	print("\n")
 }
 
+<<<<<<< go/./runtime/panic.go
+=======
+// readvarintUnsafe reads the uint32 in varint format starting at fd, and returns the
+// uint32 and a pointer to the byte following the varint.
+//
+// The implementation is the same with runtime.readvarint, except that this function
+// uses unsafe.Pointer for speed.
+func readvarintUnsafe(fd unsafe.Pointer) (uint32, unsafe.Pointer) {
+	var r uint32
+	var shift int
+	for {
+		b := *(*uint8)(fd)
+		fd = add(fd, unsafe.Sizeof(b))
+		if b < 128 {
+			return r + uint32(b)<<shift, fd
+		}
+		r += uint32(b&0x7F) << (shift & 31)
+		shift += 7
+		if shift > 28 {
+			panic("Bad varint")
+		}
+	}
+}
+
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 // A PanicNilError happens when code calls panic(nil).
 //
 // Before Go 1.21, programs that called panic(nil) observed recover returning nil.
@@ -753,6 +991,7 @@ func gopanic(e any) {
 		throw("panic holding locks")
 	}
 
+<<<<<<< go/./runtime/panic.go
 	// The gc compiler allocates this new _panic struct on the
 	// stack. We can't do that, because when a deferred function
 	// recovers the panic we unwind the stack. We unlink this
@@ -766,15 +1005,92 @@ func gopanic(e any) {
 		link: gp._panic,
 	}
 	gp._panic = p
+=======
+	var p _panic
+	p.arg = e
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 
 	runningPanicDefers.Add(1)
 
+<<<<<<< go/./runtime/panic.go
+=======
+	p.start(getcallerpc(), unsafe.Pointer(getcallersp()))
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 	for {
-		d := gp._defer
-		if d == nil {
+		fn, ok := p.nextDefer()
+		if !ok {
 			break
 		}
+		fn()
+	}
 
+	// ran out of deferred calls - old-school panic now
+	// Because it is unsafe to call arbitrary user code after freezing
+	// the world, we call preprintpanics to invoke all necessary Error
+	// and String methods to prepare the panic strings before startpanic.
+	preprintpanics(&p)
+
+	fatalpanic(&p)   // should not return
+	*(*int)(nil) = 0 // not reached
+}
+
+// start initializes a panic to start unwinding the stack.
+//
+// If p.goexit is true, then start may return multiple times.
+func (p *_panic) start(pc uintptr, sp unsafe.Pointer) {
+	gp := getg()
+
+	// Record the caller's PC and SP, so recovery can identify panics
+	// that have been recovered. Also, so that if p is from Goexit, we
+	// can restart its defer processing loop if a recovered panic tries
+	// to jump past it.
+	p.startPC = getcallerpc()
+	p.startSP = unsafe.Pointer(getcallersp())
+
+	if p.deferreturn {
+		p.sp = sp
+
+		if s := (*savedOpenDeferState)(gp.param); s != nil {
+			// recovery saved some state for us, so that we can resume
+			// calling open-coded defers without unwinding the stack.
+
+			gp.param = nil
+
+			p.retpc = s.retpc
+			p.deferBitsPtr = (*byte)(add(sp, s.deferBitsOffset))
+			p.slotsPtr = add(sp, s.slotsOffset)
+		}
+
+		return
+	}
+
+	p.link = gp._panic
+	gp._panic = (*_panic)(noescape(unsafe.Pointer(p)))
+
+	// Initialize state machine, and find the first frame with a defer.
+	//
+	// Note: We could use startPC and startSP here, but callers will
+	// never have defer statements themselves. By starting at their
+	// caller instead, we avoid needing to unwind through an extra
+	// frame. It also somewhat simplifies the terminating condition for
+	// deferreturn.
+	p.lr, p.fp = pc, sp
+	p.nextFrame()
+}
+
+// nextDefer returns the next deferred function to invoke, if any.
+//
+// Note: The "ok bool" result is necessary to correctly handle when
+// the deferred function itself was nil (e.g., "defer (func())(nil)").
+func (p *_panic) nextDefer() (func(), bool) {
+	gp := getg()
+
+	if !p.deferreturn {
+		if gp._panic != p {
+			throw("bad panic stack")
+		}
+
+<<<<<<< go/./runtime/panic.go
 		pfn := d.pfn
 
 		// If defer was started by earlier panic or Goexit (and, since we're back here, that triggered a new panic),
@@ -787,7 +1103,13 @@ func gopanic(e any) {
 			gp._defer = d.link
 			freedefer(d)
 			continue
+=======
+		if p.recovered {
+			mcall(recovery) // does not return
+			throw("recovery failed")
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 		}
+<<<<<<< go/./runtime/panic.go
 		d.pfn = 0
 
 		// Record the panic that is running the defer.
@@ -800,20 +1122,104 @@ func gopanic(e any) {
 		gp.deferring = true
 		fn(d.arg)
 		gp.deferring = false
+=======
+	}
 
+	// The assembler adjusts p.argp in wrapper functions that shouldn't
+	// be visible to recover(), so we need to restore it each iteration.
+	p.argp = add(p.startSP, sys.MinFrameSize)
+
+	for {
+		for p.deferBitsPtr != nil {
+			bits := *p.deferBitsPtr
+
+			// Check whether any open-coded defers are still pending.
+			//
+			// Note: We need to check this upfront (rather than after
+			// clearing the top bit) because it's possible that Goexit
+			// invokes a deferred call, and there were still more pending
+			// open-coded defers in the frame; but then the deferred call
+			// panic and invoked the remaining defers in the frame, before
+			// recovering and restarting the Goexit loop.
+			if bits == 0 {
+				p.deferBitsPtr = nil
+				break
+			}
+>>>>>>> /tmp/go122/src/./runtime/panic.go
+
+<<<<<<< go/./runtime/panic.go
 		if gp._defer != d {
 			throw("bad defer entry in panic")
-		}
-		d._panic = nil
+=======
+			// Find index of top bit set.
+			i := 7 - uintptr(sys.LeadingZeros8(bits))
 
+			// Clear bit and store it back.
+			bits &^= 1 << i
+			*p.deferBitsPtr = bits
+
+			return *(*func())(add(p.slotsPtr, i*goarch.PtrSize)), true
+>>>>>>> /tmp/go122/src/./runtime/panic.go
+		}
+
+<<<<<<< go/./runtime/panic.go
 		if p.recovered {
 			gp._panic = p.link
 			if gp._panic != nil && gp._panic.goexit && gp._panic.aborted {
 				Goexit()
 				throw("Goexit returned")
+=======
+	Recheck:
+		if d := gp._defer; d != nil && d.sp == uintptr(p.sp) {
+			if d.rangefunc {
+				gp._defer = deferconvert(d)
+				goto Recheck
 			}
-			runningPanicDefers.Add(-1)
 
+			fn := d.fn
+			d.fn = nil
+
+			// TODO(mdempsky): Instead of having each deferproc call have
+			// its own "deferreturn(); return" sequence, we should just make
+			// them reuse the one we emit for open-coded defers.
+			p.retpc = d.pc
+
+			// Unlink and free.
+			gp._defer = d.link
+			freedefer(d)
+
+			return fn, true
+		}
+
+		if !p.nextFrame() {
+			return nil, false
+		}
+	}
+}
+
+// nextFrame finds the next frame that contains deferred calls, if any.
+func (p *_panic) nextFrame() (ok bool) {
+	if p.lr == 0 {
+		return false
+	}
+
+	gp := getg()
+	systemstack(func() {
+		var limit uintptr
+		if d := gp._defer; d != nil {
+			limit = d.sp
+		}
+
+		var u unwinder
+		u.initAt(p.lr, uintptr(p.fp), 0, gp, 0)
+		for {
+			if !u.valid() {
+				p.lr = 0
+				return // ok == false
+>>>>>>> /tmp/go122/src/./runtime/panic.go
+			}
+
+<<<<<<< go/./runtime/panic.go
 			// Aborted panics are marked but remain on the g.panic list.
 			// Remove them from the list.
 			for gp._panic != nil && gp._panic.aborted {
@@ -852,18 +1258,57 @@ func gopanic(e any) {
 		gp._defer = d.link
 
 		freedefer(d)
-	}
+=======
+			// TODO(mdempsky): If we populate u.frame.fn.deferreturn for
+			// every frame containing a defer (not just open-coded defers),
+			// then we can simply loop until we find the next frame where
+			// it's non-zero.
 
-	// ran out of deferred calls - old-school panic now
-	// Because it is unsafe to call arbitrary user code after freezing
-	// the world, we call preprintpanics to invoke all necessary Error
-	// and String methods to prepare the panic strings before startpanic.
-	preprintpanics(gp._panic)
+			if u.frame.sp == limit {
+				break // found a frame with linked defers
+			}
 
-	fatalpanic(gp._panic) // should not return
-	*(*int)(nil) = 0      // not reached
+			if p.initOpenCodedDefers(u.frame.fn, unsafe.Pointer(u.frame.varp)) {
+				break // found a frame with open-coded defers
+			}
+
+			u.next()
+		}
+
+		p.lr = u.frame.lr
+		p.sp = unsafe.Pointer(u.frame.sp)
+		p.fp = unsafe.Pointer(u.frame.fp)
+
+		ok = true
+	})
+
+	return
 }
 
+func (p *_panic) initOpenCodedDefers(fn funcInfo, varp unsafe.Pointer) bool {
+	fd := funcdata(fn, abi.FUNCDATA_OpenCodedDeferInfo)
+	if fd == nil {
+		return false
+>>>>>>> /tmp/go122/src/./runtime/panic.go
+	}
+
+	if fn.deferreturn == 0 {
+		throw("missing deferreturn")
+	}
+
+	deferBitsOffset, fd := readvarintUnsafe(fd)
+	deferBitsPtr := (*uint8)(add(varp, -uintptr(deferBitsOffset)))
+	if *deferBitsPtr == 0 {
+		return false // has open-coded defers, but none pending
+	}
+
+	slotsOffset, fd := readvarintUnsafe(fd)
+
+	p.retpc = fn.entry() + uintptr(fn.deferreturn)
+	p.deferBitsPtr = deferBitsPtr
+	p.slotsPtr = add(varp, -uintptr(slotsOffset))
+
+<<<<<<< go/./runtime/panic.go
 // currentDefer returns the top of the defer stack if it can be recovered.
 // Otherwise it returns nil.
 func currentDefer() *_defer {
@@ -1027,6 +1472,9 @@ func makefuncreturning() {
 	if d != nil {
 		d.makefunccanrecover = false
 	}
+=======
+	return true
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 }
 
 // The implementation of the predeclared function recover.
@@ -1168,6 +1616,129 @@ var panicking atomic.Uint32
 // so that two concurrent panics don't overlap their output.
 var paniclk mutex
 
+<<<<<<< go/./runtime/panic.go
+=======
+// Unwind the stack after a deferred function calls recover
+// after a panic. Then arrange to continue running as though
+// the caller of the deferred function returned normally.
+//
+// However, if unwinding the stack would skip over a Goexit call, we
+// return into the Goexit loop instead, so it can continue processing
+// defers instead.
+func recovery(gp *g) {
+	p := gp._panic
+	pc, sp, fp := p.retpc, uintptr(p.sp), uintptr(p.fp)
+	p0, saveOpenDeferState := p, p.deferBitsPtr != nil && *p.deferBitsPtr != 0
+
+	// Unwind the panic stack.
+	for ; p != nil && uintptr(p.startSP) < sp; p = p.link {
+		// Don't allow jumping past a pending Goexit.
+		// Instead, have its _panic.start() call return again.
+		//
+		// TODO(mdempsky): In this case, Goexit will resume walking the
+		// stack where it left off, which means it will need to rewalk
+		// frames that we've already processed.
+		//
+		// There's a similar issue with nested panics, when the inner
+		// panic supercedes the outer panic. Again, we end up needing to
+		// walk the same stack frames.
+		//
+		// These are probably pretty rare occurrences in practice, and
+		// they don't seem any worse than the existing logic. But if we
+		// move the unwinding state into _panic, we could detect when we
+		// run into where the last panic started, and then just pick up
+		// where it left off instead.
+		//
+		// With how subtle defer handling is, this might not actually be
+		// worthwhile though.
+		if p.goexit {
+			pc, sp = p.startPC, uintptr(p.startSP)
+			saveOpenDeferState = false // goexit is unwinding the stack anyway
+			break
+		}
+
+		runningPanicDefers.Add(-1)
+	}
+	gp._panic = p
+
+	if p == nil { // must be done with signal
+		gp.sig = 0
+	}
+
+	if gp.param != nil {
+		throw("unexpected gp.param")
+	}
+	if saveOpenDeferState {
+		// If we're returning to deferreturn and there are more open-coded
+		// defers for it to call, save enough state for it to be able to
+		// pick up where p0 left off.
+		gp.param = unsafe.Pointer(&savedOpenDeferState{
+			retpc: p0.retpc,
+
+			// We need to save deferBitsPtr and slotsPtr too, but those are
+			// stack pointers. To avoid issues around heap objects pointing
+			// to the stack, save them as offsets from SP.
+			deferBitsOffset: uintptr(unsafe.Pointer(p0.deferBitsPtr)) - uintptr(p0.sp),
+			slotsOffset:     uintptr(p0.slotsPtr) - uintptr(p0.sp),
+		})
+	}
+
+	// TODO(mdempsky): Currently, we rely on frames containing "defer"
+	// to end with "CALL deferreturn; RET". This allows deferreturn to
+	// finish running any pending defers in the frame.
+	//
+	// But we should be able to tell whether there are still pending
+	// defers here. If there aren't, we can just jump directly to the
+	// "RET" instruction. And if there are, we don't need an actual
+	// "CALL deferreturn" instruction; we can simulate it with something
+	// like:
+	//
+	//	if usesLR {
+	//		lr = pc
+	//	} else {
+	//		sp -= sizeof(pc)
+	//		*(*uintptr)(sp) = pc
+	//	}
+	//	pc = funcPC(deferreturn)
+	//
+	// So that we effectively tail call into deferreturn, such that it
+	// then returns to the simple "RET" epilogue. That would save the
+	// overhead of the "deferreturn" call when there aren't actually any
+	// pending defers left, and shrink the TEXT size of compiled
+	// binaries. (Admittedly, both of these are modest savings.)
+
+	// Ensure we're recovering within the appropriate stack.
+	if sp != 0 && (sp < gp.stack.lo || gp.stack.hi < sp) {
+		print("recover: ", hex(sp), " not in [", hex(gp.stack.lo), ", ", hex(gp.stack.hi), "]\n")
+		throw("bad recovery")
+	}
+
+	// Make the deferproc for this d return again,
+	// this time returning 1. The calling function will
+	// jump to the standard return epilogue.
+	gp.sched.sp = sp
+	gp.sched.pc = pc
+	gp.sched.lr = 0
+	// Restore the bp on platforms that support frame pointers.
+	// N.B. It's fine to not set anything for platforms that don't
+	// support frame pointers, since nothing consumes them.
+	switch {
+	case goarch.IsAmd64 != 0:
+		// on x86, fp actually points one word higher than the top of
+		// the frame since the return address is saved on the stack by
+		// the caller
+		gp.sched.bp = fp - 2*goarch.PtrSize
+	case goarch.IsArm64 != 0:
+		// on arm64, the architectural bp points one word higher
+		// than the sp. fp is totally useless to us here, because it
+		// only gets us to the caller's fp.
+		gp.sched.bp = sp - goarch.PtrSize
+	}
+	gp.sched.ret = 1
+	gogo(&gp.sched)
+}
+
+>>>>>>> /tmp/go122/src/./runtime/panic.go
 // fatalthrow implements an unrecoverable runtime throw. It freezes the
 // system, prints stack traces starting from its caller, and terminates the
 // process.

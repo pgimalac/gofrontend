@@ -85,6 +85,10 @@ const (
 	// Represent as loadFactorNum/loadFactorDen, to allow integer math.
 	loadFactorNum = 13
 	loadFactorDen = 2
+<<<<<<< go/./runtime/map.go
+=======
+	loadFactorNum = loadFactorDen * bucketCnt * 13 / 16
+>>>>>>> /tmp/go122/src/./runtime/map.go
 
 	// Maximum key or elem size to keep inline (instead of mallocing per element).
 	// Must fit in a uint8.
@@ -252,8 +256,8 @@ func (h *hmap) incrnoverflow() {
 	// as many overflow buckets as buckets.
 	mask := uint32(1)<<(h.B-15) - 1
 	// Example: if h.B == 18, then mask == 7,
-	// and fastrand & 7 == 0 with probability 1/8.
-	if fastrand()&mask == 0 {
+	// and rand() & 7 == 0 with probability 1/8.
+	if uint32(rand())&mask == 0 {
 		h.noverflow++
 	}
 }
@@ -307,7 +311,7 @@ func makemap64(t *maptype, hint int64, h *hmap) *hmap {
 // at compile time and the map needs to be allocated on the heap.
 func makemap_small() *hmap {
 	h := new(hmap)
-	h.hash0 = fastrand()
+	h.hash0 = uint32(rand())
 	return h
 }
 
@@ -326,7 +330,7 @@ func makemap(t *maptype, hint int, h *hmap) *hmap {
 	if h == nil {
 		h = new(hmap)
 	}
-	h.hash0 = fastrand()
+	h.hash0 = uint32(rand())
 
 	// Find the size parameter B which will hold the requested # of elements.
 	// For hint < 0 overLoadFactor returns false since hint < bucketCnt.
@@ -367,8 +371,13 @@ func makeBucketArray(t *maptype, b uint8, dirtyalloc unsafe.Pointer) (buckets un
 		// required to insert the median number of elements
 		// used with this value of b.
 		nbuckets += bucketShift(b - 4)
+<<<<<<< go/./runtime/map.go
 		sz := t.bucket.size * nbuckets
 		up := roundupsize(sz)
+=======
+		sz := t.Bucket.Size_ * nbuckets
+		up := roundupsize(sz, t.Bucket.PtrBytes == 0)
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		if up != sz {
 			nbuckets = up / t.bucket.size
 		}
@@ -426,8 +435,13 @@ func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 		asanread(key, t.key.size)
 	}
 	if h == nil || h.count == 0 {
+<<<<<<< go/./runtime/map.go
 		if t.hashMightPanic() {
 			t.hasher(key, 0) // see issue 23734
+=======
+		if err := mapKeyError(t, key); err != nil {
+			panic(err) // see issue 23734
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		}
 		return unsafe.Pointer(&zeroVal[0])
 	}
@@ -492,8 +506,13 @@ func mapaccess2(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, bool) 
 		asanread(key, t.key.size)
 	}
 	if h == nil || h.count == 0 {
+<<<<<<< go/./runtime/map.go
 		if t.hashMightPanic() {
 			t.hasher(key, 0) // see issue 23734
+=======
+		if err := mapKeyError(t, key); err != nil {
+			panic(err) // see issue 23734
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		}
 		return unsafe.Pointer(&zeroVal[0]), false
 	}
@@ -741,8 +760,13 @@ func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
 		asanread(key, t.key.size)
 	}
 	if h == nil || h.count == 0 {
+<<<<<<< go/./runtime/map.go
 		if t.hashMightPanic() {
 			t.hasher(key, 0) // see issue 23734
+=======
+		if err := mapKeyError(t, key); err != nil {
+			panic(err) // see issue 23734
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		}
 		return
 	}
@@ -831,7 +855,7 @@ search:
 			// Reset the hash seed to make it more difficult for attackers to
 			// repeatedly trigger hash collisions. See issue 25237.
 			if h.count == 0 {
-				h.hash0 = fastrand()
+				h.hash0 = uint32(rand())
 			}
 			break search
 		}
@@ -895,12 +919,7 @@ func mapiterinit(t *maptype, h *hmap, it *hiter) {
 	}
 
 	// decide where to start
-	var r uintptr
-	if h.B > 31-bucketCntBits {
-		r = uintptr(fastrand64())
-	} else {
-		r = uintptr(fastrand())
-	}
+	r := uintptr(rand())
 	it.startBucket = r & bucketMask(h.B)
 	it.offset = uint8(r >> h.B & (bucketCnt - 1))
 
@@ -1073,7 +1092,7 @@ func mapclear(t *maptype, h *hmap) {
 
 	// Reset the hash seed to make it more difficult for attackers to
 	// repeatedly trigger hash collisions. See issue 25237.
-	h.hash0 = fastrand()
+	h.hash0 = uint32(rand())
 
 	// Keep the mapextra allocation but clear any extra information.
 	if h.extra != nil {
@@ -1477,8 +1496,7 @@ func reflectlite_maplen(h *hmap) int {
 	return h.count
 }
 
-const maxZero = 1024 // must match value in reflect/value.go:maxZero cmd/compile/internal/gc/walk.go:zeroValSize
-var zeroVal [maxZero]byte
+var zeroVal [abi.ZeroValSize]byte
 
 // mapclone for implementing maps.Clone
 //
@@ -1514,13 +1532,35 @@ func moveToBmap(t *maptype, h *hmap, dst *bmap, pos int, src *bmap) (*bmap, int)
 		dstEle := add(unsafe.Pointer(dst), dataOffset+bucketCnt*uintptr(t.keysize)+uintptr(pos)*uintptr(t.elemsize))
 
 		dst.tophash[pos] = src.tophash[i]
+<<<<<<< go/./runtime/map.go
 		if t.indirectkey() {
 			*(*unsafe.Pointer)(dstK) = *(*unsafe.Pointer)(srcK)
+=======
+		if t.IndirectKey() {
+			srcK = *(*unsafe.Pointer)(srcK)
+			if t.NeedKeyUpdate() {
+				kStore := newobject(t.Key)
+				typedmemmove(t.Key, kStore, srcK)
+				srcK = kStore
+			}
+			// Note: if NeedKeyUpdate is false, then the memory
+			// used to store the key is immutable, so we can share
+			// it between the original map and its clone.
+			*(*unsafe.Pointer)(dstK) = srcK
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		} else {
 			typedmemmove(t.key, dstK, srcK)
 		}
+<<<<<<< go/./runtime/map.go
 		if t.indirectelem() {
 			*(*unsafe.Pointer)(dstEle) = *(*unsafe.Pointer)(srcEle)
+=======
+		if t.IndirectElem() {
+			srcEle = *(*unsafe.Pointer)(srcEle)
+			eStore := newobject(t.Elem)
+			typedmemmove(t.Elem, eStore, srcEle)
+			*(*unsafe.Pointer)(dstEle) = eStore
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		} else {
 			typedmemmove(t.elem, dstEle, srcEle)
 		}
@@ -1544,14 +1584,19 @@ func mapclone2(t *maptype, src *hmap) *hmap {
 		fatal("concurrent map clone and map write")
 	}
 
+<<<<<<< go/./runtime/map.go
 	if src.B == 0 {
 		dst.buckets = newobject(t.bucket)
+=======
+	if src.B == 0 && !(t.IndirectKey() && t.NeedKeyUpdate()) && !t.IndirectElem() {
+		// Quick copy for small maps.
+		dst.buckets = newobject(t.Bucket)
+>>>>>>> /tmp/go122/src/./runtime/map.go
 		dst.count = src.count
 		typedmemmove(t.bucket, dst.buckets, src.buckets)
 		return dst
 	}
 
-	//src.B != 0
 	if dst.B == 0 {
 		dst.buckets = newobject(t.bucket)
 	}
@@ -1587,7 +1632,7 @@ func mapclone2(t *maptype, src *hmap) *hmap {
 		}
 
 		if oldB >= dst.B { // main bucket bits in dst is less than oldB bits in src
-			dstBmap := (*bmap)(add(dst.buckets, uintptr(i)&bucketMask(dst.B)))
+			dstBmap := (*bmap)(add(dst.buckets, (uintptr(i)&bucketMask(dst.B))*uintptr(t.BucketSize)))
 			for dstBmap.overflow(t) != nil {
 				dstBmap = dstBmap.overflow(t)
 			}
@@ -1599,6 +1644,8 @@ func mapclone2(t *maptype, src *hmap) *hmap {
 			continue
 		}
 
+		// oldB < dst.B, so a single source bucket may go to multiple destination buckets.
+		// Process entries one at a time.
 		for srcBmap != nil {
 			// move from oldBlucket to new bucket
 			for i := uintptr(0); i < bucketCnt; i++ {
@@ -1640,7 +1687,7 @@ func keys(m any, p unsafe.Pointer) {
 		return
 	}
 	s := (*slice)(p)
-	r := int(fastrand())
+	r := int(rand())
 	offset := uint8(r >> h.B & (bucketCnt - 1))
 	if h.B == 0 {
 		copyKeys(t, h, (*bmap)(h.buckets), s, offset)
@@ -1685,7 +1732,11 @@ func copyKeys(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 			if s.len >= s.cap {
 				fatal("concurrent map read and map write")
 			}
+<<<<<<< go/./runtime/map.go
 			typedmemmove(t.key, add(s.array, uintptr(s.len)*uintptr(t.keysize)), k)
+=======
+			typedmemmove(t.Key, add(s.array, uintptr(s.len)*uintptr(t.Key.Size())), k)
+>>>>>>> /tmp/go122/src/./runtime/map.go
 			s.len++
 		}
 		b = b.overflow(t)
@@ -1703,7 +1754,7 @@ func values(m any, p unsafe.Pointer) {
 		return
 	}
 	s := (*slice)(p)
-	r := int(fastrand())
+	r := int(rand())
 	offset := uint8(r >> h.B & (bucketCnt - 1))
 	if h.B == 0 {
 		copyValues(t, h, (*bmap)(h.buckets), s, offset)
@@ -1750,7 +1801,11 @@ func copyValues(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 			if s.len >= s.cap {
 				fatal("concurrent map read and map write")
 			}
+<<<<<<< go/./runtime/map.go
 			typedmemmove(t.elem, add(s.array, uintptr(s.len)*uintptr(t.elemsize)), ele)
+=======
+			typedmemmove(t.Elem, add(s.array, uintptr(s.len)*uintptr(t.Elem.Size())), ele)
+>>>>>>> /tmp/go122/src/./runtime/map.go
 			s.len++
 		}
 		b = b.overflow(t)

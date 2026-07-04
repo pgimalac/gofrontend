@@ -73,25 +73,40 @@ func cname(s string) string {
 	return s
 }
 
-// DiscardCgoDirectives processes the import C preamble, and discards
-// all #cgo CFLAGS and LDFLAGS directives, so they don't make their
-// way into _cgo_export.h.
-func (f *File) DiscardCgoDirectives() {
+// ProcessCgoDirectives processes the import C preamble:
+//  1. discards all #cgo CFLAGS, LDFLAGS, nocallback and noescape directives,
+//     so they don't make their way into _cgo_export.h.
+//  2. parse the nocallback and noescape directives.
+func (f *File) ProcessCgoDirectives() {
 	linesIn := strings.Split(f.Preamble, "\n")
 	linesOut := make([]string, 0, len(linesIn))
+	f.NoCallbacks = make(map[string]bool)
+	f.NoEscapes = make(map[string]bool)
 	for _, line := range linesIn {
 		l := strings.TrimSpace(line)
 		if len(l) < 5 || l[:4] != "#cgo" || !unicode.IsSpace(rune(l[4])) {
 			linesOut = append(linesOut, line)
 		} else {
 			linesOut = append(linesOut, "")
+
+			// #cgo (nocallback|noescape) <function name>
+			if fields := strings.Fields(l); len(fields) == 3 {
+				directive := fields[1]
+				funcName := fields[2]
+				if directive == "nocallback" {
+					fatalf("#cgo nocallback disabled until Go 1.23")
+					f.NoCallbacks[funcName] = true
+				} else if directive == "noescape" {
+					fatalf("#cgo noescape disabled until Go 1.23")
+					f.NoEscapes[funcName] = true
+				}
+			}
 		}
 	}
 	f.Preamble = strings.Join(linesOut, "\n")
 }
 
-// addToFlag appends args to flag. All flags are later written out onto the
-// _cgo_flags file for the build system to use.
+// addToFlag appends args to flag.
 func (p *Package) addToFlag(flag string, args []string) {
 	if flag == "CFLAGS" {
 		// We'll also need these when preprocessing for dwarf information.
@@ -103,6 +118,7 @@ func (p *Package) addToFlag(flag string, args []string) {
 			}
 		}
 	}
+<<<<<<< go/./cmd/cgo/gcc.go
 
 	skip := false
 	for i, arg := range args {
@@ -122,6 +138,11 @@ func (p *Package) addToFlag(flag string, args []string) {
 			p.CgoFlags[flag] = append(p.CgoFlags[flag], arg)
 		}
 	}
+=======
+	if flag == "LDFLAGS" {
+		p.LdFlags = append(p.LdFlags, args...)
+	}
+>>>>>>> /tmp/go122/src/./cmd/cgo/gcc.go
 }
 
 // splitQuoted splits the string s around each instance of one or more consecutive
@@ -599,7 +620,7 @@ func (p *Package) loadDWARF(f *File, conv *typeConv, names []*Name) {
 			// As of https://reviews.llvm.org/D123534, clang
 			// now emits DW_TAG_variable DIEs that have
 			// no name (so as to be able to describe the
-			// type and source locations of constant strings
+			// type and source locations of constant strings)
 			// like the second arg in the call below:
 			//
 			//     myfunction(42, "foo")

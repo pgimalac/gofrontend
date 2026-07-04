@@ -4,7 +4,22 @@
 
 package unix
 
+<<<<<<< go/./internal/syscall/unix/at_sysnum_dragonfly.go
 const AT_REMOVEDIR = 0x2
 const AT_SYMLINK_NOFOLLOW = 0x1
+=======
+import "syscall"
 
-const UTIME_OMIT = -0x1
+const unlinkatTrap uintptr = syscall.SYS_UNLINKAT
+const openatTrap uintptr = syscall.SYS_OPENAT
+const fstatatTrap uintptr = syscall.SYS_FSTATAT
+
+const (
+	AT_EACCESS          = 0x4
+	AT_FDCWD            = 0xfffafdcd
+	AT_REMOVEDIR        = 0x2
+	AT_SYMLINK_NOFOLLOW = 0x1
+>>>>>>> /tmp/go122/src/./internal/syscall/unix/at_sysnum_dragonfly.go
+
+	UTIME_OMIT = -0x1
+)

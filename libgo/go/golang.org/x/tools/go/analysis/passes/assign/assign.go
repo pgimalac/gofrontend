@@ -17,6 +17,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
+	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
@@ -89,7 +90,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 // isMapIndex returns true if e is a map index expression.
 func isMapIndex(info *types.Info, e ast.Expr) bool {
-	if idx, ok := analysisutil.Unparen(e).(*ast.IndexExpr); ok {
+	if idx, ok := astutil.Unparen(e).(*ast.IndexExpr); ok {
 		if typ := info.Types[idx.X].Type; typ != nil {
 			_, ok := typ.Underlying().(*types.Map)
 			return ok

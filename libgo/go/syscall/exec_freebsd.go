@@ -69,6 +69,11 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		i      int
 	)
 
+<<<<<<< go/./syscall/exec_freebsd.go
+=======
+	rlim := origRlimitNofile.Load()
+
+>>>>>>> /tmp/go122/src/./syscall/exec_freebsd.go
 	// Record parent PID so child can test if it has died.
 	ppid := raw_getpid()
 
@@ -283,6 +288,14 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		}
 	}
 
+<<<<<<< go/./syscall/exec_freebsd.go
+=======
+	// Restore original rlimit.
+	if rlim != nil {
+		RawSyscall(SYS_SETRLIMIT, uintptr(RLIMIT_NOFILE), uintptr(unsafe.Pointer(rlim)), 0)
+	}
+
+>>>>>>> /tmp/go122/src/./syscall/exec_freebsd.go
 	// Time to exec.
 	err1 = raw_execve(argv0, &argv[0], &envv[0])
 

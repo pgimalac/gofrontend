@@ -14,8 +14,13 @@ func Field(v Value, i int) Value {
 	if v.kind() != Struct {
 		panic(&ValueError{"reflect.Value.Field", v.kind()})
 	}
+<<<<<<< go/./internal/reflectlite/export_test.go
 	tt := (*structType)(unsafe.Pointer(v.typ))
 	if uint(i) >= uint(len(tt.fields)) {
+=======
+	tt := (*structType)(unsafe.Pointer(v.typ()))
+	if uint(i) >= uint(len(tt.Fields)) {
+>>>>>>> /tmp/go122/src/./internal/reflectlite/export_test.go
 		panic("reflect: Field index out of range")
 	}
 	field := &tt.fields[i]

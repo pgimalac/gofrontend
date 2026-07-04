@@ -13,19 +13,12 @@ func secure() {
 		return
 	}
 
-	// When secure mode is enabled, we do two things:
-	//   1. ensure the file descriptors 0, 1, and 2 are open, and if not open them,
-	//      pointing at /dev/null (or fail)
-	//   2. enforce specific environment variable values (currently we only force
-	//		GOTRACEBACK=none)
+	// When secure mode is enabled, we do one thing: enforce specific
+	// environment variable values (currently we only force GOTRACEBACK=none)
 	//
 	// Other packages may also disable specific functionality when secure mode
 	// is enabled (determined by using linkname to call isSecureMode).
-	//
-	// NOTE: we may eventually want to enforce (1) regardless of whether secure
-	// mode is enabled or not.
 
-	secureFDs()
 	secureEnv()
 }
 
@@ -41,6 +34,7 @@ func secureEnv() {
 		envs = append(envs, "GOTRACEBACK=none")
 	}
 }
+<<<<<<< go/./runtime/security_unix.go
 
 func secureFDs() {
 	const (
@@ -72,3 +66,5 @@ func secureFDs() {
 		}
 	}
 }
+=======
+>>>>>>> /tmp/go122/src/./runtime/security_unix.go

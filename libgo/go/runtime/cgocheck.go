@@ -9,6 +9,7 @@ package runtime
 
 import (
 	"internal/goarch"
+	"internal/goexperiment"
 	"unsafe"
 )
 
@@ -215,6 +216,7 @@ func cgoCheckTypedBlock(typ *_type, src unsafe.Pointer, off, size uintptr) {
 	}
 
 	// src must be in the regular heap.
+<<<<<<< go/./runtime/cgocheck.go
 
 	hbits := heapBitsForAddr(uintptr(src))
 	for i := uintptr(0); i < off+size; i += goarch.PtrSize {
@@ -224,6 +226,31 @@ func cgoCheckTypedBlock(typ *_type, src unsafe.Pointer, off, size uintptr) {
 			if cgoIsGoPointer(v) && !isPinned(v) {
 				throw(cgoWriteBarrierFail)
 			}
+=======
+	if goexperiment.AllocHeaders {
+		tp := s.typePointersOf(uintptr(src), size)
+		for {
+			var addr uintptr
+			if tp, addr = tp.next(uintptr(src) + size); addr == 0 {
+				break
+			}
+			v := *(*unsafe.Pointer)(unsafe.Pointer(addr))
+			if cgoIsGoPointer(v) && !isPinned(v) {
+				throw(cgoWriteBarrierFail)
+			}
+		}
+	} else {
+		hbits := heapBitsForAddr(uintptr(src), size)
+		for {
+			var addr uintptr
+			if hbits, addr = hbits.next(); addr == 0 {
+				break
+			}
+			v := *(*unsafe.Pointer)(unsafe.Pointer(addr))
+			if cgoIsGoPointer(v) && !isPinned(v) {
+				throw(cgoWriteBarrierFail)
+			}
+>>>>>>> /tmp/go122/src/./runtime/cgocheck.go
 		}
 		hbits = hbits.next()
 	}

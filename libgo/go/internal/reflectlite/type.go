@@ -346,6 +346,7 @@ func (t *uncommonType) Name() string {
 	return *t.name
 }
 
+<<<<<<< go/./internal/reflectlite/type.go
 func (t *rtype) String() string {
 	// For gccgo, strip out quoted strings.
 	s := *t.string
@@ -361,6 +362,29 @@ func (t *rtype) String() string {
 		}
 	}
 	return string(r[:j])
+=======
+/*
+ * The compiler knows the exact layout of all the data structures above.
+ * The compiler does not know about the data structures and methods below.
+ */
+
+// resolveNameOff resolves a name offset from a base pointer.
+// The (*rtype).nameOff method is a convenience wrapper for this function.
+// Implemented in the runtime package.
+//
+//go:noescape
+func resolveNameOff(ptrInModule unsafe.Pointer, off int32) unsafe.Pointer
+
+// resolveTypeOff resolves an *rtype offset from a base type.
+// The (*rtype).typeOff method is a convenience wrapper for this function.
+// Implemented in the runtime package.
+//
+//go:noescape
+func resolveTypeOff(rtype unsafe.Pointer, off int32) unsafe.Pointer
+
+func (t rtype) nameOff(off nameOff) abi.Name {
+	return abi.Name{Bytes: (*byte)(resolveNameOff(unsafe.Pointer(t.Type), int32(off)))}
+>>>>>>> /tmp/go122/src/./internal/reflectlite/type.go
 }
 
 func (t *rtype) Size() uintptr { return t.size }
@@ -502,7 +526,9 @@ func (t *interfaceType) NumMethod() int { return len(t.methods) }
 // If i is a nil interface value, TypeOf returns nil.
 func TypeOf(i any) Type {
 	eface := *(*emptyInterface)(unsafe.Pointer(&i))
-	return toType(eface.typ)
+	// Noescape so this doesn't make i to escape. See the comment
+	// at Value.typ for why this is safe.
+	return toType((*abi.Type)(noescape(unsafe.Pointer(eface.typ))))
 }
 
 func (t *rtype) Implements(u Type) bool {

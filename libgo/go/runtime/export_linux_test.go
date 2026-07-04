@@ -9,6 +9,14 @@ package runtime
 // const SiginfoMaxSize = _si_max_size
 // const SigeventMaxSize = _sigev_max_size
 
+<<<<<<< go/./runtime/export_linux_test.go
 // var NewOSProc0 = newosproc0
 // var Mincore = mincore
 // var Add = add
+=======
+var NewOSProc0 = newosproc0
+var Mincore = mincore
+
+type Siginfo siginfo
+type Sigevent sigevent
+>>>>>>> /tmp/go122/src/./runtime/export_linux_test.go

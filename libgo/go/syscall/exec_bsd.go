@@ -61,6 +61,11 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		i      int
 	)
 
+<<<<<<< go/./syscall/exec_bsd.go
+=======
+	rlim := origRlimitNofile.Load()
+
+>>>>>>> /tmp/go122/src/./syscall/exec_bsd.go
 	// guard against side effects of shuffling fds below.
 	// Make sure that nextfd is beyond any currently open files so
 	// that we can't run the risk of overwriting any of them.
@@ -271,6 +276,14 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		}
 	}
 
+<<<<<<< go/./syscall/exec_bsd.go
+=======
+	// Restore original rlimit.
+	if rlim != nil {
+		RawSyscall(SYS_SETRLIMIT, uintptr(RLIMIT_NOFILE), uintptr(unsafe.Pointer(rlim)), 0)
+	}
+
+>>>>>>> /tmp/go122/src/./syscall/exec_bsd.go
 	// Time to exec.
 	err1 = raw_execve(argv0, &argv[0], &envv[0])
 

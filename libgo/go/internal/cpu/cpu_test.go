@@ -30,8 +30,13 @@ func runDebugOptionsTest(t *testing.T, test string, options string) {
 
 	env := "GODEBUG=" + options
 
+<<<<<<< go/./internal/cpu/cpu_test.go
 	cmd := exec.Command(os.Args[0], "-test.run="+test)
 	cmd.Env = append(os.Environ(), env)
+=======
+	cmd := exec.Command(os.Args[0], "-test.run=^"+test+"$")
+	cmd.Env = append(cmd.Env, env)
+>>>>>>> /tmp/go122/src/./internal/cpu/cpu_test.go
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

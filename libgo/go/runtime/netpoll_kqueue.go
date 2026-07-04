@@ -125,9 +125,9 @@ func netpollBreak() {
 // delay < 0: blocks indefinitely
 // delay == 0: does not block, just polls
 // delay > 0: block for up to that many nanoseconds
-func netpoll(delay int64) gList {
+func netpoll(delay int64) (gList, int32) {
 	if kq == -1 {
-		return gList{}
+		return gList{}, 0
 	}
 	var tp *timespec
 	var ts timespec
@@ -147,19 +147,28 @@ func netpoll(delay int64) gList {
 retry:
 	n := kevent(kq, nil, 0, &events[0], uintptr(len(events)), tp)
 	if n < 0 {
+<<<<<<< go/./runtime/netpoll_kqueue.go
 		e := errno()
 		if e != _EINTR {
 			println("runtime: kevent on fd", kq, "failed with", e)
+=======
+		// Ignore the ETIMEDOUT error for now, but try to dive deep and
+		// figure out what really happened with n == ETIMEOUT,
+		// see https://go.dev/issue/59679 for details.
+		if n != -_EINTR && n != -_ETIMEDOUT {
+			println("runtime: kevent on fd", kq, "failed with", -n)
+>>>>>>> /tmp/go122/src/./runtime/netpoll_kqueue.go
 			throw("runtime: netpoll failed")
 		}
 		// If a timed sleep was interrupted, just return to
 		// recalculate how long we should sleep now.
 		if delay > 0 {
-			return gList{}
+			return gList{}, 0
 		}
 		goto retry
 	}
 	var toRun gList
+	delta := int32(0)
 	for i := 0; i < int(n); i++ {
 		ev := &events[i]
 
@@ -216,8 +225,8 @@ retry:
 				}
 			}
 			pd.setEventErr(ev.flags == _EV_ERROR, tag)
-			netpollready(&toRun, pd, mode)
+			delta += netpollready(&toRun, pd, mode)
 		}
 	}
-	return toRun
+	return toRun, delta
 }

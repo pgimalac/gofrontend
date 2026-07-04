@@ -349,7 +349,41 @@ func isAsyncSafePoint(gp *g, pc uintptr) (bool, uintptr) {
 		// Not Go code.
 		return false, 0
 	}
+<<<<<<< go/./runtime/preempt.go
 	name := f.Name()
+=======
+	if (GOARCH == "mips" || GOARCH == "mipsle" || GOARCH == "mips64" || GOARCH == "mips64le") && lr == pc+8 && funcspdelta(f, pc) == 0 {
+		// We probably stopped at a half-executed CALL instruction,
+		// where the LR is updated but the PC has not. If we preempt
+		// here we'll see a seemingly self-recursive call, which is in
+		// fact not.
+		// This is normally ok, as we use the return address saved on
+		// stack for unwinding, not the LR value. But if this is a
+		// call to morestack, we haven't created the frame, and we'll
+		// use the LR for unwinding, which will be bad.
+		return false, 0
+	}
+	up, startpc := pcdatavalue2(f, abi.PCDATA_UnsafePoint, pc)
+	if up == abi.UnsafePointUnsafe {
+		// Unsafe-point marked by compiler. This includes
+		// atomic sequences (e.g., write barrier) and nosplit
+		// functions (except at calls).
+		return false, 0
+	}
+	if fd := funcdata(f, abi.FUNCDATA_LocalsPointerMaps); fd == nil || f.flag&abi.FuncFlagAsm != 0 {
+		// This is assembly code. Don't assume it's well-formed.
+		// TODO: Empirically we still need the fd == nil check. Why?
+		//
+		// TODO: Are there cases that are safe but don't have a
+		// locals pointer map, like empty frame functions?
+		// It might be possible to preempt any assembly functions
+		// except the ones that have funcFlag_SPWRITE set in f.flag.
+		return false, 0
+	}
+	// Check the inner-most name
+	u, uf := newInlineUnwinder(f, pc)
+	name := u.srcFunc(uf).name()
+>>>>>>> /tmp/go122/src/./runtime/preempt.go
 	if hasPrefix(name, "runtime.") ||
 		hasPrefix(name, "runtime_1internal_1") ||
 		hasPrefix(name, "reflect.") {

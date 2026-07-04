@@ -18,7 +18,6 @@ import (
 	"math"
 	"math/big"
 	"os"
-	"os/exec"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -440,7 +439,7 @@ func cpuProfilingBroken() bool {
 func testCPUProfile(t *testing.T, matches profileMatchFunc, f func(dur time.Duration)) *profile.Profile {
 	switch runtime.GOOS {
 	case "darwin":
-		out, err := exec.Command("uname", "-a").CombinedOutput()
+		out, err := testenv.Command(t, "uname", "-a").CombinedOutput()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -653,6 +652,11 @@ func matchAndAvoidStacks(matches sampleMatchFunc, need []string, avoid []string)
 func TestCPUProfileWithFork(t *testing.T) {
 	testenv.MustHaveExec(t)
 
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	heap := 1 << 30
 	if runtime.GOOS == "android" {
 		// Use smaller size for Android to avoid crash.
@@ -684,7 +688,7 @@ func TestCPUProfileWithFork(t *testing.T) {
 	defer StopCPUProfile()
 
 	for i := 0; i < 10; i++ {
-		exec.Command(os.Args[0], "-h").CombinedOutput()
+		testenv.Command(t, exe, "-h").CombinedOutput()
 	}
 }
 
@@ -1023,7 +1027,7 @@ func containsStack(got [][]string, want []string) bool {
 // awaitBlockedGoroutine spins on runtime.Gosched until a runtime stack dump
 // shows a goroutine in the given state with a stack frame in
 // runtime/pprof.<fName>.
-func awaitBlockedGoroutine(t *testing.T, state, fName string) {
+func awaitBlockedGoroutine(t *testing.T, state, fName string, count int) {
 	re := fmt.Sprintf(`(?m)^goroutine \d+ \[%s\]:\n(?:.+\n\t.+\n)*runtime/pprof\.%s`, regexp.QuoteMeta(state), fName)
 	r := regexp.MustCompile(re)
 
@@ -1047,7 +1051,7 @@ func awaitBlockedGoroutine(t *testing.T, state, fName string) {
 			buf = make([]byte, 2*len(buf))
 			continue
 		}
-		if r.Match(buf[:n]) {
+		if len(r.FindAll(buf[:n], -1)) >= count {
 			return
 		}
 	}
@@ -1056,7 +1060,7 @@ func awaitBlockedGoroutine(t *testing.T, state, fName string) {
 func blockChanRecv(t *testing.T) {
 	c := make(chan bool)
 	go func() {
-		awaitBlockedGoroutine(t, "chan receive", "blockChanRecv")
+		awaitBlockedGoroutine(t, "chan receive", "blockChanRecv", 1)
 		c <- true
 	}()
 	<-c
@@ -1065,7 +1069,7 @@ func blockChanRecv(t *testing.T) {
 func blockChanSend(t *testing.T) {
 	c := make(chan bool)
 	go func() {
-		awaitBlockedGoroutine(t, "chan send", "blockChanSend")
+		awaitBlockedGoroutine(t, "chan send", "blockChanSend", 1)
 		<-c
 	}()
 	c <- true
@@ -1074,7 +1078,7 @@ func blockChanSend(t *testing.T) {
 func blockChanClose(t *testing.T) {
 	c := make(chan bool)
 	go func() {
-		awaitBlockedGoroutine(t, "chan receive", "blockChanClose")
+		awaitBlockedGoroutine(t, "chan receive", "blockChanClose", 1)
 		close(c)
 	}()
 	<-c
@@ -1086,7 +1090,7 @@ func blockSelectRecvAsync(t *testing.T) {
 	c2 := make(chan bool, 1)
 	go func() {
 		for i := 0; i < numTries; i++ {
-			awaitBlockedGoroutine(t, "select", "blockSelectRecvAsync")
+			awaitBlockedGoroutine(t, "select", "blockSelectRecvAsync", 1)
 			c <- true
 		}
 	}()
@@ -1102,7 +1106,7 @@ func blockSelectSendSync(t *testing.T) {
 	c := make(chan bool)
 	c2 := make(chan bool)
 	go func() {
-		awaitBlockedGoroutine(t, "select", "blockSelectSendSync")
+		awaitBlockedGoroutine(t, "select", "blockSelectSendSync", 1)
 		<-c
 	}()
 	select {
@@ -1115,7 +1119,7 @@ func blockMutex(t *testing.T) {
 	var mu sync.Mutex
 	mu.Lock()
 	go func() {
-		awaitBlockedGoroutine(t, "sync.Mutex.Lock", "blockMutex")
+		awaitBlockedGoroutine(t, "sync.Mutex.Lock", "blockMutex", 1)
 		mu.Unlock()
 	}()
 	// Note: Unlock releases mu before recording the mutex event,
@@ -1125,12 +1129,36 @@ func blockMutex(t *testing.T) {
 	mu.Lock()
 }
 
+func blockMutexN(t *testing.T, n int, d time.Duration) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	mu.Lock()
+	go func() {
+		awaitBlockedGoroutine(t, "sync.Mutex.Lock", "blockMutex", n)
+		time.Sleep(d)
+		mu.Unlock()
+	}()
+	// Note: Unlock releases mu before recording the mutex event,
+	// so it's theoretically possible for this to proceed and
+	// capture the profile before the event is recorded. As long
+	// as this is blocked before the unlock happens, it's okay.
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mu.Lock()
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+}
+
 func blockCond(t *testing.T) {
 	var mu sync.Mutex
 	c := sync.NewCond(&mu)
 	mu.Lock()
 	go func() {
-		awaitBlockedGoroutine(t, "sync.Cond.Wait", "blockCond")
+		awaitBlockedGoroutine(t, "sync.Cond.Wait", "blockCond", 1)
 		mu.Lock()
 		c.Signal()
 		mu.Unlock()
@@ -1217,7 +1245,13 @@ func TestMutexProfile(t *testing.T) {
 		t.Fatalf("need MutexProfileRate 0, got %d", old)
 	}
 
-	blockMutex(t)
+	const (
+		N = 100
+		D = 100 * time.Millisecond
+	)
+	start := time.Now()
+	blockMutexN(t, N, D)
+	blockMutexNTime := time.Since(start)
 
 	t.Run("debug=1", func(t *testing.T) {
 		var w strings.Builder
@@ -1230,15 +1264,11 @@ func TestMutexProfile(t *testing.T) {
 		}
 		prof = strings.Trim(prof, "\n")
 		lines := strings.Split(prof, "\n")
-		if len(lines) != 6 {
-			t.Errorf("expected 6 lines, got %d %q\n%s", len(lines), prof, prof)
-		}
 		if len(lines) < 6 {
-			return
+			t.Fatalf("expected >=6 lines, got %d %q\n%s", len(lines), prof, prof)
 		}
 		// checking that the line is like "35258904 1 @ 0x48288d 0x47cd28 0x458931"
 		r2 := `^\d+ \d+ @(?: 0x[[:xdigit:]]+)+`
-		//r2 := "^[0-9]+ 1 @ 0x[0-9a-f x]+$"
 		if ok, err := regexp.MatchString(r2, lines[3]); err != nil || !ok {
 			t.Errorf("%q didn't match %q", lines[3], r2)
 		}
@@ -1265,12 +1295,47 @@ func TestMutexProfile(t *testing.T) {
 
 		stks := stacks(p)
 		for _, want := range [][]string{
+<<<<<<< go/./runtime/pprof/pprof_test.go
 			// {"sync.(*Mutex).Unlock", "runtime/pprof.blockMutex.func1"},
 			{"sync.Mutex.Unlock", "runtime/pprof.blockMutex..func1"},
+=======
+			{"sync.(*Mutex).Unlock", "runtime/pprof.blockMutexN.func1"},
+>>>>>>> /tmp/go122/src/./runtime/pprof/pprof_test.go
 		} {
 			if !containsStack(stks, want) {
 				t.Errorf("No matching stack entry for %+v", want)
 			}
+		}
+
+		i := 0
+		for ; i < len(p.SampleType); i++ {
+			if p.SampleType[i].Unit == "nanoseconds" {
+				break
+			}
+		}
+		if i >= len(p.SampleType) {
+			t.Fatalf("profile did not contain nanoseconds sample")
+		}
+		total := int64(0)
+		for _, s := range p.Sample {
+			total += s.Value[i]
+		}
+		// Want d to be at least N*D, but give some wiggle-room to avoid
+		// a test flaking. Set an upper-bound proportional to the total
+		// wall time spent in blockMutexN. Generally speaking, the total
+		// contention time could be arbitrarily high when considering
+		// OS scheduler delays, or any other delays from the environment:
+		// time keeps ticking during these delays. By making the upper
+		// bound proportional to the wall time in blockMutexN, in theory
+		// we're accounting for all these possible delays.
+		d := time.Duration(total)
+		lo := time.Duration(N * D * 9 / 10)
+		hi := time.Duration(N) * blockMutexNTime * 11 / 10
+		if d < lo || d > hi {
+			for _, s := range p.Sample {
+				t.Logf("sample: %s", time.Duration(s.Value[i]))
+			}
+			t.Fatalf("profile samples total %v, want within range [%v, %v] (target: %v)", d, lo, hi, N*D)
 		}
 	})
 }
@@ -1369,6 +1434,23 @@ func TestGoroutineCounts(t *testing.T) {
 		}
 	})
 
+	SetGoroutineLabels(WithLabels(context.Background(), Labels("self-label", "self-value")))
+	defer SetGoroutineLabels(context.Background())
+
+	garbage := new(*int)
+	fingReady := make(chan struct{})
+	runtime.SetFinalizer(garbage, func(v **int) {
+		Do(context.Background(), Labels("fing-label", "fing-value"), func(ctx context.Context) {
+			close(fingReady)
+			<-c
+		})
+	})
+	garbage = nil
+	for i := 0; i < 2; i++ {
+		runtime.GC()
+	}
+	<-fingReady
+
 	var w bytes.Buffer
 	goroutineProf := Lookup("goroutine")
 
@@ -1378,8 +1460,22 @@ func TestGoroutineCounts(t *testing.T) {
 
 	labels := labelMap{"label": "value"}
 	labelStr := "\n# labels: " + labels.String()
-	if !containsInOrder(prof, "\n50 @ ", "\n44 @", labelStr,
-		"\n40 @", "\n36 @", labelStr, "\n10 @", "\n9 @", labelStr, "\n1 @") {
+	selfLabel := labelMap{"self-label": "self-value"}
+	selfLabelStr := "\n# labels: " + selfLabel.String()
+	fingLabel := labelMap{"fing-label": "fing-value"}
+	fingLabelStr := "\n# labels: " + fingLabel.String()
+	orderedPrefix := []string{
+		"\n50 @ ",
+		"\n44 @", labelStr,
+		"\n40 @",
+		"\n36 @", labelStr,
+		"\n10 @",
+		"\n9 @", labelStr,
+		"\n1 @"}
+	if !containsInOrder(prof, append(orderedPrefix, selfLabelStr)...) {
+		t.Errorf("expected sorted goroutine counts with Labels:\n%s", prof)
+	}
+	if !containsInOrder(prof, append(orderedPrefix, fingLabelStr)...) {
 		t.Errorf("expected sorted goroutine counts with Labels:\n%s", prof)
 	}
 
@@ -1400,7 +1496,7 @@ func TestGoroutineCounts(t *testing.T) {
 		36: {"label": "value"},
 		10: {},
 		9:  {"label": "value"},
-		1:  {},
+		1:  {"self-label": "self-value", "fing-label": "fing-value"},
 	}
 	if !containsCountsLabels(p, expectedLabels) {
 		t.Errorf("expected count profile to contain goroutines with counts and labels %v, got %v",

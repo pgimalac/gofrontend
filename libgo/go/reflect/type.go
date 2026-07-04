@@ -174,6 +174,9 @@ type Type interface {
 
 	// FieldByName returns the struct field with the given name
 	// and a boolean indicating if the field was found.
+	// If the returned field is promoted from an embedded struct,
+	// then Offset in the returned StructField is the offset in
+	// the embedded struct.
 	FieldByName(name string) (StructField, bool)
 
 	// FieldByNameFunc returns the struct field with a name
@@ -188,6 +191,10 @@ type Type interface {
 	// and FieldByNameFunc returns no match.
 	// This behavior mirrors Go's handling of name lookup in
 	// structs containing embedded fields.
+	//
+	// If the returned field is promoted from an embedded struct,
+	// then Offset in the returned StructField is the offset in
+	// the embedded struct.
 	FieldByNameFunc(match func(string) bool) (StructField, bool)
 
 	// In returns the type of a function type's i'th input parameter.
@@ -238,7 +245,7 @@ type Type interface {
  * They are also known to ../runtime/type.go.
  */
 
-// A Kind represents the specific kind of type that a Type represents.
+// A Kind represents the specific kind of type that a [Type] represents.
 // The zero Kind is not a valid kind.
 type Kind uint
 
@@ -272,7 +279,7 @@ const (
 	UnsafePointer
 )
 
-// Ptr is the old name for the Pointer kind.
+// Ptr is the old name for the [Pointer] kind.
 const Ptr = Pointer
 
 // tflag is used by an rtype to signal what extra type information is
@@ -1126,7 +1133,7 @@ func (t *structType) FieldByName(name string) (f StructField, present bool) {
 	return t.FieldByNameFunc(func(s string) bool { return s == name })
 }
 
-// TypeOf returns the reflection Type that represents the dynamic type of i.
+// TypeOf returns the reflection [Type] that represents the dynamic type of i.
 // If i is a nil interface value, TypeOf returns nil.
 func TypeOf(i any) Type {
 	eface := *(*emptyInterface)(unsafe.Pointer(&i))
@@ -1145,8 +1152,10 @@ var ptrMap sync.Map // map[*rtype]*ptrType
 // PtrTo returns the pointer type with element t.
 // For example, if t represents type Foo, PtrTo(t) represents *Foo.
 //
-// PtrTo is the old spelling of PointerTo.
+// PtrTo is the old spelling of [PointerTo].
 // The two functions behave identically.
+//
+// Deprecated: Superseded by [PointerTo].
 func PtrTo(t Type) Type { return PointerTo(t) }
 
 // PointerTo returns the pointer type with element t.
@@ -1433,6 +1442,73 @@ func haveIdenticalUnderlyingType(T, V *rtype, cmpTags bool) bool {
 	return false
 }
 
+<<<<<<< go/./reflect/type.go
+=======
+// typelinks is implemented in package runtime.
+// It returns a slice of the sections in each module,
+// and a slice of *rtype offsets in each module.
+//
+// The types in each module are sorted by string. That is, the first
+// two linked types of the first module are:
+//
+//	d0 := sections[0]
+//	t1 := (*rtype)(add(d0, offset[0][0]))
+//	t2 := (*rtype)(add(d0, offset[0][1]))
+//
+// and
+//
+//	t1.String() < t2.String()
+//
+// Note that strings are not unique identifiers for types:
+// there can be more than one with a given string.
+// Only types we might want to look up are included:
+// pointers, channels, maps, slices, and arrays.
+func typelinks() (sections []unsafe.Pointer, offset [][]int32)
+
+func rtypeOff(section unsafe.Pointer, off int32) *abi.Type {
+	return (*abi.Type)(add(section, uintptr(off), "sizeof(rtype) > 0"))
+}
+
+// typesByString returns the subslice of typelinks() whose elements have
+// the given string representation.
+// It may be empty (no known types with that string) or may have
+// multiple elements (multiple types with that string).
+func typesByString(s string) []*abi.Type {
+	sections, offset := typelinks()
+	var ret []*abi.Type
+
+	for offsI, offs := range offset {
+		section := sections[offsI]
+
+		// We are looking for the first index i where the string becomes >= s.
+		// This is a copy of sort.Search, with f(h) replaced by (*typ[h].String() >= s).
+		i, j := 0, len(offs)
+		for i < j {
+			h := int(uint(i+j) >> 1) // avoid overflow when computing h
+			// i ≤ h < j
+			if !(stringFor(rtypeOff(section, offs[h])) >= s) {
+				i = h + 1 // preserves f(i-1) == false
+			} else {
+				j = h // preserves f(j) == true
+			}
+		}
+		// i == j, f(i-1) == false, and f(j) (= f(i)) == true  =>  answer is i.
+
+		// Having found the first, linear scan forward to find the last.
+		// We could do a second binary search, but the caller is going
+		// to do a linear scan anyway.
+		for j := i; j < len(offs); j++ {
+			typ := rtypeOff(section, offs[j])
+			if stringFor(typ) != s {
+				break
+			}
+			ret = append(ret, typ)
+		}
+	}
+	return ret
+}
+
+>>>>>>> /tmp/go122/src/./reflect/type.go
 // The lookupCache caches ArrayOf, ChanOf, MapOf and SliceOf lookups.
 var lookupCache sync.Map // map[cacheKey]*rtype
 
@@ -1766,7 +1842,7 @@ func needKeyUpdate(t *rtype) bool {
 	case Float32, Float64, Complex64, Complex128, Interface, String:
 		// Float keys can be updated from +0 to -0.
 		// String keys can be updated to use a smaller backing store.
-		// Interfaces might have floats of strings in them.
+		// Interfaces might have floats or strings in them.
 		return true
 	case Array:
 		tt := (*arrayType)(unsafe.Pointer(t))
@@ -2023,9 +2099,8 @@ func isValidFieldName(fieldName string) bool {
 // The Offset and Index fields are ignored and computed as they would be
 // by the compiler.
 //
-// StructOf currently does not generate wrapper methods for embedded
-// fields and panics if passed unexported StructFields.
-// These limitations may be lifted in a future version.
+// StructOf currently does not support promoted methods of embedded fields
+// and panics if passed unexported StructFields.
 func StructOf(fields []StructField) Type {
 	var (
 		hash       = uint32(12)
@@ -2088,8 +2163,24 @@ func StructOf(fields []StructField) Type {
 			switch f.typ.Kind() {
 			case Interface:
 				ift := (*interfaceType)(unsafe.Pointer(ft))
+<<<<<<< go/./reflect/type.go
 				if len(ift.methods) > 0 {
 					panic("reflect.StructOf: embedded field with methods not implemented")
+=======
+				for _, m := range ift.Methods {
+					if pkgPath(ift.nameOff(m.Name)) != "" {
+						// TODO(sbinet).  Issue 15924.
+						panic("reflect: embedded interface with unexported method(s) not implemented")
+					}
+
+					fnStub := resolveReflectText(unsafe.Pointer(abi.FuncPCABIInternal(embeddedIfaceMethStub)))
+					methods = append(methods, abi.Method{
+						Name: resolveReflectName(ift.nameOff(m.Name)),
+						Mtyp: resolveReflectType(ift.typeOff(m.Typ)),
+						Ifn:  fnStub,
+						Tfn:  fnStub,
+					})
+>>>>>>> /tmp/go122/src/./reflect/type.go
 				}
 			case Pointer:
 				ptr := (*ptrType)(unsafe.Pointer(ft))
@@ -2297,6 +2388,10 @@ func StructOf(fields []StructField) Type {
 	typ.uncommonType = nil
 	typ.ptrToThis = nil
 	return addToCache(toType(&typ.rtype).(*rtype))
+}
+
+func embeddedIfaceMethStub() {
+	panic("reflect: StructOf does not support methods of embedded interfaces")
 }
 
 // runtimeStructField takes a StructField value passed to StructOf and
@@ -2590,4 +2685,9 @@ func addTypeBits(bv *bitVector, offset uintptr, t *rtype) {
 			addTypeBits(bv, offset+f.offset(), f.typ)
 		}
 	}
+}
+
+// TypeFor returns the [Type] that represents the type argument T.
+func TypeFor[T any]() Type {
+	return TypeOf((*T)(nil)).Elem()
 }

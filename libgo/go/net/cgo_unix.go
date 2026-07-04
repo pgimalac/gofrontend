@@ -106,7 +106,7 @@ func cgoLookupHost(ctx context.Context, name string) (hosts []string, err error)
 func cgoLookupPort(ctx context.Context, network, service string) (port int, err error) {
 	var hints syscall.Addrinfo
 	switch network {
-	case "": // no hints
+	case "ip": // no hints
 	case "tcp", "tcp4", "tcp6":
 		hints.Ai_socktype = syscall.SOCK_STREAM
 		hints.Ai_protocol = syscall.IPPROTO_TCP
@@ -150,7 +150,12 @@ func cgoLookupServicePort(hints *syscall.Addrinfo, network, service string) (por
 			if errno == 0 { // see golang.org/issue/6232
 				errno = syscall.EMFILE
 			}
+<<<<<<< go/./net/cgo_unix.go
 			err = errno
+=======
+		case _C_EAI_SERVICE, _C_EAI_NONAME: // Darwin returns EAI_NONAME.
+			return 0, &DNSError{Err: "unknown port", Name: network + "/" + service, IsNotFound: true}
+>>>>>>> /tmp/go122/src/./net/cgo_unix.go
 		default:
 			err = addrinfoErrno(gerrno)
 			isTemporary = addrinfoErrno(gerrno).Temporary()
@@ -171,7 +176,7 @@ func cgoLookupServicePort(hints *syscall.Addrinfo, network, service string) (por
 			return int(p[0])<<8 | int(p[1]), nil
 		}
 	}
-	return 0, &DNSError{Err: "unknown port", Name: network + "/" + service}
+	return 0, &DNSError{Err: "unknown port", Name: network + "/" + service, IsNotFound: true}
 }
 
 func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err error) {
@@ -343,3 +348,89 @@ func cgoSockaddr(ip IP, zone string) (*syscall.RawSockaddr, syscall.Socklen_t) {
 	}
 	return nil, 0
 }
+<<<<<<< go/./net/cgo_unix.go
+=======
+
+func cgoLookupCNAME(ctx context.Context, name string) (cname string, err error, completed bool) {
+	resources, err := resSearch(ctx, name, int(dnsmessage.TypeCNAME), int(dnsmessage.ClassINET))
+	if err != nil {
+		return
+	}
+	cname, err = parseCNAMEFromResources(resources)
+	if err != nil {
+		return "", err, false
+	}
+	return cname, nil, true
+}
+
+// resSearch will make a call to the 'res_nsearch' routine in the C library
+// and parse the output as a slice of DNS resources.
+func resSearch(ctx context.Context, hostname string, rtype, class int) ([]dnsmessage.Resource, error) {
+	return doBlockingWithCtx(ctx, func() ([]dnsmessage.Resource, error) {
+		return cgoResSearch(hostname, rtype, class)
+	})
+}
+
+func cgoResSearch(hostname string, rtype, class int) ([]dnsmessage.Resource, error) {
+	acquireThread()
+	defer releaseThread()
+
+	resStateSize := unsafe.Sizeof(_C_struct___res_state{})
+	var state *_C_struct___res_state
+	if resStateSize > 0 {
+		mem := _C_malloc(resStateSize)
+		defer _C_free(mem)
+		memSlice := unsafe.Slice((*byte)(mem), resStateSize)
+		clear(memSlice)
+		state = (*_C_struct___res_state)(unsafe.Pointer(&memSlice[0]))
+	}
+	if err := _C_res_ninit(state); err != nil {
+		return nil, errors.New("res_ninit failure: " + err.Error())
+	}
+	defer _C_res_nclose(state)
+
+	// Some res_nsearch implementations (like macOS) do not set errno.
+	// They set h_errno, which is not per-thread and useless to us.
+	// res_nsearch returns the size of the DNS response packet.
+	// But if the DNS response packet contains failure-like response codes,
+	// res_search returns -1 even though it has copied the packet into buf,
+	// giving us no way to find out how big the packet is.
+	// For now, we are willing to take res_search's word that there's nothing
+	// useful in the response, even though there *is* a response.
+	bufSize := maxDNSPacketSize
+	buf := (*_C_uchar)(_C_malloc(uintptr(bufSize)))
+	defer _C_free(unsafe.Pointer(buf))
+
+	s, err := syscall.BytePtrFromString(hostname)
+	if err != nil {
+		return nil, err
+	}
+
+	var size int
+	for {
+		size, _ = _C_res_nsearch(state, (*_C_char)(unsafe.Pointer(s)), class, rtype, buf, bufSize)
+		if size <= 0 || size > 0xffff {
+			return nil, errors.New("res_nsearch failure")
+		}
+		if size <= bufSize {
+			break
+		}
+
+		// Allocate a bigger buffer to fit the entire msg.
+		_C_free(unsafe.Pointer(buf))
+		bufSize = size
+		buf = (*_C_uchar)(_C_malloc(uintptr(bufSize)))
+	}
+
+	var p dnsmessage.Parser
+	if _, err := p.Start(unsafe.Slice((*byte)(unsafe.Pointer(buf)), size)); err != nil {
+		return nil, err
+	}
+	p.SkipAllQuestions()
+	resources, err := p.AllAnswers()
+	if err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+>>>>>>> /tmp/go122/src/./net/cgo_unix.go
