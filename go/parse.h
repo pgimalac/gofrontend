@@ -72,6 +72,19 @@ class Parse
 						   bool call_is_spread = false,
 						   bool quiet = false);
 
+  // Instantiate a generic function used as a value, inferring its type
+  // arguments from the context function type it is assigned to.  Returns the
+  // instance Named_object, or NULL (quietly) if inference does not solve all
+  // type parameters.  Public because it is invoked from
+  // Func_expression::do_determine_type.
+  Named_object* instantiate_generic_from_context(Generic_function_info*,
+						 Function_type* ctxt,
+						 Location);
+
+  // Build (and cache) a generic function's signature with type parameters
+  // replaced by inference marker types, for structural unification.
+  Function_type* generic_marker_signature(Generic_function_info*);
+
   // If EXPR is a use of a generic function with a partial type-argument
   // list ("F[int]" where F has more than one type parameter), return the
   // explicit type arguments; otherwise NULL.  Used by the call expression

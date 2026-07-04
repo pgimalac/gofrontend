@@ -1541,6 +1541,41 @@ Func_expression::do_type()
     go_unreachable();
 }
 
+// Determine the type of a function expression.
+
+void
+Func_expression::do_determine_type(Gogo* gogo, const Type_context* context)
+{
+  if (this->closure_ != NULL)
+    this->closure_->determine_type_no_context(gogo);
+
+  // Generics: a bare reference to a generic function used as a value (not
+  // called), e.g. "return GenFn" or "var f func()T = GenFn".  Its type
+  // parameters must be inferred from the context function type it is being
+  // assigned to.  The reference currently points at the generic placeholder
+  // declaration (whose signature has no results/params of interest); replace
+  // it with a reference to the instance inferred from the context.
+  if (context != NULL
+      && context->type != NULL
+      && context->type->function_type() != NULL
+      && this->function_ != NULL
+      && this->function_->is_function_declaration())
+    {
+      Generic_function_info* gi = gogo->lookup_generic_function_no(this->function_);
+      if (gi != NULL)
+	{
+	  Lex dummy_lex(NULL, NULL, gogo->linemap());
+	  Parse parse(&dummy_lex, gogo);
+	  Named_object* inst =
+	    parse.instantiate_generic_from_context(gi,
+						   context->type->function_type(),
+						   this->location());
+	  if (inst != NULL)
+	    this->function_ = inst;
+	}
+    }
+}
+
 // Get the backend representation for the code of a function expression.
 
 Bexpression*
@@ -17073,7 +17108,9 @@ bool
 Struct_construction_expression::check_value_types(Gogo* gogo,
 						  Type* type,
 						  Expression_list* vals,
-						  Location loc)
+						  Location loc,
+						  const std::string&
+						    instantiation_pkgpath)
 {
   if (vals == NULL || vals->empty())
     return true;
@@ -17088,6 +17125,18 @@ Struct_construction_expression::check_value_types(Gogo* gogo,
   bool imported_type =
     (type->named_type() != NULL
      && type->named_type()->named_object()->package() != NULL);
+
+  // Generics: while re-parsing an imported generic template, the template
+  // body is the defining package's own code, so it may legitimately assign
+  // to that package's unexported fields.  When the literal was produced by
+  // instantiating a template whose defining package is the same package that
+  // declares this struct type, treat it as same-package (not an imported
+  // type) for the purpose of the unexported-field check below.
+  if (imported_type
+      && !instantiation_pkgpath.empty()
+      && (type->named_type()->named_object()->package()->pkgpath()
+	  == instantiation_pkgpath))
+    imported_type = false;
 
   bool ret = true;
   const Struct_field_list* fields = st->fields();
@@ -18675,9 +18724,9 @@ Composite_literal_expression::do_check_types(Gogo* gogo)
   if (type->struct_type() != NULL)
     {
       go_assert(!this->has_keys_);
-      if (!Struct_construction_expression::check_value_types(gogo, type,
-							     this->vals_,
-							     this->location()))
+      if (!Struct_construction_expression::check_value_types(
+	    gogo, type, this->vals_, this->location(),
+	    this->instantiation_pkgpath_))
 	this->set_is_error();
     }
   else if (type->array_type() != NULL)
@@ -19170,7 +19219,7 @@ Composite_literal_expression::do_copy()
 				     this->location());
   ret->key_path_ = this->key_path_;
   if (this->is_instantiated_)
-    ret->set_is_instantiated();
+    ret->set_is_instantiated(this->instantiation_pkgpath_);
   return ret;
 }
 

@@ -3021,11 +3021,7 @@ class Func_expression : public Expression
   do_type();
 
   void
-  do_determine_type(Gogo* gogo, const Type_context*)
-  {
-    if (this->closure_ != NULL)
-      this->closure_->determine_type_no_context(gogo);
-  }
+  do_determine_type(Gogo* gogo, const Type_context*);
 
   Expression*
   do_copy()
@@ -3953,10 +3949,15 @@ class Composite_literal_expression : public Parser_expression
 
   // Generics: mark this literal as produced by instantiating a generic, so
   // that map keys that coincide after type-argument substitution are not
-  // reported as duplicates.
+  // reported as duplicates.  PKGPATH, if not empty, is the pkgpath of the
+  // template's defining package: the literal is that package's own code, so
+  // it may legitimately assign to that package's unexported struct fields.
   void
-  set_is_instantiated()
-  { this->is_instantiated_ = true; }
+  set_is_instantiated(const std::string& pkgpath = "")
+  {
+    this->is_instantiated_ = true;
+    this->instantiation_pkgpath_ = pkgpath;
+  }
 
  protected:
   int
@@ -4014,6 +4015,9 @@ class Composite_literal_expression : public Parser_expression
   bool all_are_names_;
   // Whether this literal came from a generic instantiation.
   bool is_instantiated_;
+  // If this literal came from instantiating a generic template imported from
+  // another package, the pkgpath of that defining package (else empty).
+  std::string instantiation_pkgpath_;
   // A complement to DEPTH that indicates for each level starting from 0 to
   // DEPTH-1 whether or not this composite literal is nested inside of key or
   // a value.  This is used to decide which type to use when given a map literal
@@ -4085,7 +4089,8 @@ class Struct_construction_expression : public Expression,
 
   // Check types of a struct composite literal.
   static bool
-  check_value_types(Gogo*, Type*, Expression_list*, Location);
+  check_value_types(Gogo*, Type*, Expression_list*, Location,
+		    const std::string& instantiation_pkgpath = "");
 
  protected:
   int

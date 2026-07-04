@@ -1243,7 +1243,13 @@ Parse::type_name(bool issue_error)
       // e.g. metricdata's "type Temporality" in a re-parsed metricdata.Sum
       // template is not shadowed by a same-named "func Temporality" in the
       // importing package.  Fall back to the ordinary lookup otherwise.
-      if (this->replay_tokens_ != NULL)
+      // Never redirect an inference marker ("$infermarkerK"): markers are
+      // compiler-internal types that always belong to the current compilation
+      // package's bindings, and the defining package may hold an unrelated
+      // same-named forward declaration that would shadow the real marker and
+      // break inference of a nested generic call.
+      if (this->replay_tokens_ != NULL
+	  && name.compare(0, 12, "$infermarker") != 0)
 	{
 	  Package* ip = this->gogo_->current_instantiation_package();
 	  if (ip != NULL && ip->pkgpath() != this->gogo_->pkgpath())
@@ -6402,6 +6408,116 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   return inst;
 }
 
+// Generics: build (and cache) INFO's signature with the type parameters
+// replaced by inference marker types, so it can be structurally unified
+// against a concrete type.  Shared by call-argument inference and by
+// context inference (a bare generic function used as a value).
+
+Function_type*
+Parse::generic_marker_signature(Generic_function_info* info)
+{
+  Function_type* gsig = info->marker_signature();
+  if (gsig != NULL)
+    return gsig;
+
+  size_t nparams = info->type_param_names().size();
+  std::vector<std::vector<Token> > marker_args(nparams);
+  for (size_t k = 0; k < nparams; ++k)
+    {
+      this->gogo_->infer_marker_type(k);
+      char buf[32];
+      snprintf(buf, sizeof buf, "$infermarker%zu", k);
+      marker_args[k].push_back(
+	Token::make_identifier_token(std::string(buf), true,
+				     Linemap::predeclared_location()));
+    }
+  std::vector<Token> subst;
+  substitute_type_params(info->tokens(), info->type_param_names(),
+			 marker_args, subst);
+
+  this->gogo_->push_instantiation_context();
+  bool imported_sig = info->defining_package() != NULL;
+  if (imported_sig)
+    this->gogo_->push_instantiation_package(info->defining_package());
+  Parse sp(this->lex_, this->gogo_);
+  sp.set_replay_tokens(&subst);
+  sp.set_replay_pkg_aliases(&info->package_aliases());
+  gsig = sp.signature(NULL, Linemap::predeclared_location());
+  if (imported_sig)
+    this->gogo_->pop_instantiation_package();
+  this->gogo_->pop_instantiation_context();
+  info->set_marker_signature(gsig);
+  return gsig;
+}
+
+// Generics: instantiate a generic function used as a *value* (not called),
+// inferring its type arguments from the CONTEXT function type it is being
+// assigned to -- e.g. "var f func() T = GenFn" or "return GenFn" where
+// GenFn is "func[N]() Foo[N]" and the context fixes N.  Unifies the generic
+// function's parameter and result types against the context function type.
+// Returns NULL (quietly) if inference does not fully solve the type
+// parameters, so the caller can fall back to the ordinary error path.
+
+Named_object*
+Parse::instantiate_generic_from_context(Generic_function_info* info,
+					Function_type* ctxt,
+					Location location)
+{
+  if (ctxt == NULL)
+    return NULL;
+  size_t nparams = info->type_param_names().size();
+  Function_type* gsig = this->generic_marker_signature(info);
+  if (gsig == NULL)
+    return NULL;
+
+  // The generic function's arity must match the context function type, or
+  // it cannot be the intended value.
+  const Typed_identifier_list* gp = gsig->parameters();
+  const Typed_identifier_list* cp = ctxt->parameters();
+  const Typed_identifier_list* gr = gsig->results();
+  const Typed_identifier_list* cr = ctxt->results();
+  size_t gpn = (gp == NULL ? 0 : gp->size());
+  size_t cpn = (cp == NULL ? 0 : cp->size());
+  size_t grn = (gr == NULL ? 0 : gr->size());
+  size_t crn = (cr == NULL ? 0 : cr->size());
+  if (gpn != cpn || grn != crn)
+    return NULL;
+
+  std::vector<Type*> solved(nparams, (Type*) NULL);
+  if (gp != NULL && cp != NULL)
+    {
+      Typed_identifier_list::const_iterator pi = gp->begin();
+      Typed_identifier_list::const_iterator ci = cp->begin();
+      for (; pi != gp->end() && ci != cp->end(); ++pi, ++ci)
+	if (ci->type() != NULL && !ci->type()->is_error_type())
+	  unify_marker(this->gogo_, pi->type(), ci->type(), solved, 0);
+    }
+  if (gr != NULL && cr != NULL)
+    {
+      Typed_identifier_list::const_iterator pi = gr->begin();
+      Typed_identifier_list::const_iterator ci = cr->begin();
+      for (; pi != gr->end() && ci != cr->end(); ++pi, ++ci)
+	if (ci->type() != NULL && !ci->type()->is_error_type())
+	  unify_marker(this->gogo_, pi->type(), ci->type(), solved, 0);
+    }
+
+  std::vector<std::vector<Token> > type_args(nparams);
+  for (size_t i = 0; i < nparams; ++i)
+    {
+      if (solved[i] == NULL
+	  || type_has_infer_marker(this->gogo_, solved[i], 0)
+	  || !type_to_tokens(solved[i], type_args[i], location))
+	return NULL;
+    }
+
+  Named_object* inst = this->instantiate_generic_function(info, type_args,
+							  location);
+  this->gogo_->resolve_global_names();
+  if (inst != NULL)
+    this->gogo_->lower_builtin_calls_for(inst);
+  return inst;
+}
+
 // Generics: record obligations that each type argument satisfy its type
 // parameter's constraint.  Checked after types are determined.
 
@@ -7157,9 +7273,16 @@ Parse::composite_lit(Type* type, int depth, Location location)
     Expression::make_composite_literal(type, depth, has_keys, vals,
 				       all_are_names, location);
   // In a generic instantiation, map keys that coincide after type-argument
-  // substitution must not be reported as duplicates.
+  // substitution must not be reported as duplicates.  Record the defining
+  // package's pkgpath (when instantiating an imported template) so that the
+  // literal, which is that package's own code, may assign to its unexported
+  // struct fields.
   if (this->replay_tokens_ != NULL && cl->complit() != NULL)
-    cl->complit()->set_is_instantiated();
+    {
+      Package* ip = this->gogo_->current_instantiation_package();
+      cl->complit()->set_is_instantiated(ip != NULL ? ip->pkgpath()
+						    : std::string());
+    }
   return cl;
 }
 
