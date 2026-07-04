@@ -16,7 +16,6 @@ import (
 	"unsafe"
 )
 
-<<<<<<< go/./syscall/exec_unix.go
 //sysnb	raw_fork() (pid Pid_t, err Errno)
 //fork() Pid_t
 
@@ -75,10 +74,6 @@ import (
 //setgroups(size Size_t, list *Gid_t) _C_int
 
 // Lock synchronizing creation of new file descriptors with fork.
-=======
-// ForkLock is used to synchronize creation of new file descriptors
-// with fork.
->>>>>>> /tmp/go121/src/./syscall/exec_unix.go
 //
 // We want the child in a fork/exec sequence to inherit only the
 // file descriptors we intend. To do that, we mark all file
@@ -115,7 +110,6 @@ import (
 // The rules for which file descriptor-creating operations use the
 // ForkLock are as follows:
 //
-<<<<<<< go/./syscall/exec_unix.go
 // 1) Pipe. Does not block. Use the ForkLock.
 // 2) Socket. Does not block. Use the ForkLock.
 // 3) Accept. If using non-blocking mode, use the ForkLock.
@@ -126,16 +120,6 @@ import (
 //             On GNU/Linux, could use fcntl F_DUPFD_CLOEXEC
 //             instead of the ForkLock, but only for dup(fd, -1).
 
-=======
-//   - Pipe. Use pipe2 if available. Otherwise, does not block,
-//     so use ForkLock.
-//   - Socket. Use SOCK_CLOEXEC if available. Otherwise, does not
-//     block, so use ForkLock.
-//   - Open. Use O_CLOEXEC if available. Otherwise, may block,
-//     so live with the race.
-//   - Dup. Use F_DUPFD_CLOEXEC or dup3 if available. Otherwise,
-//     does not block, so use ForkLock.
->>>>>>> /tmp/go121/src/./syscall/exec_unix.go
 var ForkLock sync.RWMutex
 
 // StringSlicePtr converts a slice of strings to a slice of pointers

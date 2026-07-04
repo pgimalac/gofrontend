@@ -222,32 +222,10 @@ func noescape(p unsafe.Pointer) unsafe.Pointer {
 	return unsafe.Pointer(x ^ 0)
 }
 
-<<<<<<< go/./runtime/stubs.go
 //go:noescape
 func jmpdefer(fv *funcval, argp uintptr)
 func exit1(code int32)
 func setg(gg *g)
-=======
-// noEscapePtr hides a pointer from escape analysis. See noescape.
-// USE CAREFULLY!
-//
-//go:nosplit
-func noEscapePtr[T any](p *T) *T {
-	x := uintptr(unsafe.Pointer(p))
-	return (*T)(unsafe.Pointer(x ^ 0))
-}
-
-// Not all cgocallback frames are actually cgocallback,
-// so not all have these arguments. Mark them uintptr so that the GC
-// does not misinterpret memory when the arguments are not present.
-// cgocallback is not called from Go, only from crosscall2.
-// This in turn calls cgocallbackg, which is where we'll find
-// pointer-declared arguments.
-//
-// When fn is nil (frame is saved g), call dropm instead,
-// this is used when the C thread is exiting.
-func cgocallback(fn, frame, ctxt uintptr)
->>>>>>> /tmp/go121/src/./runtime/stubs.go
 
 //extern __builtin_trap
 func breakpoint()
@@ -443,7 +421,6 @@ func bool2int(x bool) int {
 // immediately.
 func abort()
 
-<<<<<<< go/./runtime/stubs.go
 // usestackmaps is true if stack map (precise stack scan) is enabled.
 var usestackmaps bool
 
@@ -461,46 +438,3 @@ func getDivideError() error {
 func getOverflowError() error {
 	return overflowError
 }
-=======
-// Called from compiled code; declared for vet; do NOT call from Go.
-func gcWriteBarrier1()
-func gcWriteBarrier2()
-func gcWriteBarrier3()
-func gcWriteBarrier4()
-func gcWriteBarrier5()
-func gcWriteBarrier6()
-func gcWriteBarrier7()
-func gcWriteBarrier8()
-func duffzero()
-func duffcopy()
-
-// Called from linker-generated .initarray; declared for go vet; do NOT call from Go.
-func addmoduledata()
-
-// Injected by the signal handler for panicking signals.
-// Initializes any registers that have fixed meaning at calls but
-// are scratch in bodies and calls sigpanic.
-// On many platforms it just jumps to sigpanic.
-func sigpanic0()
-
-// intArgRegs is used by the various register assignment
-// algorithm implementations in the runtime. These include:.
-// - Finalizers (mfinal.go)
-// - Windows callbacks (syscall_windows.go)
-//
-// Both are stripped-down versions of the algorithm since they
-// only have to deal with a subset of cases (finalizers only
-// take a pointer or interface argument, Go Windows callbacks
-// don't support floating point).
-//
-// It should be modified with care and are generally only
-// modified when testing this package.
-//
-// It should never be set higher than its internal/abi
-// constant counterparts, because the system relies on a
-// structure that is at least large enough to hold the
-// registers the system supports.
-//
-// Protected by finlock.
-var intArgRegs = abi.IntArgRegs
->>>>>>> /tmp/go121/src/./runtime/stubs.go

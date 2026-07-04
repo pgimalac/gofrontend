@@ -44,17 +44,10 @@ func TestPassFlagToTest(t *testing.T) {
 	}
 }
 
-<<<<<<< go/./cmd/go/internal/test/flagdefs_test.go
-func TestVetAnalyzersSetIsCorrect(t *testing.T) {
-	testenv.MustHaveGoBuild(t)
-
-	vetAns, err := genflags.VetAnalyzers()
-=======
 func TestPassAnalyzersToVet(t *testing.T) {
 	testenv.MustHaveGoBuild(t) // runs 'go tool vet -flags'
 
 	wantNames, err := genflags.VetAnalyzers()
->>>>>>> /tmp/go121/src/./cmd/go/internal/test/flagdefs_test.go
 	if err != nil {
 		t.Fatal(err)
 	}

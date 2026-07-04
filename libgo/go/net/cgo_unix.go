@@ -22,11 +22,7 @@ package net
 
 import (
 	"context"
-<<<<<<< go/./net/cgo_unix.go
-=======
-	"errors"
 	"net/netip"
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 	"syscall"
 	"unsafe"
 )
@@ -107,13 +103,8 @@ func cgoLookupHost(ctx context.Context, name string) (hosts []string, err error)
 	return hosts, nil
 }
 
-<<<<<<< go/./net/cgo_unix.go
-func cgoLookupPort(ctx context.Context, network, service string) (port int, err error, completed bool) {
-	var hints syscall.Addrinfo
-=======
 func cgoLookupPort(ctx context.Context, network, service string) (port int, err error) {
-	var hints _C_struct_addrinfo
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
+	var hints syscall.Addrinfo
 	switch network {
 	case "": // no hints
 	case "tcp", "tcp4", "tcp6":
@@ -137,21 +128,10 @@ func cgoLookupPort(ctx context.Context, network, service string) (port int, err 
 	})
 }
 
-<<<<<<< go/./net/cgo_unix.go
 func cgoLookupServicePort(hints *syscall.Addrinfo, network, service string) (port int, err error) {
 	s, err := syscall.BytePtrFromString(service)
 	if err != nil {
-		return 0, err
-=======
-func cgoLookupServicePort(hints *_C_struct_addrinfo, network, service string) (port int, err error) {
-	cservice, err := syscall.ByteSliceFromString(service)
-	if err != nil {
 		return 0, &DNSError{Err: err.Error(), Name: network + "/" + service}
-	}
-	// Lowercase the C service name.
-	for i, b := range cservice[:len(service)] {
-		cservice[i] = lowerASCII(b)
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 	}
 	// Lowercase the service name in the memory passed to C.
 	for i := 0; i < len(service); i++ {
@@ -194,16 +174,7 @@ func cgoLookupServicePort(hints *_C_struct_addrinfo, network, service string) (p
 	return 0, &DNSError{Err: "unknown port", Name: network + "/" + service}
 }
 
-<<<<<<< go/./net/cgo_unix.go
-func cgoPortLookup(result chan<- portLookupResult, hints *syscall.Addrinfo, network, service string) {
-	port, err := cgoLookupServicePort(hints, network, service)
-	result <- portLookupResult{port, err}
-}
-
 func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err error) {
-=======
-func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 	acquireThread()
 	defer releaseThread()
 
@@ -218,20 +189,11 @@ func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
 		hints.Ai_family = syscall.AF_INET6
 	}
 
-<<<<<<< go/./net/cgo_unix.go
 	h := syscall.StringBytePtr(name)
 	var res *syscall.Addrinfo
 	syscall.Entersyscall()
 	gerrno := libc_getaddrinfo(h, nil, &hints, &res)
 	syscall.Exitsyscall()
-=======
-	h, err := syscall.BytePtrFromString(name)
-	if err != nil {
-		return nil, &DNSError{Err: err.Error(), Name: name}
-	}
-	var res *_C_struct_addrinfo
-	gerrno, err := _C_getaddrinfo((*_C_char)(unsafe.Pointer(h)), nil, &hints, &res)
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 	if gerrno != 0 {
 		isErrorNoSuchHost := false
 		isTemporary := false
@@ -248,12 +210,8 @@ func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
 				// comes up again. golang.org/issue/6232.
 				errno = syscall.EMFILE
 			}
-<<<<<<< go/./net/cgo_unix.go
 			err = errno
-		case syscall.EAI_NONAME:
-=======
-		case _C_EAI_NONAME, _C_EAI_NODATA:
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
+		case syscall.EAI_NONAME, syscall.EAI_NODATA:
 			err = errNoSuchHost
 			isErrorNoSuchHost = true
 		default:
@@ -261,11 +219,10 @@ func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
 			isTemporary = addrinfoErrno(gerrno).Temporary()
 		}
 
-		return nil, &DNSError{Err: err.Error(), Name: name, IsNotFound: isErrorNoSuchHost, IsTemporary: isTemporary}
+		return nil, "", &DNSError{Err: err.Error(), Name: name, IsNotFound: isErrorNoSuchHost, IsTemporary: isTemporary}
 	}
 	defer libc_freeaddrinfo(res)
 
-<<<<<<< go/./net/cgo_unix.go
 	if res != nil {
 		cname = bytePtrToString((*byte)(unsafe.Pointer(res.Ai_canonname)))
 		if cname == "" {
@@ -276,9 +233,6 @@ func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
 		}
 	}
 	for r := res; r != nil; r = r.Ai_next {
-=======
-	for r := res; r != nil; r = *_C_ai_next(r) {
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 		// We only asked for SOCK_STREAM, but check anyhow.
 		if r.Ai_socktype != syscall.SOCK_STREAM {
 			continue
@@ -294,28 +248,23 @@ func cgoLookupHostIP(network, name string) (addrs []IPAddr, err error) {
 			addrs = append(addrs, addr)
 		}
 	}
-	return addrs, nil
+	return addrs, cname, nil
 }
 
 func cgoLookupIP(ctx context.Context, network, name string) (addrs []IPAddr, err error) {
 	return doBlockingWithCtx(ctx, func() ([]IPAddr, error) {
-		return cgoLookupHostIP(network, name)
+		addrs, _, err := cgoLookupIPCNAME(network, name)
+		return addrs, err
 	})
 }
 
 func cgoLookupCNAME(ctx context.Context, name string) (cname string, err error, completed bool) {
-	if ctx.Done() == nil {
-		_, cname, err = cgoLookupIPCNAME("ip", name)
-		return cname, err, true
-	}
-	result := make(chan ipLookupResult, 1)
-	go cgoIPLookup(result, "ip", name)
-	select {
-	case r := <-result:
-		return r.cname, r.err, true
-	case <-ctx.Done():
-		return "", mapErr(ctx.Err()), false
-	}
+	cname, err = doBlockingWithCtx(ctx, func() (string, error) {
+		_, cname, err := cgoLookupIPCNAME("ip", name)
+		return cname, err
+	})
+	completed = ctx.Err() == nil
+	return cname, err, completed
 }
 
 // These are roughly enough for the following:
@@ -367,7 +316,7 @@ func cgoLookupAddrPTR(addr string, sa *syscall.RawSockaddr, salen syscall.Sockle
 			if err == nil { // see golang.org/issue/6232
 				err = syscall.EMFILE
 			}
-		case _C_EAI_NONAME:
+		case syscall.EAI_NONAME:
 			err = errNoSuchHost
 			isErrorNoSuchHost = true
 		default:
@@ -385,16 +334,7 @@ func cgoLookupAddrPTR(addr string, sa *syscall.RawSockaddr, salen syscall.Sockle
 	return []string{absDomainName(string(b))}, nil
 }
 
-<<<<<<< go/./net/cgo_unix.go
-func cgoReverseLookup(result chan<- reverseLookupResult, addr string, sa *syscall.RawSockaddr, salen syscall.Socklen_t) {
-	names, err := cgoLookupAddrPTR(addr, sa, salen)
-	result <- reverseLookupResult{names, err}
-}
-
 func cgoSockaddr(ip IP, zone string) (*syscall.RawSockaddr, syscall.Socklen_t) {
-=======
-func cgoSockaddr(ip IP, zone string) (*_C_struct_sockaddr, _C_socklen_t) {
->>>>>>> /tmp/go121/src/./net/cgo_unix.go
 	if ip4 := ip.To4(); ip4 != nil {
 		return cgoSockaddrInet4(ip4), syscall.Socklen_t(syscall.SizeofSockaddrInet4)
 	}
@@ -403,82 +343,3 @@ func cgoSockaddr(ip IP, zone string) (*_C_struct_sockaddr, _C_socklen_t) {
 	}
 	return nil, 0
 }
-<<<<<<< go/./net/cgo_unix.go
-=======
-
-func cgoLookupCNAME(ctx context.Context, name string) (cname string, err error, completed bool) {
-	resources, err := resSearch(ctx, name, int(dnsmessage.TypeCNAME), int(dnsmessage.ClassINET))
-	if err != nil {
-		return
-	}
-	cname, err = parseCNAMEFromResources(resources)
-	if err != nil {
-		return "", err, false
-	}
-	return cname, nil, true
-}
-
-// resSearch will make a call to the 'res_nsearch' routine in the C library
-// and parse the output as a slice of DNS resources.
-func resSearch(ctx context.Context, hostname string, rtype, class int) ([]dnsmessage.Resource, error) {
-	return doBlockingWithCtx(ctx, func() ([]dnsmessage.Resource, error) {
-		return cgoResSearch(hostname, rtype, class)
-	})
-}
-
-func cgoResSearch(hostname string, rtype, class int) ([]dnsmessage.Resource, error) {
-	acquireThread()
-	defer releaseThread()
-
-	state := (*_C_struct___res_state)(_C_malloc(unsafe.Sizeof(_C_struct___res_state{})))
-	defer _C_free(unsafe.Pointer(state))
-	if err := _C_res_ninit(state); err != nil {
-		return nil, errors.New("res_ninit failure: " + err.Error())
-	}
-	defer _C_res_nclose(state)
-
-	// Some res_nsearch implementations (like macOS) do not set errno.
-	// They set h_errno, which is not per-thread and useless to us.
-	// res_nsearch returns the size of the DNS response packet.
-	// But if the DNS response packet contains failure-like response codes,
-	// res_search returns -1 even though it has copied the packet into buf,
-	// giving us no way to find out how big the packet is.
-	// For now, we are willing to take res_search's word that there's nothing
-	// useful in the response, even though there *is* a response.
-	bufSize := maxDNSPacketSize
-	buf := (*_C_uchar)(_C_malloc(uintptr(bufSize)))
-	defer _C_free(unsafe.Pointer(buf))
-
-	s, err := syscall.BytePtrFromString(hostname)
-	if err != nil {
-		return nil, err
-	}
-
-	var size int
-	for {
-		size, _ = _C_res_nsearch(state, (*_C_char)(unsafe.Pointer(s)), class, rtype, buf, bufSize)
-		if size <= 0 || size > 0xffff {
-			return nil, errors.New("res_nsearch failure")
-		}
-		if size <= bufSize {
-			break
-		}
-
-		// Allocate a bigger buffer to fit the entire msg.
-		_C_free(unsafe.Pointer(buf))
-		bufSize = size
-		buf = (*_C_uchar)(_C_malloc(uintptr(bufSize)))
-	}
-
-	var p dnsmessage.Parser
-	if _, err := p.Start(unsafe.Slice((*byte)(unsafe.Pointer(buf)), size)); err != nil {
-		return nil, err
-	}
-	p.SkipAllQuestions()
-	resources, err := p.AllAnswers()
-	if err != nil {
-		return nil, err
-	}
-	return resources, nil
-}
->>>>>>> /tmp/go121/src/./net/cgo_unix.go

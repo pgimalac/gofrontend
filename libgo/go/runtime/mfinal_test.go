@@ -21,7 +21,6 @@ type Tinter interface {
 }
 
 func TestFinalizerType(t *testing.T) {
-<<<<<<< go/./runtime/mfinal_test.go
 	if runtime.GOARCH != "amd64" {
 		t.Skipf("Skipping on non-amd64 machine")
 	}
@@ -29,8 +28,6 @@ func TestFinalizerType(t *testing.T) {
 		t.Skip("skipping for gccgo")
 	}
 
-=======
->>>>>>> /tmp/go121/src/./runtime/mfinal_test.go
 	ch := make(chan bool, 10)
 	finalize := func(x *int) {
 		if *x != 97531 {
@@ -88,15 +85,12 @@ type bigValue struct {
 }
 
 func TestFinalizerInterfaceBig(t *testing.T) {
-<<<<<<< go/./runtime/mfinal_test.go
 	if runtime.GOARCH != "amd64" {
 		t.Skipf("Skipping on non-amd64 machine")
 	}
 	if runtime.Compiler == "gccgo" {
 		t.Skip("skipping for gccgo")
 	}
-=======
->>>>>>> /tmp/go121/src/./runtime/mfinal_test.go
 	ch := make(chan bool)
 	done := make(chan bool, 1)
 	go func() {

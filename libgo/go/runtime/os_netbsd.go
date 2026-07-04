@@ -31,44 +31,8 @@ func lwp_park(ts int32, rel int32, abstime *timespec, unpark int32, hint, unpark
 func lwp_unpark(lwp int32, hint unsafe.Pointer) int32
 
 //go:noescape
-<<<<<<< go/./runtime/os_netbsd.go
 //extern-sysinfo sysctl
 func sysctl(*uint32, uint32, *byte, *uintptr, *byte, uintptr) int32
-=======
-func kevent(kq int32, ch *keventt, nch int32, ev *keventt, nev int32, ts *timespec) int32
-
-func pipe2(flags int32) (r, w int32, errno int32)
-func fcntl(fd, cmd, arg int32) (ret int32, errno int32)
-
-func issetugid() int32
-
-const (
-	_ESRCH     = 3
-	_ETIMEDOUT = 60
-
-	// From NetBSD's <sys/time.h>
-	_CLOCK_REALTIME  = 0
-	_CLOCK_VIRTUAL   = 1
-	_CLOCK_PROF      = 2
-	_CLOCK_MONOTONIC = 3
-
-	_TIMER_RELTIME = 0
-	_TIMER_ABSTIME = 1
-)
-
-var sigset_all = sigset{[4]uint32{^uint32(0), ^uint32(0), ^uint32(0), ^uint32(0)}}
-
-// From NetBSD's <sys/sysctl.h>
-const (
-	_CTL_KERN   = 1
-	_KERN_OSREV = 3
-
-	_CTL_HW        = 6
-	_HW_NCPU       = 3
-	_HW_PAGESIZE   = 7
-	_HW_NCPUONLINE = 16
-)
->>>>>>> /tmp/go121/src/./runtime/os_netbsd.go
 
 func sysctlInt(mib []uint32) (int32, bool) {
 	var out int32
@@ -162,70 +126,6 @@ func semawakeup(mp *m) {
 	}
 }
 
-<<<<<<< go/./runtime/os_netbsd.go
-=======
-// May run with m.p==nil, so write barriers are not allowed.
-//
-//go:nowritebarrier
-func newosproc(mp *m) {
-	stk := unsafe.Pointer(mp.g0.stack.hi)
-	if false {
-		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " id=", mp.id, " ostk=", &mp, "\n")
-	}
-
-	var uc ucontextt
-	getcontext(unsafe.Pointer(&uc))
-
-	// _UC_SIGMASK does not seem to work here.
-	// It would be nice if _UC_SIGMASK and _UC_STACK
-	// worked so that we could do all the work setting
-	// the sigmask and the stack here, instead of setting
-	// the mask here and the stack in netbsdMstart.
-	// For now do the blocking manually.
-	uc.uc_flags = _UC_SIGMASK | _UC_CPU
-	uc.uc_link = nil
-	uc.uc_sigmask = sigset_all
-
-	var oset sigset
-	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
-
-	lwp_mcontext_init(&uc.uc_mcontext, stk, mp, mp.g0, abi.FuncPCABI0(netbsdMstart))
-
-	ret := retryOnEAGAIN(func() int32 {
-		errno := lwp_create(unsafe.Pointer(&uc), _LWP_DETACHED, unsafe.Pointer(&mp.procid))
-		// lwp_create returns negative errno
-		return -errno
-	})
-	sigprocmask(_SIG_SETMASK, &oset, nil)
-	if ret != 0 {
-		print("runtime: failed to create new OS thread (have ", mcount()-1, " already; errno=", ret, ")\n")
-		if ret == _EAGAIN {
-			println("runtime: may need to increase max user processes (ulimit -p)")
-		}
-		throw("runtime.newosproc")
-	}
-}
-
-// mstart is the entry-point for new Ms.
-// It is written in assembly, uses ABI0, is marked TOPFRAME, and calls netbsdMstart0.
-func netbsdMstart()
-
-// netbsdMstart0 is the function call that starts executing a newly
-// created thread. On NetBSD, a new thread inherits the signal stack
-// of the creating thread. That confuses minit, so we remove that
-// signal stack here before calling the regular mstart. It's a bit
-// baroque to remove a signal stack here only to add one in minit, but
-// it's a simple change that keeps NetBSD working like other OS's.
-// At this point all signals are blocked, so there is no race.
-//
-//go:nosplit
-func netbsdMstart0() {
-	st := stackt{ss_flags: _SS_DISABLE}
-	sigaltstack(&st, nil)
-	mstart0()
-}
-
->>>>>>> /tmp/go121/src/./runtime/os_netbsd.go
 func osinit() {
 	ncpu = getncpu()
 	if physPageSize == 0 {

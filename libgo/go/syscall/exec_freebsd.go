@@ -35,7 +35,6 @@ type SysProcAttr struct {
 	Foreground bool
 	Pgid       int    // Child's process group ID if Setpgid.
 	Pdeathsig  Signal // Signal that the process will get when its parent dies (Linux and FreeBSD only)
-	Jail       int    // Jail to which the child process is attached (FreeBSD only).
 }
 
 const (
@@ -64,24 +63,11 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	// Declare all variables at top in case any
 	// declarations require heap allocation (e.g., err1).
 	var (
-<<<<<<< go/./syscall/exec_freebsd.go
 		r1     Pid_t
 		err1   Errno
 		nextfd int
 		i      int
-=======
-		r1              uintptr
-		err1            Errno
-		nextfd          int
-		i               int
-		pgrp            _C_int
-		cred            *Credential
-		ngroups, groups uintptr
-		upid            uintptr
->>>>>>> /tmp/go121/src/./syscall/exec_freebsd.go
 	)
-
-	rlim, rlimOK := origRlimitNofile.Load().(Rlimit)
 
 	// Record parent PID so child can test if it has died.
 	ppid := raw_getpid()
@@ -116,15 +102,6 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 
 	// Fork succeeded, now in child.
 
-	// Attach to the given jail, if any. The system call also changes the
-	// process' root and working directories to the jail's path directory.
-	if sys.Jail > 0 {
-		_, _, err1 = RawSyscall(SYS_JAIL_ATTACH, uintptr(sys.Jail), 0, 0)
-		if err1 != 0 {
-			goto childerror
-		}
-	}
-
 	// Enable tracing if requested.
 	if sys.Ptrace {
 		err1 = raw_ptrace(_PTRACE_TRACEME, 0, 0, 0)
@@ -151,13 +128,7 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	if sys.Foreground {
-<<<<<<< go/./syscall/exec_freebsd.go
 		pgrp := Pid_t(sys.Pgid)
-=======
-		// This should really be pid_t, however _C_int (aka int32) is
-		// generally equivalent.
-		pgrp = _C_int(sys.Pgid)
->>>>>>> /tmp/go121/src/./syscall/exec_freebsd.go
 		if pgrp == 0 {
 			pgrp = raw_getpid()
 		}
@@ -182,15 +153,9 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// User and groups
-<<<<<<< go/./syscall/exec_freebsd.go
 	if cred := sys.Credential; cred != nil {
 		ngroups := len(cred.Groups)
 		var groups *Gid_t
-=======
-	if cred = sys.Credential; cred != nil {
-		ngroups = uintptr(len(cred.Groups))
-		groups = uintptr(0)
->>>>>>> /tmp/go121/src/./syscall/exec_freebsd.go
 		if ngroups > 0 {
 			gids := make([]Gid_t, ngroups)
 			for i, v := range cred.Groups {
@@ -239,13 +204,8 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		// using SIGKILL.
 		r1 = raw_getppid()
 		if r1 != ppid {
-<<<<<<< go/./syscall/exec_freebsd.go
 			pid := raw_getpid()
 			err1 = raw_kill(pid, sys.Pdeathsig)
-=======
-			upid, _, _ = RawSyscall(SYS_GETPID, 0, 0, 0)
-			_, _, err1 = RawSyscall(SYS_KILL, upid, uintptr(sys.Pdeathsig), 0)
->>>>>>> /tmp/go121/src/./syscall/exec_freebsd.go
 			if err1 != 0 {
 				goto childerror
 			}
@@ -321,11 +281,6 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		if err1 != 0 {
 			goto childerror
 		}
-	}
-
-	// Restore original rlimit.
-	if rlimOK && rlim.Cur != 0 {
-		RawSyscall(SYS_SETRLIMIT, uintptr(RLIMIT_NOFILE), uintptr(unsafe.Pointer(&rlim)), 0)
 	}
 
 	// Time to exec.

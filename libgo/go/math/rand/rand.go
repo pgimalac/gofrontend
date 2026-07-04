@@ -346,7 +346,7 @@ func globalRand() *Rand {
 	return r
 }
 
-//go:linkname fastrand64
+//go:linkname fastrand64 math_1rand.fastrand64
 func fastrand64() uint64
 
 // fastSource is an implementation of Source64 that uses the runtime
@@ -497,31 +497,7 @@ func ExpFloat64() float64 { return globalRand().ExpFloat64() }
 
 type lockedSource struct {
 	lk sync.Mutex
-<<<<<<< go/./math/rand/rand.go
-	s  *rngSource // nil if not yet allocated
-}
-
-//go:linkname fastrand64 math_1rand.fastrand64
-func fastrand64() uint64
-
-var randautoseed = godebug.New("randautoseed")
-
-// source returns r.s, allocating and seeding it if needed.
-// The caller must have locked r.
-func (r *lockedSource) source() *rngSource {
-	if r.s == nil {
-		var seed int64
-		if randautoseed.Value() == "0" {
-			seed = 1
-		} else {
-			seed = int64(fastrand64())
-		}
-		r.s = newSource(seed)
-	}
-	return r.s
-=======
 	s  *rngSource
->>>>>>> /tmp/go121/src/./math/rand/rand.go
 }
 
 func (r *lockedSource) Int63() (n int64) {

@@ -299,11 +299,7 @@ func printanycustomtype(i any) {
 	eface := efaceOf(&i)
 	typestring := toRType(eface._type).string()
 
-<<<<<<< go/./runtime/error.go
 	switch eface._type.kind & ((1 << 5) - 1) {
-=======
-	switch eface._type.Kind_ {
->>>>>>> /tmp/go121/src/./runtime/error.go
 	case kindString:
 		print(typestring, `("`, *(*string)(eface.data), `")`)
 	case kindBool:
@@ -342,37 +338,3 @@ func printanycustomtype(i any) {
 		print("(", typestring, ") ", eface.data)
 	}
 }
-<<<<<<< go/./runtime/error.go
-=======
-
-// panicwrap generates a panic for a call to a wrapped value method
-// with a nil pointer receiver.
-//
-// It is called from the generated wrapper code.
-func panicwrap() {
-	pc := getcallerpc()
-	name := funcNameForPrint(funcname(findfunc(pc)))
-	// name is something like "main.(*T).F".
-	// We want to extract pkg ("main"), typ ("T"), and meth ("F").
-	// Do it by finding the parens.
-	i := bytealg.IndexByteString(name, '(')
-	if i < 0 {
-		throw("panicwrap: no ( in " + name)
-	}
-	pkg := name[:i-1]
-	if i+2 >= len(name) || name[i-1:i+2] != ".(*" {
-		throw("panicwrap: unexpected string after package name: " + name)
-	}
-	name = name[i+2:]
-	i = bytealg.IndexByteString(name, ')')
-	if i < 0 {
-		throw("panicwrap: no ) in " + name)
-	}
-	if i+2 >= len(name) || name[i:i+2] != ")." {
-		throw("panicwrap: unexpected string after type name: " + name)
-	}
-	typ := name[:i]
-	meth := name[i+2:]
-	panic(plainError("value method " + pkg + "." + typ + "." + meth + " called using nil *" + typ + " pointer"))
-}
->>>>>>> /tmp/go121/src/./runtime/error.go

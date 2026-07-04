@@ -642,14 +642,8 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	s.allocCount = nalloc
 	s.freeindex = 0 // reset allocation index to start of span.
-<<<<<<< go/./runtime/mgcsweep.go
 	if trace.enabled {
 		getg().m.p.ptr().traceReclaimed += uintptr(nfreed) * s.elemsize
-=======
-	s.freeIndexForScan = 0
-	if traceEnabled() {
-		getg().m.p.ptr().trace.reclaimed += uintptr(nfreed) * s.elemsize
->>>>>>> /tmp/go121/src/./runtime/mgcsweep.go
 	}
 
 	// gcmarkBits becomes the allocBits.

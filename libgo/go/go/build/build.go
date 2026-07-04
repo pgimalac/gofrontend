@@ -16,7 +16,6 @@ import (
 	"internal/godebug"
 	"internal/goroot"
 	"internal/goversion"
-	"internal/platform"
 	"io"
 	"io/fs"
 	"os"
@@ -347,12 +346,8 @@ func defaultContext() Context {
 	default:
 		// cgo must be explicitly enabled for cross compilation builds
 		if runtime.GOARCH == c.GOARCH && runtime.GOOS == c.GOOS {
-<<<<<<< go/./go/build/build.go
 			// Always enabled for gccgo.
 			c.CgoEnabled = true
-=======
-			c.CgoEnabled = platform.CgoSupported(c.GOOS, c.GOARCH)
->>>>>>> /tmp/go121/src/./go/build/build.go
 			break
 		}
 		c.CgoEnabled = false

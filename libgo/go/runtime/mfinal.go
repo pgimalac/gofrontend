@@ -145,12 +145,8 @@ func runfinq() {
 		fb := finq
 		finq = nil
 		if fb == nil {
-<<<<<<< go/./runtime/mfinal.go
 			fingwait = true
 			goparkunlock(&finlock, waitReasonFinalizerWait, traceEvGoBlock, 1)
-=======
-			gopark(finalizercommit, unsafe.Pointer(&finlock), waitReasonFinalizerWait, traceBlockSystemGoroutine, 1)
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 			continue
 		}
 		unlock(&finlock)
@@ -161,28 +157,13 @@ func runfinq() {
 				if f.ft == nil {
 					throw("missing type in runfinq")
 				}
-<<<<<<< go/./runtime/mfinal.go
 				fint := f.ft.in[0]
 				var param unsafe.Pointer
 				switch fint.kind & kindMask {
-=======
-				r := frame
-				if argRegs > 0 {
-					r = unsafe.Pointer(&regs.Ints)
-				} else {
-					// frame is effectively uninitialized
-					// memory. That means we have to clear
-					// it before writing to it to avoid
-					// confusing the write barrier.
-					*(*[2]uintptr)(frame) = [2]uintptr{}
-				}
-				switch f.fint.Kind_ & kindMask {
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 				case kindPtr:
 					// direct use of pointer
 					param = unsafe.Pointer(&f.arg)
 				case kindInterface:
-<<<<<<< go/./runtime/mfinal.go
 					ityp := (*interfacetype)(unsafe.Pointer(fint))
 					if len(ityp.methods) == 0 {
 						// set up with empty interface
@@ -190,13 +171,6 @@ func runfinq() {
 						ef.data = f.arg
 						param = unsafe.Pointer(&ef)
 					} else {
-=======
-					ityp := (*interfacetype)(unsafe.Pointer(f.fint))
-					// set up with empty interface
-					(*eface)(r)._type = &f.ot.Type
-					(*eface)(r).data = f.arg
-					if len(ityp.Methods) != 0 {
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 						// convert to interface with methods
 						// this conversion is guaranteed to succeed - we checked in SetFinalizer
 						ifac.tab = getitab(fint, &f.ot.typ, true)
@@ -235,31 +209,6 @@ func runfinq() {
 			fb = next
 		}
 	}
-}
-
-func isGoPointerWithoutSpan(p unsafe.Pointer) bool {
-	// 0-length objects are okay.
-	if p == unsafe.Pointer(&zerobase) {
-		return true
-	}
-
-	// Global initializers might be linker-allocated.
-	//	var Foo = &Object{}
-	//	func main() {
-	//		runtime.SetFinalizer(Foo, nil)
-	//	}
-	// The relevant segments are: noptrdata, data, bss, noptrbss.
-	// We cannot assume they are in any order or even contiguous,
-	// due to external linking.
-	for datap := &firstmoduledata; datap != nil; datap = datap.next {
-		if datap.noptrdata <= uintptr(p) && uintptr(p) < datap.enoptrdata ||
-			datap.data <= uintptr(p) && uintptr(p) < datap.edata ||
-			datap.bss <= uintptr(p) && uintptr(p) < datap.ebss ||
-			datap.noptrbss <= uintptr(p) && uintptr(p) < datap.enoptrbss {
-			return true
-		}
-	}
-	return false
 }
 
 // SetFinalizer sets the finalizer associated with obj to the provided
@@ -350,11 +299,11 @@ func SetFinalizer(obj any, finalizer any) {
 	if etyp == nil {
 		throw("runtime.SetFinalizer: first argument is nil")
 	}
-	if etyp.Kind_&kindMask != kindPtr {
-		throw("runtime.SetFinalizer: first argument is " + toRType(etyp).string() + ", not pointer")
+	if etyp.kind&kindMask != kindPtr {
+		throw("runtime.SetFinalizer: first argument is " + etyp.string() + ", not pointer")
 	}
 	ot := (*ptrtype)(unsafe.Pointer(etyp))
-	if ot.Elem == nil {
+	if ot.elem == nil {
 		throw("nil elem type!")
 	}
 
@@ -362,10 +311,10 @@ func SetFinalizer(obj any, finalizer any) {
 	base, _, _ := findObject(uintptr(e.data), 0, 0, false)
 
 	if base == 0 {
-		if isGoPointerWithoutSpan(e.data) {
+		// 0-length objects are okay.
+		if e.data == unsafe.Pointer(&zerobase) {
 			return
 		}
-<<<<<<< go/./runtime/mfinal.go
 
 		// Global initializers might be linker-allocated.
 		//	var Foo = &Object{}
@@ -379,15 +328,12 @@ func SetFinalizer(obj any, finalizer any) {
 		// For gccgo we have no reliable way to detect them,
 		// so we just return.
 		return
-=======
-		throw("runtime.SetFinalizer: pointer not in allocated block")
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 	}
 
 	if uintptr(e.data) != base {
 		// As an implementation detail we allow to set finalizers for an inner byte
 		// of an object if it could come from tiny alloc (see mallocgc for details).
-		if ot.Elem == nil || ot.Elem.PtrBytes != 0 || ot.Elem.Size_ >= maxTinySize {
+		if ot.elem == nil || ot.elem.ptrdata != 0 || ot.elem.size >= maxTinySize {
 			throw("runtime.SetFinalizer: pointer not at beginning of allocated block")
 		}
 	}
@@ -402,53 +348,30 @@ func SetFinalizer(obj any, finalizer any) {
 		return
 	}
 
-	if ftyp.Kind_&kindMask != kindFunc {
-		throw("runtime.SetFinalizer: second argument is " + toRType(ftyp).string() + ", not a function")
+	if ftyp.kind&kindMask != kindFunc {
+		throw("runtime.SetFinalizer: second argument is " + ftyp.string() + ", not a function")
 	}
 	ft := (*functype)(unsafe.Pointer(ftyp))
-<<<<<<< go/./runtime/mfinal.go
 	if ft.dotdotdot {
 		throw("runtime.SetFinalizer: cannot pass " + etyp.string() + " to finalizer " + ftyp.string() + " because dotdotdot")
-=======
-	if ft.IsVariadic() {
-		throw("runtime.SetFinalizer: cannot pass " + toRType(etyp).string() + " to finalizer " + toRType(ftyp).string() + " because dotdotdot")
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 	}
-<<<<<<< go/./runtime/mfinal.go
 	if len(ft.in) != 1 {
 		throw("runtime.SetFinalizer: cannot pass " + etyp.string() + " to finalizer " + ftyp.string())
-=======
-	if ft.InCount != 1 {
-		throw("runtime.SetFinalizer: cannot pass " + toRType(etyp).string() + " to finalizer " + toRType(ftyp).string())
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 	}
-<<<<<<< go/./runtime/mfinal.go
 	fint := ft.in[0]
-=======
-	fint := ft.InSlice()[0]
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 	switch {
 	case fint == etyp:
 		// ok - same type
 		goto okarg
-<<<<<<< go/./runtime/mfinal.go
 	case fint.kind&kindMask == kindPtr:
 		if (fint.uncommontype == nil || etyp.uncommontype == nil) && (*ptrtype)(unsafe.Pointer(fint)).elem == ot.elem {
-=======
-	case fint.Kind_&kindMask == kindPtr:
-		if (fint.Uncommon() == nil || etyp.Uncommon() == nil) && (*ptrtype)(unsafe.Pointer(fint)).Elem == ot.Elem {
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 			// ok - not same type, but both pointers,
 			// one or the other is unnamed, and same element type, so assignable.
 			goto okarg
 		}
-	case fint.Kind_&kindMask == kindInterface:
+	case fint.kind&kindMask == kindInterface:
 		ityp := (*interfacetype)(unsafe.Pointer(fint))
-<<<<<<< go/./runtime/mfinal.go
 		if len(ityp.methods) == 0 {
-=======
-		if len(ityp.Methods) == 0 {
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 			// ok - satisfies empty interface
 			goto okarg
 		}
@@ -456,18 +379,8 @@ func SetFinalizer(obj any, finalizer any) {
 			goto okarg
 		}
 	}
-	throw("runtime.SetFinalizer: cannot pass " + toRType(etyp).string() + " to finalizer " + toRType(ftyp).string())
+	throw("runtime.SetFinalizer: cannot pass " + etyp.string() + " to finalizer " + ftyp.string())
 okarg:
-<<<<<<< go/./runtime/mfinal.go
-=======
-	// compute size needed for return parameters
-	nret := uintptr(0)
-	for _, t := range ft.OutSlice() {
-		nret = alignUp(nret, uintptr(t.Align_)) + uintptr(t.Size_)
-	}
-	nret = alignUp(nret, goarch.PtrSize)
-
->>>>>>> /tmp/go121/src/./runtime/mfinal.go
 	// make sure we have a finalizer goroutine
 	createfing()
 

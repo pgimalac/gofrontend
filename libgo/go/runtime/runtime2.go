@@ -465,7 +465,6 @@ type g struct {
 	// for stack shrinking.
 	parkingOnChan atomic.Bool
 
-<<<<<<< go/./runtime/runtime2.go
 	raceignore     int8     // ignore race detection events
 	sysblocktraced bool     // StartTrace has emitted EvGoInSyscall about this goroutine
 	tracking       bool     // whether we're tracking this G for sched latency statistics
@@ -490,36 +489,6 @@ type g struct {
 	labels     unsafe.Pointer // profiler labels
 	timer      *timer         // cached timer for time.Sleep
 	selectDone atomic.Uint32  // are we participating in a select and did someone win the race?
-=======
-	raceignore    int8  // ignore race detection events
-	tracking      bool  // whether we're tracking this G for sched latency statistics
-	trackingSeq   uint8 // used to decide whether to track this G
-	trackingStamp int64 // timestamp of when the G last started being tracked
-	runnableTime  int64 // the amount of time spent runnable, cleared when running, only used when tracking
-	lockedm       muintptr
-	sig           uint32
-	writebuf      []byte
-	sigcode0      uintptr
-	sigcode1      uintptr
-	sigpc         uintptr
-	parentGoid    uint64          // goid of goroutine that created this goroutine
-	gopc          uintptr         // pc of go statement that created this goroutine
-	ancestors     *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
-	startpc       uintptr         // pc of goroutine function
-	racectx       uintptr
-	waiting       *sudog         // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
-	cgoCtxt       []uintptr      // cgo traceback context
-	labels        unsafe.Pointer // profiler labels
-	timer         *timer         // cached timer for time.Sleep
-	selectDone    atomic.Uint32  // are we participating in a select and did someone win the race?
-
-	// goroutineProfiled indicates the status of this goroutine's stack for the
-	// current in-progress goroutine profile
-	goroutineProfiled goroutineProfileStateHolder
->>>>>>> /tmp/go121/src/./runtime/runtime2.go
-
-	// Per-G tracer state.
-	trace gTraceState
 
 	// Per-G GC state
 
@@ -609,7 +578,6 @@ type m struct {
 	// Not for gccgo: divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
-<<<<<<< go/./runtime/runtime2.go
 	procid  uint64 // for debuggers, but offset not hard-coded
 	gsignal *g     // signal-handling g
 	// Not for gccgo: goSigStack    gsignalStack // Go-allocated signal handling stack
@@ -642,46 +610,10 @@ type m struct {
 	ncgo       int32  // number of cgo calls currently in progress
 	// Not for gccgo: cgoCallersUse uint32      // if non-zero, cgoCallers in use temporarily
 	// Not for gccgo: cgoCallers    *cgoCallers // cgo traceback if crashing in cgo call
-=======
-	procid        uint64            // for debuggers, but offset not hard-coded
-	gsignal       *g                // signal-handling g
-	goSigStack    gsignalStack      // Go-allocated signal handling stack
-	sigmask       sigset            // storage for saved signal mask
-	tls           [tlsSlots]uintptr // thread-local storage (for x86 extern register)
-	mstartfn      func()
-	curg          *g       // current running goroutine
-	caughtsig     guintptr // goroutine running during fatal signal
-	p             puintptr // attached p for executing go code (nil if not executing go code)
-	nextp         puintptr
-	oldp          puintptr // the p that was attached before executing a syscall
-	id            int64
-	mallocing     int32
-	throwing      throwType
-	preemptoff    string // if != "", keep curg running on this m
-	locks         int32
-	dying         int32
-	profilehz     int32
-	spinning      bool // m is out of work and is actively looking for work
-	blocked       bool // m is blocked on a note
-	newSigstack   bool // minit on C thread called sigaltstack
-	printlock     int8
-	incgo         bool          // m is executing a cgo call
-	isextra       bool          // m is an extra m
-	isExtraInC    bool          // m is an extra m that is not executing Go code
-	freeWait      atomic.Uint32 // Whether it is safe to free g0 and delete m (one of freeMRef, freeMStack, freeMWait)
-	fastrand      uint64
-	needextram    bool
-	traceback     uint8
-	ncgocall      uint64        // number of cgo calls in total
-	ncgo          int32         // number of cgo calls currently in progress
-	cgoCallersUse atomic.Uint32 // if non-zero, cgoCallers in use temporarily
-	cgoCallers    *cgoCallers   // cgo traceback if crashing in cgo call
->>>>>>> /tmp/go121/src/./runtime/runtime2.go
 	park          note
 	alllink       *m // on allm
 	schedlink     muintptr
 	lockedg       guintptr
-<<<<<<< go/./runtime/runtime2.go
 	createstack   [32]location // stack that created this thread.
 	lockedExt     uint32       // tracking for external LockOSThread
 	lockedInt     uint32       // tracking for internal lockOSThread
@@ -693,23 +625,6 @@ type m struct {
 	startingtrace bool
 	syscalltick   uint32
 	freelink      *m // on sched.freem
-=======
-	createstack   [32]uintptr // stack that created this thread.
-	lockedExt     uint32      // tracking for external LockOSThread
-	lockedInt     uint32      // tracking for internal lockOSThread
-	nextwaitm     muintptr    // next m waiting for lock
-
-	// wait* are used to carry arguments from gopark into park_m, because
-	// there's no stack to put them on. That is their sole purpose.
-	waitunlockf          func(*g, unsafe.Pointer) bool
-	waitlock             unsafe.Pointer
-	waitTraceBlockReason traceBlockReason
-	waitTraceSkip        int
-
-	syscalltick uint32
-	freelink    *m // on sched.freem
-	trace       mTraceState
->>>>>>> /tmp/go121/src/./runtime/runtime2.go
 
 	// these are here because they are too large to be on the stack
 	// of low-level NOSPLIT functions.
@@ -806,8 +721,6 @@ type p struct {
 	// Cache of a single pinner object to reduce allocations from repeated
 	// pinner creation.
 	pinnerCache *pinner
-
-	trace pTraceState
 
 	palloc persistentAlloc // per-P to avoid mutex
 
@@ -1012,82 +925,6 @@ const (
 	_SigIgn                  // _SIG_DFL action is to ignore the signal
 )
 
-<<<<<<< go/./runtime/runtime2.go
-=======
-// Layout of in-memory per-function information prepared by linker
-// See https://golang.org/s/go12symtab.
-// Keep in sync with linker (../cmd/link/internal/ld/pcln.go:/pclntab)
-// and with package debug/gosym and with symtab.go in package runtime.
-type _func struct {
-	sys.NotInHeap // Only in static data
-
-	entryOff uint32 // start pc, as offset from moduledata.text/pcHeader.textStart
-	nameOff  int32  // function name, as index into moduledata.funcnametab.
-
-	args        int32  // in/out args size
-	deferreturn uint32 // offset of start of a deferreturn call instruction from entry, if any.
-
-	pcsp      uint32
-	pcfile    uint32
-	pcln      uint32
-	npcdata   uint32
-	cuOffset  uint32     // runtime.cutab offset of this function's CU
-	startLine int32      // line number of start of function (func keyword/TEXT directive)
-	funcID    abi.FuncID // set for certain special runtime functions
-	flag      abi.FuncFlag
-	_         [1]byte // pad
-	nfuncdata uint8   // must be last, must end on a uint32-aligned boundary
-
-	// The end of the struct is followed immediately by two variable-length
-	// arrays that reference the pcdata and funcdata locations for this
-	// function.
-
-	// pcdata contains the offset into moduledata.pctab for the start of
-	// that index's table. e.g.,
-	// &moduledata.pctab[_func.pcdata[_PCDATA_UnsafePoint]] is the start of
-	// the unsafe point table.
-	//
-	// An offset of 0 indicates that there is no table.
-	//
-	// pcdata [npcdata]uint32
-
-	// funcdata contains the offset past moduledata.gofunc which contains a
-	// pointer to that index's funcdata. e.g.,
-	// *(moduledata.gofunc +  _func.funcdata[_FUNCDATA_ArgsPointerMaps]) is
-	// the argument pointer map.
-	//
-	// An offset of ^uint32(0) indicates that there is no entry.
-	//
-	// funcdata [nfuncdata]uint32
-}
-
-// Pseudo-Func that is returned for PCs that occur in inlined code.
-// A *Func can be either a *_func or a *funcinl, and they are distinguished
-// by the first uintptr.
-//
-// TODO(austin): Can we merge this with inlinedCall?
-type funcinl struct {
-	ones      uint32  // set to ^0 to distinguish from _func
-	entry     uintptr // entry of the real (the "outermost") frame
-	name      string
-	file      string
-	line      int32
-	startLine int32
-}
-
-// layout of Itab known to compilers
-// allocated in non-garbage-collected memory
-// Needs to be in sync with
-// ../cmd/compile/internal/reflectdata/reflect.go:/^func.WriteTabs.
-type itab struct {
-	inter *interfacetype
-	_type *_type
-	hash  uint32 // copy of _type.hash. Used for type switches.
-	_     [4]byte
-	fun   [1]uintptr // variable sized. fun[0]==0 means _type does not implement inter.
-}
-
->>>>>>> /tmp/go121/src/./runtime/runtime2.go
 // Lock-free stack node.
 // Also known to export_test.go.
 type lfnode struct {

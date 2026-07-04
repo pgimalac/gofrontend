@@ -207,16 +207,11 @@ func TestSetPanicOnFault(t *testing.T) {
 //
 //go:nocheckptr
 func testSetPanicOnFault(t *testing.T, addr uintptr, nfault *int) {
-<<<<<<< go/./runtime/runtime_test.go
 	if strings.Contains(Version(), "llvm") {
 		t.Skip("LLVM doesn't support non-call exception")
 	}
 	if GOOS == "js" {
 		t.Skip("js does not support catching faults")
-=======
-	if GOOS == "js" || GOOS == "wasip1" {
-		t.Skip(GOOS + " does not support catching faults")
->>>>>>> /tmp/go121/src/./runtime/runtime_test.go
 	}
 
 	defer func() {

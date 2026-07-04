@@ -7,10 +7,6 @@
 package syscall_test
 
 import (
-<<<<<<< go/./syscall/exec_linux_test.go
-=======
-	"bytes"
->>>>>>> /tmp/go121/src/./syscall/exec_linux_test.go
 	"flag"
 	"fmt"
 	"internal/testenv"
@@ -27,7 +23,6 @@ import (
 	"unsafe"
 )
 
-<<<<<<< go/./syscall/exec_linux_test.go
 func isDocker() bool {
 	_, err := os.Stat("/.dockerenv")
 	return err == nil
@@ -120,14 +115,6 @@ func checkUserNS(t *testing.T) {
 func whoamiCmd(t *testing.T, uid, gid int, setgroups bool) *exec.Cmd {
 	checkUserNS(t)
 	cmd := exec.Command("whoami")
-=======
-// whoamiNEWUSER returns a command that runs "whoami" with CLONE_NEWUSER,
-// mapping uid and gid 0 to the actual uid and gid of the test.
-func whoamiNEWUSER(t *testing.T, uid, gid int, setgroups bool) *exec.Cmd {
-	t.Helper()
-	testenv.MustHaveExecPath(t, "whoami")
-	cmd := testenv.Command(t, "whoami")
->>>>>>> /tmp/go121/src/./syscall/exec_linux_test.go
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER,
 		UidMappings: []syscall.SysProcIDMap{
@@ -141,7 +128,6 @@ func whoamiNEWUSER(t *testing.T, uid, gid int, setgroups bool) *exec.Cmd {
 	return cmd
 }
 
-<<<<<<< go/./syscall/exec_linux_test.go
 func testNEWUSERRemap(t *testing.T, uid, gid int, setgroups bool) {
 	cmd := whoamiCmd(t, uid, gid, setgroups)
 	out, err := cmd.CombinedOutput()
@@ -187,47 +173,6 @@ func TestCloneNEWUSERAndRemapNoRootSetgroupsEnableSetgroups(t *testing.T) {
 	}
 	if !os.IsPermission(err) {
 		t.Fatalf("Unprivileged gid_map rewriting with GidMappingsEnableSetgroups must fail with permission error; got %v", err)
-=======
-func TestCloneNEWUSERAndRemap(t *testing.T) {
-	for _, setgroups := range []bool{false, true} {
-		setgroups := setgroups
-		t.Run(fmt.Sprintf("setgroups=%v", setgroups), func(t *testing.T) {
-			uid := os.Getuid()
-			gid := os.Getgid()
-
-			cmd := whoamiNEWUSER(t, uid, gid, setgroups)
-			out, err := cmd.CombinedOutput()
-			t.Logf("%v: %v", cmd, err)
-
-			if uid != 0 && setgroups {
-				t.Logf("as non-root, expected permission error due to unprivileged gid_map")
-				if !os.IsPermission(err) {
-					if err == nil {
-						t.Skipf("unexpected success: probably old kernel without security fix?")
-					}
-					if testenv.SyscallIsNotSupported(err) {
-						t.Skipf("skipping: CLONE_NEWUSER appears to be unsupported")
-					}
-					t.Fatalf("got non-permission error") // Already logged above.
-				}
-				return
-			}
-
-			if err != nil {
-				if testenv.SyscallIsNotSupported(err) {
-					// May be inside a container that disallows CLONE_NEWUSER.
-					t.Skipf("skipping: CLONE_NEWUSER appears to be unsupported")
-				}
-				t.Fatalf("unexpected command failure; output:\n%s", out)
-			}
-
-			sout := strings.TrimSpace(string(out))
-			want := "root"
-			if sout != want {
-				t.Fatalf("whoami = %q; want %q", out, want)
-			}
-		})
->>>>>>> /tmp/go121/src/./syscall/exec_linux_test.go
 	}
 }
 
@@ -500,152 +445,6 @@ func TestUnshareUidGidMapping(t *testing.T) {
 	}
 }
 
-<<<<<<< go/./syscall/exec_linux_test.go
-=======
-func prepareCgroupFD(t *testing.T) (int, string) {
-	t.Helper()
-
-	const O_PATH = 0x200000 // Same for all architectures, but for some reason not defined in syscall for 386||amd64.
-
-	// Requires cgroup v2.
-	const prefix = "/sys/fs/cgroup"
-	selfCg, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		if os.IsNotExist(err) || os.IsPermission(err) {
-			t.Skip(err)
-		}
-		t.Fatal(err)
-	}
-
-	// Expect a single line like this:
-	// 0::/user.slice/user-1000.slice/user@1000.service/app.slice/vte-spawn-891992a2-efbb-4f28-aedb-b24f9e706770.scope
-	// Otherwise it's either cgroup v1 or a hybrid hierarchy.
-	if bytes.Count(selfCg, []byte("\n")) > 1 {
-		t.Skip("cgroup v2 not available")
-	}
-	cg := bytes.TrimPrefix(selfCg, []byte("0::"))
-	if len(cg) == len(selfCg) { // No prefix found.
-		t.Skipf("cgroup v2 not available (/proc/self/cgroup contents: %q)", selfCg)
-	}
-
-	// Need clone3 with CLONE_INTO_CGROUP support.
-	_, err = syscall.ForkExec("non-existent binary", nil, &syscall.ProcAttr{
-		Sys: &syscall.SysProcAttr{
-			UseCgroupFD: true,
-			CgroupFD:    -1,
-		},
-	})
-	if testenv.SyscallIsNotSupported(err) {
-		t.Skipf("clone3 with CLONE_INTO_CGROUP not available: %v", err)
-	}
-
-	// Need an ability to create a sub-cgroup.
-	subCgroup, err := os.MkdirTemp(prefix+string(bytes.TrimSpace(cg)), "subcg-")
-	if err != nil {
-		// ErrPermission or EROFS (#57262) when running in an unprivileged container.
-		// ErrNotExist when cgroupfs is not mounted in chroot/schroot.
-		if os.IsNotExist(err) || testenv.SyscallIsNotSupported(err) {
-			t.Skipf("skipping: %v", err)
-		}
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { syscall.Rmdir(subCgroup) })
-
-	cgroupFD, err := syscall.Open(subCgroup, O_PATH, 0)
-	if err != nil {
-		t.Fatal(&os.PathError{Op: "open", Path: subCgroup, Err: err})
-	}
-	t.Cleanup(func() { syscall.Close(cgroupFD) })
-
-	return cgroupFD, "/" + path.Base(subCgroup)
-}
-
-func TestUseCgroupFD(t *testing.T) {
-	testenv.MustHaveExec(t)
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fd, suffix := prepareCgroupFD(t)
-
-	cmd := testenv.Command(t, exe, "-test.run=TestUseCgroupFDHelper")
-	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    fd,
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Cmd failed with err %v, output: %s", err, out)
-	}
-	// NB: this wouldn't work with cgroupns.
-	if !bytes.HasSuffix(bytes.TrimSpace(out), []byte(suffix)) {
-		t.Fatalf("got: %q, want: a line that ends with %q", out, suffix)
-	}
-}
-
-func TestUseCgroupFDHelper(*testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
-		return
-	}
-	defer os.Exit(0)
-	// Read and print own cgroup path.
-	selfCg, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-	fmt.Print(string(selfCg))
-}
-
-func TestCloneTimeNamespace(t *testing.T) {
-	testenv.MustHaveExec(t)
-
-	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
-		timens, err := os.Readlink("/proc/self/ns/time")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-		fmt.Print(string(timens))
-		os.Exit(0)
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := testenv.Command(t, exe, "-test.run=TestCloneTimeNamespace")
-	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWTIME,
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if testenv.SyscallIsNotSupported(err) {
-			// CLONE_NEWTIME does not appear to be supported.
-			t.Skipf("skipping, CLONE_NEWTIME not supported: %v", err)
-		}
-		t.Fatalf("Cmd failed with err %v, output: %s", err, out)
-	}
-
-	// Inode number of the time namespaces should be different.
-	// Based on https://man7.org/linux/man-pages/man7/time_namespaces.7.html#EXAMPLES
-	timens, err := os.Readlink("/proc/self/ns/time")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	parentTimeNS := string(timens)
-	childTimeNS := string(out)
-	if childTimeNS == parentTimeNS {
-		t.Fatalf("expected child time namespace to be different from parent time namespace: %s", parentTimeNS)
-	}
-}
-
->>>>>>> /tmp/go121/src/./syscall/exec_linux_test.go
 type capHeader struct {
 	version uint32
 	pid     int32

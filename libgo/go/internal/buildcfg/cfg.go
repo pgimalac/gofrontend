@@ -15,11 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-<<<<<<< go/./internal/buildcfg/cfg.go
-=======
-	"runtime"
 	"strconv"
->>>>>>> /tmp/go121/src/./internal/buildcfg/cfg.go
 	"strings"
 )
 

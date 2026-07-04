@@ -16,7 +16,6 @@ package runtime
 import (
 	"internal/abi"
 	"internal/goarch"
-	"internal/goexperiment"
 	"unsafe"
 )
 
@@ -118,6 +117,12 @@ import (
 // compiler will generate a write barrier for writes through that
 // pointer (because it doesn't know it's not a heap pointer).
 //
+// One might be tempted to ignore the write barrier if slot points
+// into to the stack. Don't do it! Mark termination only re-scans
+// frames that have potentially been active since the concurrent scan,
+// so it depends on write barriers to track changes to pointers in
+// stack frames that have not been active.
+//
 //
 // Global writes:
 //
@@ -155,12 +160,12 @@ import (
 // anywhere in the bulk barrier or memmove.
 //
 //go:nosplit
-func typedmemmove(typ *abi.Type, dst, src unsafe.Pointer) {
+func typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 	if dst == src {
 		return
 	}
-	if writeBarrier.needed && typ.PtrBytes != 0 {
-		bulkBarrierPreWrite(uintptr(dst), uintptr(src), typ.PtrBytes)
+	if writeBarrier.needed && typ.ptrdata != 0 {
+		bulkBarrierPreWrite(uintptr(dst), uintptr(src), typ.ptrdata)
 	}
 	// There's a race here: if some other goroutine can write to
 	// src, it may change some pointer in src after we've
@@ -169,9 +174,9 @@ func typedmemmove(typ *abi.Type, dst, src unsafe.Pointer) {
 	// other goroutine must also be accompanied by a write
 	// barrier, so at worst we've unnecessarily greyed the old
 	// pointer that was in src.
-	memmove(dst, src, typ.Size_)
-	if goexperiment.CgoCheck2 {
-		cgoCheckMemmove2(typ, dst, src, 0, typ.Size_)
+	memmove(dst, src, typ.size)
+	if writeBarrier.cgo {
+		cgoCheckMemmove(typ, dst, src, 0, typ.size)
 	}
 }
 
@@ -182,7 +187,7 @@ func typedmemmove(typ *abi.Type, dst, src unsafe.Pointer) {
 //go:nowritebarrierrec
 //go:nosplit
 func wbZero(typ *_type, dst unsafe.Pointer) {
-	bulkBarrierPreWrite(uintptr(dst), 0, typ.PtrBytes)
+	bulkBarrierPreWrite(uintptr(dst), 0, typ.ptrdata)
 }
 
 // wbMove performs the write barrier operations necessary before
@@ -192,7 +197,7 @@ func wbZero(typ *_type, dst unsafe.Pointer) {
 //go:nowritebarrierrec
 //go:nosplit
 func wbMove(typ *_type, dst, src unsafe.Pointer) {
-	bulkBarrierPreWrite(uintptr(dst), uintptr(src), typ.PtrBytes)
+	bulkBarrierPreWrite(uintptr(dst), uintptr(src), typ.ptrdata)
 }
 
 //go:linkname reflect_typedmemmove reflect.typedmemmove
@@ -202,12 +207,12 @@ func reflect_typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 		raceReadObjectPC(typ, src, getcallerpc(), abi.FuncPCABIInternal(reflect_typedmemmove))
 	}
 	if msanenabled {
-		msanwrite(dst, typ.Size_)
-		msanread(src, typ.Size_)
+		msanwrite(dst, typ.size)
+		msanread(src, typ.size)
 	}
 	if asanenabled {
-		asanwrite(dst, typ.Size_)
-		asanread(src, typ.Size_)
+		asanwrite(dst, typ.size)
+		asanread(src, typ.size)
 	}
 	typedmemmove(typ, dst, src)
 }
@@ -217,7 +222,6 @@ func reflectlite_typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 	reflect_typedmemmove(typ, dst, src)
 }
 
-<<<<<<< go/./runtime/mbarrier.go
 // reflect_typedmemmovepartial is like typedmemmove but assumes that
 // dst and src point off bytes into the value and only copies size bytes.
 // off must be a multiple of goarch.PtrSize.
@@ -241,32 +245,6 @@ func reflect_typedmemmovepartial(typ *_type, dst, src unsafe.Pointer, off, size 
 	}
 }
 
-=======
-// reflectcallmove is invoked by reflectcall to copy the return values
-// out of the stack and into the heap, invoking the necessary write
-// barriers. dst, src, and size describe the return value area to
-// copy. typ describes the entire frame (not just the return values).
-// typ may be nil, which indicates write barriers are not needed.
-//
-// It must be nosplit and must only call nosplit functions because the
-// stack map of reflectcall is wrong.
-//
-//go:nosplit
-func reflectcallmove(typ *_type, dst, src unsafe.Pointer, size uintptr, regs *abi.RegArgs) {
-	if writeBarrier.needed && typ != nil && typ.PtrBytes != 0 && size >= goarch.PtrSize {
-		bulkBarrierPreWrite(uintptr(dst), uintptr(src), size)
-	}
-	memmove(dst, src, size)
-
-	// Move pointers returned in registers to a place where the GC can see them.
-	for i := range regs.Ints {
-		if regs.ReturnIsPtr.Get(i) {
-			regs.Ptrs[i] = unsafe.Pointer(regs.Ints[i])
-		}
-	}
-}
-
->>>>>>> /tmp/go121/src/./runtime/mbarrier.go
 //go:nosplit
 func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe.Pointer, srcLen int) int {
 	n := dstLen
@@ -284,19 +262,19 @@ func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe
 	if raceenabled {
 		callerpc := getcallerpc()
 		pc := abi.FuncPCABIInternal(slicecopy)
-		racewriterangepc(dstPtr, uintptr(n)*typ.Size_, callerpc, pc)
-		racereadrangepc(srcPtr, uintptr(n)*typ.Size_, callerpc, pc)
+		racewriterangepc(dstPtr, uintptr(n)*typ.size, callerpc, pc)
+		racereadrangepc(srcPtr, uintptr(n)*typ.size, callerpc, pc)
 	}
 	if msanenabled {
-		msanwrite(dstPtr, uintptr(n)*typ.Size_)
-		msanread(srcPtr, uintptr(n)*typ.Size_)
+		msanwrite(dstPtr, uintptr(n)*typ.size)
+		msanread(srcPtr, uintptr(n)*typ.size)
 	}
 	if asanenabled {
-		asanwrite(dstPtr, uintptr(n)*typ.Size_)
-		asanread(srcPtr, uintptr(n)*typ.Size_)
+		asanwrite(dstPtr, uintptr(n)*typ.size)
+		asanread(srcPtr, uintptr(n)*typ.size)
 	}
 
-	if goexperiment.CgoCheck2 {
+	if writeBarrier.cgo {
 		cgoCheckSliceCopy(typ, dstPtr, srcPtr, n)
 	}
 
@@ -304,13 +282,13 @@ func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe
 		return n
 	}
 
-	// Note: No point in checking typ.PtrBytes here:
+	// Note: No point in checking typ.ptrdata here:
 	// compiler only emits calls to typedslicecopy for types with pointers,
 	// and growslice and reflect_typedslicecopy check for pointers
 	// before calling typedslicecopy.
-	size := uintptr(n) * typ.Size_
+	size := uintptr(n) * typ.size
 	if writeBarrier.needed {
-		pwsize := size - typ.Size_ + typ.PtrBytes
+		pwsize := size - typ.size + typ.ptrdata
 		bulkBarrierPreWrite(uintptr(dstPtr), uintptr(srcPtr), pwsize)
 	}
 	// See typedmemmove for a discussion of the race between the
@@ -321,8 +299,8 @@ func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe
 
 //go:linkname reflect_typedslicecopy reflect.typedslicecopy
 func reflect_typedslicecopy(elemType *_type, dst, src slice) int {
-	if elemType.PtrBytes == 0 {
-		return slicecopy(dst.array, dst.len, src.array, src.len, elemType.Size_)
+	if elemType.ptrdata == 0 {
+		return slicecopy(dst.array, dst.len, src.array, src.len, elemType.size)
 	}
 	return typedslicecopy(elemType, dst.array, dst.len, src.array, src.len)
 }
@@ -339,10 +317,10 @@ func reflect_typedslicecopy(elemType *_type, dst, src slice) int {
 //
 //go:nosplit
 func typedmemclr(typ *_type, ptr unsafe.Pointer) {
-	if writeBarrier.needed && typ.PtrBytes != 0 {
-		bulkBarrierPreWrite(uintptr(ptr), 0, typ.PtrBytes)
+	if writeBarrier.needed && typ.ptrdata != 0 {
+		bulkBarrierPreWrite(uintptr(ptr), 0, typ.ptrdata)
 	}
-	memclrNoHeapPointers(ptr, typ.Size_)
+	memclrNoHeapPointers(ptr, typ.size)
 }
 
 //go:linkname reflect_typedmemclr reflect.typedmemclr
@@ -352,7 +330,7 @@ func reflect_typedmemclr(typ *_type, ptr unsafe.Pointer) {
 
 //go:linkname reflect_typedmemclrpartial reflect.typedmemclrpartial
 func reflect_typedmemclrpartial(typ *_type, ptr unsafe.Pointer, off, size uintptr) {
-	if writeBarrier.needed && typ.PtrBytes != 0 {
+	if writeBarrier.needed && typ.ptrdata != 0 {
 		bulkBarrierPreWrite(uintptr(ptr), 0, size)
 	}
 	memclrNoHeapPointers(ptr, size)
@@ -360,8 +338,8 @@ func reflect_typedmemclrpartial(typ *_type, ptr unsafe.Pointer, off, size uintpt
 
 //go:linkname reflect_typedarrayclear reflect.typedarrayclear
 func reflect_typedarrayclear(typ *_type, ptr unsafe.Pointer, len int) {
-	size := typ.Size_ * uintptr(len)
-	if writeBarrier.needed && typ.PtrBytes != 0 {
+	size := typ.size * uintptr(len)
+	if writeBarrier.needed && typ.ptrdata != 0 {
 		bulkBarrierPreWrite(uintptr(ptr), 0, size)
 	}
 	memclrNoHeapPointers(ptr, size)
@@ -369,7 +347,7 @@ func reflect_typedarrayclear(typ *_type, ptr unsafe.Pointer, len int) {
 
 // memclrHasPointers clears n bytes of typed memory starting at ptr.
 // The caller must ensure that the type of the object at ptr has
-// pointers, usually by checking typ.PtrBytes. However, ptr
+// pointers, usually by checking typ.ptrdata. However, ptr
 // does not have to point to the start of the allocation.
 //
 //go:nosplit

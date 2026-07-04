@@ -80,18 +80,12 @@ func port_associate(port, source int32, object uintptr, events uint32, user uint
 //extern port_dissociate
 func port_dissociate(port, source int32, object uintptr) int32
 
-<<<<<<< go/./runtime/netpoll_solaris.go
 //go:noescape
 //extern port_getn
 func port_getn(port int32, evs *portevent, max uint32, nget *uint32, timeout *timespec) int32
 
 //extern port_alert
 func port_alert(port int32, flags, events uint32, user uintptr) int32
-=======
-func port_create() int32 {
-	return int32(sysvicall0(&libc_port_create))
-}
->>>>>>> /tmp/go121/src/./runtime/netpoll_solaris.go
 
 var (
 	netpollWakeSig uint32 // used to avoid duplicate calls of netpollBreak

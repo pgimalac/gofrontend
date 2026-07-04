@@ -731,7 +731,6 @@ func scanstack(gp *g, gcw *gcWork) int64 {
 func scanstackswitch(gp *g, gcw *gcWork) {
 	g := getg()
 
-<<<<<<< go/./runtime/mgcmark.go
 	// We are on the system stack which prevents preemption. But
 	// we are going to switch to g stack. Lock m to block preemption.
 	mp := acquirem()
@@ -771,23 +770,6 @@ func scanSyscallStack(gp *g, gcw *gcWork) {
 	if gp.gcscandone {
 		// We've suspended the goroutine by setting the _Gscan bit,
 		// so this shouldn't be possible.
-=======
-	// Scan the saved context register. This is effectively a live
-	// register that gets moved back and forth between the
-	// register and sched.ctxt without a write barrier.
-	if gp.sched.ctxt != nil {
-		scanblock(uintptr(unsafe.Pointer(&gp.sched.ctxt)), goarch.PtrSize, &oneptrmask[0], gcw, &state)
-	}
-
-	// Scan the stack. Accumulate a list of stack objects.
-	var u unwinder
-	for u.init(gp, 0); u.valid(); u.next() {
-		scanframeworker(&u.frame, &state, gcw)
-	}
-
-	// Find additional pointers that point into the stack from the heap.
-	// Currently this includes defers and panics. See also function copystack.
->>>>>>> /tmp/go121/src/./runtime/mgcmark.go
 
 		throw("scanSyscallStack: gcscandone")
 	}
@@ -804,127 +786,8 @@ func scanSyscallStack(gp *g, gcw *gcWork) {
 			return
 		}
 
-<<<<<<< go/./runtime/mgcmark.go
 		// The signal was delivered at a bad time.  Try again.
 		osyield()
-=======
-		if s != nil {
-			dematerializeGCProg(s)
-		}
-	}
-
-	// Deallocate object buffers.
-	// (Pointer buffers were all deallocated in the loop above.)
-	for state.head != nil {
-		x := state.head
-		state.head = x.next
-		if stackTraceDebug {
-			for i := 0; i < x.nobj; i++ {
-				obj := &x.obj[i]
-				if obj.r == nil { // reachable
-					continue
-				}
-				println("  dead stkobj at", hex(gp.stack.lo+uintptr(obj.off)), "of size", obj.r.size)
-				// Note: not necessarily really dead - only reachable-from-ptr dead.
-			}
-		}
-		x.nobj = 0
-		putempty((*workbuf)(unsafe.Pointer(x)))
-	}
-	if state.buf != nil || state.cbuf != nil || state.freeBuf != nil {
-		throw("remaining pointer buffers")
-	}
-	return int64(scannedSize)
-}
-
-// Scan a stack frame: local variables and function arguments/results.
-//
-//go:nowritebarrier
-func scanframeworker(frame *stkframe, state *stackScanState, gcw *gcWork) {
-	if _DebugGC > 1 && frame.continpc != 0 {
-		print("scanframe ", funcname(frame.fn), "\n")
-	}
-
-	isAsyncPreempt := frame.fn.valid() && frame.fn.funcID == abi.FuncID_asyncPreempt
-	isDebugCall := frame.fn.valid() && frame.fn.funcID == abi.FuncID_debugCallV2
-	if state.conservative || isAsyncPreempt || isDebugCall {
-		if debugScanConservative {
-			println("conservatively scanning function", funcname(frame.fn), "at PC", hex(frame.continpc))
-		}
-
-		// Conservatively scan the frame. Unlike the precise
-		// case, this includes the outgoing argument space
-		// since we may have stopped while this function was
-		// setting up a call.
-		//
-		// TODO: We could narrow this down if the compiler
-		// produced a single map per function of stack slots
-		// and registers that ever contain a pointer.
-		if frame.varp != 0 {
-			size := frame.varp - frame.sp
-			if size > 0 {
-				scanConservative(frame.sp, size, nil, gcw, state)
-			}
-		}
-
-		// Scan arguments to this frame.
-		if n := frame.argBytes(); n != 0 {
-			// TODO: We could pass the entry argument map
-			// to narrow this down further.
-			scanConservative(frame.argp, n, nil, gcw, state)
-		}
-
-		if isAsyncPreempt || isDebugCall {
-			// This function's frame contained the
-			// registers for the asynchronously stopped
-			// parent frame. Scan the parent
-			// conservatively.
-			state.conservative = true
-		} else {
-			// We only wanted to scan those two frames
-			// conservatively. Clear the flag for future
-			// frames.
-			state.conservative = false
-		}
-		return
-	}
-
-	locals, args, objs := frame.getStackMap(&state.cache, false)
-
-	// Scan local variables if stack frame has been allocated.
-	if locals.n > 0 {
-		size := uintptr(locals.n) * goarch.PtrSize
-		scanblock(frame.varp-size, size, locals.bytedata, gcw, state)
-	}
-
-	// Scan arguments.
-	if args.n > 0 {
-		scanblock(frame.argp, uintptr(args.n)*goarch.PtrSize, args.bytedata, gcw, state)
-	}
-
-	// Add all stack objects to the stack object list.
-	if frame.varp != 0 {
-		// varp is 0 for defers, where there are no locals.
-		// In that case, there can't be a pointer to its args, either.
-		// (And all args would be scanned above anyway.)
-		for i := range objs {
-			obj := &objs[i]
-			off := obj.off
-			base := frame.varp // locals base pointer
-			if off >= 0 {
-				base = frame.argp // arguments and return values base pointer
-			}
-			ptr := base + uintptr(off)
-			if ptr < frame.sp {
-				// object hasn't been allocated in the frame yet.
-				continue
-			}
-			if stackTraceDebug {
-				println("stkobj at", hex(ptr), "of size", obj.size)
-			}
-			state.addObject(ptr, obj)
-		}
->>>>>>> /tmp/go121/src/./runtime/mgcmark.go
 	}
 }
 

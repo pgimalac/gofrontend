@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-<<<<<<< go/./runtime/internal/sys/intrinsics.go
 package sys
 
 //extern __builtin_ctz
@@ -32,9 +31,6 @@ func Ctz32(x uint32) int {
 	}
 	return int(builtinCtz32(x))
 }
-=======
-package sys
->>>>>>> /tmp/go121/src/./runtime/internal/sys/intrinsics.go
 
 // Copied from math/bits to avoid dependence.
 
@@ -105,13 +101,11 @@ func TrailingZeros8(x uint8) int {
 	return int(ntz8tab[x])
 }
 
-<<<<<<< go/./runtime/internal/sys/intrinsics.go
 //extern __builtin_bswap64
 func bswap64(uint64) uint64
 
 //go:nosplit
 
-=======
 const len8tab = "" +
 	"\x00\x01\x02\x02\x03\x03\x03\x03\x04\x04\x04\x04\x04\x04\x04\x04" +
 	"\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05\x05" +
@@ -199,7 +193,6 @@ func Len8(x uint8) int {
 	return int(len8tab[x])
 }
 
->>>>>>> /tmp/go121/src/./runtime/internal/sys/intrinsics.go
 // Bswap64 returns its input with byte order reversed
 // 0x0102030405060708 -> 0x0807060504030201
 func Bswap64(x uint64) uint64 {

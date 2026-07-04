@@ -1171,23 +1171,6 @@ func gcMarkTermination() {
 		printunlock()
 	}
 
-<<<<<<< go/./runtime/mgc.go
-=======
-	// Set any arena chunks that were deferred to fault.
-	lock(&userArenaState.lock)
-	faultList := userArenaState.fault
-	userArenaState.fault = nil
-	unlock(&userArenaState.lock)
-	for _, lc := range faultList {
-		lc.mspan.setUserArenaChunkToFault()
-	}
-
-	// Enable huge pages on some metadata if we cross a heap threshold.
-	if gcController.heapGoal() > minHeapForMetadataHugePages {
-		mheap_.enableMetadataHugePages()
-	}
-
->>>>>>> /tmp/go121/src/./runtime/mgc.go
 	semrelease(&worldsema)
 	semrelease(&gcsema)
 	// Careful: another GC cycle may start now.

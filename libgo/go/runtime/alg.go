@@ -137,13 +137,8 @@ func interhash(p unsafe.Pointer, h uintptr) uintptr {
 	if tab == nil {
 		return h
 	}
-<<<<<<< go/./runtime/alg.go
 	t := *(**_type)(tab)
 	if t.equal == nil {
-=======
-	t := tab._type
-	if t.Equal == nil {
->>>>>>> /tmp/go121/src/./runtime/alg.go
 		// Check hashability here. We could do this check inside
 		// typehash, but we want to report the topmost type in
 		// the error text (e.g. in a struct with a field of slice type
@@ -209,11 +204,7 @@ func typehash(t *_type, p unsafe.Pointer, h uintptr) uintptr {
 		return strhash(p, h)
 	case kindInterface:
 		i := (*interfacetype)(unsafe.Pointer(t))
-<<<<<<< go/./runtime/alg.go
 		if len(i.methods) == 0 {
-=======
-		if len(i.Methods) == 0 {
->>>>>>> /tmp/go121/src/./runtime/alg.go
 			return nilinterhash(p, h)
 		}
 		return interhash(p, h)
@@ -225,20 +216,11 @@ func typehash(t *_type, p unsafe.Pointer, h uintptr) uintptr {
 		return h
 	case kindStruct:
 		s := (*structtype)(unsafe.Pointer(t))
-<<<<<<< go/./runtime/alg.go
 		for _, f := range s.fields {
 			if f.name != nil && *f.name == "_" {
-=======
-		for _, f := range s.Fields {
-			if f.Name.IsBlank() {
->>>>>>> /tmp/go121/src/./runtime/alg.go
 				continue
 			}
-<<<<<<< go/./runtime/alg.go
 			h = typehash(f.typ, add(p, f.offset()), h)
-=======
-			h = typehash(f.Typ, add(p, f.Offset), h)
->>>>>>> /tmp/go121/src/./runtime/alg.go
 		}
 		return h
 	default:
@@ -357,7 +339,6 @@ func ifaceefaceeq(x iface, y eface) bool {
 	if x.tab == nil && y._type == nil {
 		return true
 	}
-<<<<<<< go/./runtime/alg.go
 	if x.tab == nil || y._type == nil {
 		return false
 	}
@@ -383,10 +364,6 @@ func efacevaleq(x eface, t *_type, p unsafe.Pointer) bool {
 		return false
 	}
 	eq := t.equal
-=======
-	t := tab._type
-	eq := t.Equal
->>>>>>> /tmp/go121/src/./runtime/alg.go
 	if eq == nil {
 		panic(errorString("comparing uncomparable type " + toRType(t).string()))
 	}

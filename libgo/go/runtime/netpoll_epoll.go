@@ -67,7 +67,6 @@ func netpollIsPollDescriptor(fd uintptr) bool {
 	return fd == uintptr(epfd) || fd == netpollBreakRd || fd == netpollBreakWr
 }
 
-<<<<<<< go/./runtime/netpoll_epoll.go
 func netpollopen(fd uintptr, pd *pollDesc) int32 {
 	var ev epollevent
 	ev.events = _EPOLLIN | _EPOLLOUT | _EPOLLRDHUP | _EPOLLETpos
@@ -84,19 +83,6 @@ func netpollclose(fd uintptr) int32 {
 		return int32(errno())
 	}
 	return 0
-=======
-func netpollopen(fd uintptr, pd *pollDesc) uintptr {
-	var ev syscall.EpollEvent
-	ev.Events = syscall.EPOLLIN | syscall.EPOLLOUT | syscall.EPOLLRDHUP | syscall.EPOLLET
-	tp := taggedPointerPack(unsafe.Pointer(pd), pd.fdseq.Load())
-	*(*taggedPointer)(unsafe.Pointer(&ev.Data)) = tp
-	return syscall.EpollCtl(epfd, syscall.EPOLL_CTL_ADD, int32(fd), &ev)
-}
-
-func netpollclose(fd uintptr) uintptr {
-	var ev syscall.EpollEvent
-	return syscall.EpollCtl(epfd, syscall.EPOLL_CTL_DEL, int32(fd), &ev)
->>>>>>> /tmp/go121/src/./runtime/netpoll_epoll.go
 }
 
 func netpollarm(pd *pollDesc, mode int) {
@@ -194,19 +180,9 @@ retry:
 			mode += 'w'
 		}
 		if mode != 0 {
-<<<<<<< go/./runtime/netpoll_epoll.go
 			pd := *(**pollDesc)(unsafe.Pointer(&ev.data))
 			pd.setEventErr(ev.events == _EPOLLERR)
 			netpollready(&toRun, pd, mode)
-=======
-			tp := *(*taggedPointer)(unsafe.Pointer(&ev.Data))
-			pd := (*pollDesc)(tp.pointer())
-			tag := tp.tag()
-			if pd.fdseq.Load() == tag {
-				pd.setEventErr(ev.Events == syscall.EPOLLERR, tag)
-				netpollready(&toRun, pd, mode)
-			}
->>>>>>> /tmp/go121/src/./runtime/netpoll_epoll.go
 		}
 	}
 	return toRun

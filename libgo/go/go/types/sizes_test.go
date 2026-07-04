@@ -8,13 +8,9 @@ package types_test
 
 import (
 	"go/ast"
-<<<<<<< go/./go/types/sizes_test.go
 	// "go/importer"
 	// "go/parser"
 	// "go/token"
-=======
-	"go/importer"
->>>>>>> /tmp/go121/src/./go/types/sizes_test.go
 	"go/types"
 	// "internal/testenv"
 	"testing"
@@ -108,44 +104,4 @@ const _ = unsafe.Offsetof(struct{ x int64 }{}.x)
 	}
 }
 
-<<<<<<< go/./go/types/sizes_test.go
 */
-=======
-// go.dev/issue/53884.
-func TestAtomicAlign(t *testing.T) {
-	testenv.MustHaveGoBuild(t) // The Go command is needed for the importer to determine the locations of stdlib .a files.
-
-	const src = `
-package main
-
-import "sync/atomic"
-
-var s struct {
-	x int32
-	y atomic.Int64
-	z int64
-}
-`
-
-	want := []int64{0, 8, 16}
-	for _, arch := range []string{"386", "amd64"} {
-		t.Run(arch, func(t *testing.T) {
-			conf := types.Config{
-				Importer: importer.Default(),
-				Sizes:    types.SizesFor("gc", arch),
-			}
-			ts := findStructTypeConfig(t, src, &conf)
-			var fields []*types.Var
-			// Make a copy manually :(
-			for i := 0; i < ts.NumFields(); i++ {
-				fields = append(fields, ts.Field(i))
-			}
-
-			offsets := conf.Sizes.Offsetsof(fields)
-			if offsets[0] != want[0] || offsets[1] != want[1] || offsets[2] != want[2] {
-				t.Errorf("OffsetsOf(%v) = %v want %v", ts, offsets, want)
-			}
-		})
-	}
-}
->>>>>>> /tmp/go121/src/./go/types/sizes_test.go

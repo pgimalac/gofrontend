@@ -485,11 +485,6 @@ func (u *UnsafePointer) Store(value unsafe.Pointer) {
 }
 
 // provided by runtime
-<<<<<<< go/./runtime/internal/atomic/types.go
-=======
-//
-//go:linkname storePointer
->>>>>>> /tmp/go121/src/./runtime/internal/atomic/types.go
 func storePointer(ptr *unsafe.Pointer, new unsafe.Pointer)
 
 // CompareAndSwapNoWB atomically (with respect to other methods)

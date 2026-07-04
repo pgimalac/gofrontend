@@ -137,40 +137,6 @@ const (
 	_CLOCK_REALTIME  = 9
 	_CLOCK_MONOTONIC = 10
 )
-<<<<<<< go/./runtime/os_aix.go
-=======
-
-//go:nosplit
-func nanotime1() int64 {
-	tp := &timespec{}
-	if clock_gettime(_CLOCK_REALTIME, tp) != 0 {
-		throw("syscall clock_gettime failed")
-	}
-	return tp.tv_sec*1000000000 + tp.tv_nsec
-}
-
-func walltime() (sec int64, nsec int32) {
-	ts := &timespec{}
-	if clock_gettime(_CLOCK_REALTIME, ts) != 0 {
-		throw("syscall clock_gettime failed")
-	}
-	return ts.tv_sec, int32(ts.tv_nsec)
-}
-
-//go:nosplit
-func fcntl(fd, cmd, arg int32) (int32, int32) {
-	r, errno := syscall3(&libc_fcntl, uintptr(fd), uintptr(cmd), uintptr(arg))
-	return int32(r), int32(errno)
-}
-
-//go:nosplit
-func setNonblock(fd int32) {
-	flags, _ := fcntl(fd, _F_GETFL, 0)
-	if flags != -1 {
-		fcntl(fd, _F_SETFL, flags|_O_NONBLOCK)
-	}
-}
-
 // sigPerThreadSyscall is only used on linux, so we assign a bogus signal
 // number.
 const sigPerThreadSyscall = 1 << 31
@@ -179,44 +145,3 @@ const sigPerThreadSyscall = 1 << 31
 func runPerThreadSyscall() {
 	throw("runPerThreadSyscall only valid on linux")
 }
-
-//go:nosplit
-func getuid() int32 {
-	r, errno := syscall0(&libc_getuid)
-	if errno != 0 {
-		print("getuid failed ", errno)
-		throw("getuid")
-	}
-	return int32(r)
-}
-
-//go:nosplit
-func geteuid() int32 {
-	r, errno := syscall0(&libc_geteuid)
-	if errno != 0 {
-		print("geteuid failed ", errno)
-		throw("geteuid")
-	}
-	return int32(r)
-}
-
-//go:nosplit
-func getgid() int32 {
-	r, errno := syscall0(&libc_getgid)
-	if errno != 0 {
-		print("getgid failed ", errno)
-		throw("getgid")
-	}
-	return int32(r)
-}
-
-//go:nosplit
-func getegid() int32 {
-	r, errno := syscall0(&libc_getegid)
-	if errno != 0 {
-		print("getegid failed ", errno)
-		throw("getegid")
-	}
-	return int32(r)
-}
->>>>>>> /tmp/go121/src/./runtime/os_aix.go

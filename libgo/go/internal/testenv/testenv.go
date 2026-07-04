@@ -27,7 +27,6 @@ import (
 	"testing"
 )
 
-<<<<<<< go/./internal/testenv/testenv.go
 // testingGotools reports whether we are testing the gotools directory
 // that is part of GCC. We just use an environment variable set by the
 // gotools check target.
@@ -35,14 +34,13 @@ func testingGotools() bool {
 	return os.Getenv("GO_TESTING_GOTOOLS") != ""
 }
 
-=======
 // Save the original environment during init for use in checks. A test
 // binary may modify its environment before calling HasExec to change its
 // behavior (such as mimicking a command-line tool), and that modified
 // environment might cause environment checks to behave erratically.
 var origEnv = os.Environ()
 
->>>>>>> /tmp/go121/src/./internal/testenv/testenv.go
+
 // Builder reports the name of the builder running this test
 // (for example, "linux-amd64" or "windows-386-gce").
 // If the test is not running on the build infrastructure,
@@ -61,67 +59,12 @@ func HasGoBuild() bool {
 		// run go build.
 		return false
 	}
-<<<<<<< go/./internal/testenv/testenv.go
 	switch runtime.GOOS {
 	case "android", "js", "ios":
 		return false
 	}
 	// gccgo tests can not run "go build".
 	return testingGotools()
-=======
-
-	goBuildOnce.Do(func() {
-		// To run 'go build', we need to be able to exec a 'go' command.
-		// We somewhat arbitrarily choose to exec 'go tool -n compile' because that
-		// also confirms that cmd/go can find the compiler. (Before CL 472096,
-		// we sometimes ended up with cmd/go installed in the test environment
-		// without a cmd/compile it could use to actually build things.)
-		cmd := exec.Command("go", "tool", "-n", "compile")
-		cmd.Env = origEnv
-		out, err := cmd.Output()
-		if err != nil {
-			goBuildErr = fmt.Errorf("%v: %w", cmd, err)
-			return
-		}
-		out = bytes.TrimSpace(out)
-		if len(out) == 0 {
-			goBuildErr = fmt.Errorf("%v: no tool reported", cmd)
-			return
-		}
-		if _, err := exec.LookPath(string(out)); err != nil {
-			goBuildErr = err
-			return
-		}
-
-		if platform.MustLinkExternal(runtime.GOOS, runtime.GOARCH, false) {
-			// We can assume that we always have a complete Go toolchain available.
-			// However, this platform requires a C linker to build even pure Go
-			// programs, including tests. Do we have one in the test environment?
-			// (On Android, for example, the device running the test might not have a
-			// C toolchain installed.)
-			//
-			// If CC is set explicitly, assume that we do. Otherwise, use 'go env CC'
-			// to determine which toolchain it would use by default.
-			if os.Getenv("CC") == "" {
-				cmd := exec.Command("go", "env", "CC")
-				cmd.Env = origEnv
-				out, err := cmd.Output()
-				if err != nil {
-					goBuildErr = fmt.Errorf("%v: %w", cmd, err)
-					return
-				}
-				out = bytes.TrimSpace(out)
-				if len(out) == 0 {
-					goBuildErr = fmt.Errorf("%v: no CC reported", cmd)
-					return
-				}
-				_, goBuildErr = exec.LookPath(string(out))
-			}
-		}
-	})
-
-	return goBuildErr == nil
->>>>>>> /tmp/go121/src/./internal/testenv/testenv.go
 }
 
 var (

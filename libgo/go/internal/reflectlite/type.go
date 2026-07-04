@@ -3,19 +3,12 @@
 // license that can be found in the LICENSE file.
 
 // Package reflectlite implements lightweight version of reflect, not using
-// any package except for "runtime", "unsafe", and "internal/abi"
+// any package except for "runtime" and "unsafe".
 package reflectlite
 
-<<<<<<< go/./internal/reflectlite/type.go
 import (
 	"unsafe"
 )
-=======
-import (
-	"internal/abi"
-	"unsafe"
-)
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
 // Type is the representation of a Go type.
 //
@@ -69,7 +62,7 @@ type Type interface {
 	// It panics if the type's Kind is not Ptr.
 	Elem() Type
 
-	common() *abi.Type
+	common() *rtype
 	uncommon() *uncommonType
 }
 
@@ -81,19 +74,38 @@ type Type interface {
 
 // A Kind represents the specific kind of type that a Type represents.
 // The zero Kind is not a valid kind.
-type Kind = abi.Kind
-
-const Ptr = abi.Pointer
+type Kind uint
 
 const (
-	// Import-and-export these constants as necessary
-	Interface = abi.Interface
-	Slice     = abi.Slice
-	String    = abi.String
-	Struct    = abi.Struct
+	Invalid Kind = iota
+	Bool
+	Int
+	Int8
+	Int16
+	Int32
+	Int64
+	Uint
+	Uint8
+	Uint16
+	Uint32
+	Uint64
+	Uintptr
+	Float32
+	Float64
+	Complex64
+	Complex128
+	Array
+	Chan
+	Func
+	Interface
+	Map
+	Pointer
+	Slice
+	String
+	Struct
+	UnsafePointer
 )
 
-<<<<<<< go/./internal/reflectlite/type.go
 const Ptr = Pointer
 
 // tflag is used by an rtype to signal what extra type information is
@@ -109,14 +121,12 @@ const (
 	// this type as a single region of t.size bytes.
 	tflagRegularMemory tflag = 1 << 3
 )
-=======
-type nameOff = abi.NameOff
-type typeOff = abi.TypeOff
-type textOff = abi.TextOff
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
+// rtype is the common implementation of most values.
+// It is embedded in other struct types.
+//
+// rtype must be kept in sync with ../runtime/type.go:/^type._type.
 type rtype struct {
-<<<<<<< go/./internal/reflectlite/type.go
 	size       uintptr
 	ptrdata    uintptr // number of bytes in the type that can contain pointers
 	hash       uint32  // hash of type; avoids computation in hash tables
@@ -140,16 +150,12 @@ type method struct {
 	mtyp    *rtype         // method type (without receiver)
 	typ     *rtype         // .(*FuncType) underneath (with receiver)
 	tfn     unsafe.Pointer // fn used for normal method call
-=======
-	*abi.Type
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
 // uncommonType is present only for defined types or types with methods
 // (if T is a defined type, the uncommonTypes for T and *T have methods).
 // Using a pointer to this struct reduces the overall size required
 // to describe a non-defined type with no methods.
-<<<<<<< go/./internal/reflectlite/type.go
 type uncommonType struct {
 	name    *string  // name of type
 	pkgPath *string  // import path; nil for built-in types like int, string
@@ -164,15 +170,16 @@ const (
 	sendDir                                 // chan<-
 	bothDir = recvDir | sendDir             // chan
 )
-=======
-type uncommonType = abi.UncommonType
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
 // arrayType represents a fixed array type.
-type arrayType = abi.ArrayType
+type arrayType struct {
+	rtype
+	elem  *rtype // array element type
+	slice *rtype // slice type
+	len   uintptr
+}
 
 // chanType represents a channel type.
-<<<<<<< go/./internal/reflectlite/type.go
 type chanType struct {
 	rtype
 	elem *rtype  // channel element type
@@ -186,35 +193,23 @@ type funcType struct {
 	in        []*rtype // input parameter types
 	out       []*rtype // output parameter types
 }
-=======
-type chanType = abi.ChanType
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
-<<<<<<< go/./internal/reflectlite/type.go
 // imethod represents a method on an interface type
 type imethod struct {
 	name    *string // name of method
 	pkgPath *string // nil for exported Names; otherwise import path
 	typ     *rtype  // .(*FuncType) underneath
 }
-=======
-type funcType = abi.FuncType
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
-<<<<<<< go/./internal/reflectlite/type.go
 // interfaceType represents an interface type.
 type interfaceType struct {
 	rtype
 	methods []imethod // sorted by hash
 }
-=======
-type interfaceType = abi.InterfaceType
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
 // mapType represents a map type.
 type mapType struct {
 	rtype
-<<<<<<< go/./internal/reflectlite/type.go
 	key        *rtype // map key type
 	elem       *rtype // map element (value) type
 	bucket     *rtype // internal bucket structure
@@ -222,24 +217,15 @@ type mapType struct {
 	valuesize  uint8  // size of value slot
 	bucketsize uint16 // size of bucket
 	flags      uint32
-=======
-	Key    *abi.Type // map key type
-	Elem   *abi.Type // map element (value) type
-	Bucket *abi.Type // internal bucket structure
-	// function for hashing keys (ptr to key, seed) -> hash
-	Hasher     func(unsafe.Pointer, uintptr) uintptr
-	KeySize    uint8  // size of key slot
-	ValueSize  uint8  // size of value slot
-	BucketSize uint16 // size of bucket
-	Flags      uint32
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
 // ptrType represents a pointer type.
-type ptrType = abi.PtrType
+type ptrType struct {
+	rtype
+	elem *rtype // pointer element (pointed at) type
+}
 
 // sliceType represents a slice type.
-<<<<<<< go/./internal/reflectlite/type.go
 type sliceType struct {
 	rtype
 	elem *rtype // slice element type
@@ -261,108 +247,11 @@ func (f *structField) offset() uintptr {
 func (f *structField) embedded() bool {
 	return f.offsetEmbed&1 != 0
 }
-=======
-type sliceType = abi.SliceType
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 
 // structType represents a struct type.
-<<<<<<< go/./internal/reflectlite/type.go
 type structType struct {
 	rtype
 	fields []structField // sorted by offset
-=======
-type structType = abi.StructType
-
-// name is an encoded type name with optional extra data.
-//
-// The first byte is a bit field containing:
-//
-//	1<<0 the name is exported
-//	1<<1 tag data follows the name
-//	1<<2 pkgPath nameOff follows the name and tag
-//
-// The next two bytes are the data length:
-//
-//	l := uint16(data[1])<<8 | uint16(data[2])
-//
-// Bytes [3:3+l] are the string data.
-//
-// If tag data follows then bytes 3+l and 3+l+1 are the tag length,
-// with the data following.
-//
-// If the import path follows, then 4 bytes at the end of
-// the data form a nameOff. The import path is only set for concrete
-// methods that are defined in a different package than their type.
-//
-// If a name starts with "*", then the exported bit represents
-// whether the pointed to type is exported.
-type name struct {
-	bytes *byte
-}
-
-func (n name) data(off int, whySafe string) *byte {
-	return (*byte)(add(unsafe.Pointer(n.bytes), uintptr(off), whySafe))
-}
-
-func (n name) isExported() bool {
-	return (*n.bytes)&(1<<0) != 0
-}
-
-func (n name) hasTag() bool {
-	return (*n.bytes)&(1<<1) != 0
-}
-
-func (n name) embedded() bool {
-	return (*n.bytes)&(1<<3) != 0
-}
-
-// readVarint parses a varint as encoded by encoding/binary.
-// It returns the number of encoded bytes and the encoded value.
-func (n name) readVarint(off int) (int, int) {
-	v := 0
-	for i := 0; ; i++ {
-		x := *n.data(off+i, "read varint")
-		v += int(x&0x7f) << (7 * i)
-		if x&0x80 == 0 {
-			return i + 1, v
-		}
-	}
-}
-
-func (n name) name() string {
-	if n.bytes == nil {
-		return ""
-	}
-	i, l := n.readVarint(1)
-	return unsafe.String(n.data(1+i, "non-empty string"), l)
-}
-
-func (n name) tag() string {
-	if !n.hasTag() {
-		return ""
-	}
-	i, l := n.readVarint(1)
-	i2, l2 := n.readVarint(1 + i + l)
-	return unsafe.String(n.data(1+i+l+i2, "non-empty string"), l2)
-}
-
-func pkgPath(n abi.Name) string {
-	if n.Bytes == nil || *n.DataChecked(0, "name flag field")&(1<<2) == 0 {
-		return ""
-	}
-	i, l := n.ReadVarint(1)
-	off := 1 + i + l
-	if n.HasTag() {
-		i2, l2 := n.ReadVarint(off)
-		off += i2 + l2
-	}
-	var nameOff int32
-	// Note that this field may not be aligned in memory,
-	// so we cannot use a direct int32 assignment here.
-	copy((*[4]byte)(unsafe.Pointer(&nameOff))[:], (*[4]byte)(unsafe.Pointer(n.DataChecked(off, "name offset field")))[:])
-	pkgPathName := name{(*byte)(resolveTypeOff(unsafe.Pointer(n.Bytes), nameOff))}
-	return pkgPathName.name()
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
 /*
@@ -370,7 +259,6 @@ func pkgPath(n abi.Name) string {
  * The compiler does not know about the data structures and methods below.
  */
 
-<<<<<<< go/./internal/reflectlite/type.go
 const (
 	kindDirectIface = 1 << 5
 	kindGCProg      = 1 << 6 // Type.gc points to GC program
@@ -442,47 +330,22 @@ func (t *uncommonType) exportedMethods() []method {
 
 func (t *uncommonType) uncommon() *uncommonType {
 	return t
-=======
-// resolveNameOff resolves a name offset from a base pointer.
-// The (*rtype).nameOff method is a convenience wrapper for this function.
-// Implemented in the runtime package.
-func resolveNameOff(ptrInModule unsafe.Pointer, off int32) unsafe.Pointer
-
-// resolveTypeOff resolves an *rtype offset from a base type.
-// The (*rtype).typeOff method is a convenience wrapper for this function.
-// Implemented in the runtime package.
-func resolveTypeOff(rtype unsafe.Pointer, off int32) unsafe.Pointer
-
-func (t rtype) nameOff(off nameOff) abi.Name {
-	return abi.Name{Bytes: (*byte)(resolveNameOff(unsafe.Pointer(t.Type), int32(off)))}
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *uncommonType) PkgPath() string {
 	if t == nil || t.pkgPath == nil {
 		return ""
 	}
 	return *t.pkgPath
-=======
-func (t rtype) typeOff(off typeOff) *abi.Type {
-	return (*abi.Type)(resolveTypeOff(unsafe.Pointer(t.Type), int32(off)))
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *uncommonType) Name() string {
 	if t == nil || t.name == nil {
 		return ""
 	}
 	return *t.name
-=======
-func (t rtype) uncommon() *uncommonType {
-	return t.Uncommon()
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *rtype) String() string {
 	// For gccgo, strip out quoted strings.
 	s := *t.string
@@ -496,168 +359,129 @@ func (t *rtype) String() string {
 			r[j] = s[i]
 			j++
 		}
-=======
-func (t rtype) String() string {
-	s := t.nameOff(t.Str).Name()
-	if t.TFlag&abi.TFlagExtraStar != 0 {
-		return s[1:]
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 	}
 	return string(r[:j])
 }
 
-func (t rtype) common() *abi.Type { return t.Type }
+func (t *rtype) Size() uintptr { return t.size }
 
-func (t rtype) exportedMethods() []abi.Method {
+func (t *rtype) Kind() Kind { return Kind(t.kind & kindMask) }
+
+func (t *rtype) pointers() bool { return t.ptrdata != 0 }
+
+func (t *rtype) common() *rtype { return t }
+
+func (t *rtype) exportedMethods() []method {
 	ut := t.uncommon()
 	if ut == nil {
 		return nil
 	}
-	return ut.ExportedMethods()
+	return ut.exportedMethods()
 }
 
-func (t rtype) NumMethod() int {
-	tt := t.Type.InterfaceType()
-	if tt != nil {
+func (t *rtype) NumMethod() int {
+	if t.Kind() == Interface {
+		tt := (*interfaceType)(unsafe.Pointer(t))
 		return tt.NumMethod()
 	}
 	return len(t.exportedMethods())
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *rtype) PkgPath() string {
 	return t.uncommonType.PkgPath()
-=======
-func (t rtype) PkgPath() string {
-	if t.TFlag&abi.TFlagNamed == 0 {
-		return ""
-	}
-	ut := t.uncommon()
-	if ut == nil {
-		return ""
-	}
-	return t.nameOff(ut.PkgPath).Name()
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *rtype) hasName() bool {
 	return t.uncommonType != nil && t.uncommonType.name != nil
 }
 
 func (t *rtype) Name() string {
 	return t.uncommonType.Name()
-=======
-func (t rtype) Name() string {
-	if !t.HasName() {
-		return ""
+}
+
+func (t *rtype) chanDir() chanDir {
+	if t.Kind() != Chan {
+		panic("reflect: chanDir of non-chan type")
 	}
-	s := t.String()
-	i := len(s) - 1
-	sqBrackets := 0
-	for i >= 0 && (s[i] != '.' || sqBrackets != 0) {
-		switch s[i] {
-		case ']':
-			sqBrackets++
-		case '[':
-			sqBrackets--
-		}
-		i--
+	tt := (*chanType)(unsafe.Pointer(t))
+	return chanDir(tt.dir)
+}
+
+func (t *rtype) Elem() Type {
+	switch t.Kind() {
+	case Array:
+		tt := (*arrayType)(unsafe.Pointer(t))
+		return toType(tt.elem)
+	case Chan:
+		tt := (*chanType)(unsafe.Pointer(t))
+		return toType(tt.elem)
+	case Map:
+		tt := (*mapType)(unsafe.Pointer(t))
+		return toType(tt.elem)
+	case Ptr:
+		tt := (*ptrType)(unsafe.Pointer(t))
+		return toType(tt.elem)
+	case Slice:
+		tt := (*sliceType)(unsafe.Pointer(t))
+		return toType(tt.elem)
 	}
-	return s[i+1:]
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
+	panic("reflect: Elem of invalid type")
 }
 
-func toRType(t *abi.Type) rtype {
-	return rtype{t}
-}
-
-func elem(t *abi.Type) *abi.Type {
-	et := t.Elem()
-	if et != nil {
-		return et
-	}
-	panic("reflect: Elem of invalid type " + toRType(t).String())
-}
-
-func (t rtype) Elem() Type {
-	return toType(elem(t.common()))
-}
-
-func (t rtype) In(i int) Type {
-	tt := t.Type.FuncType()
-	if tt == nil {
+func (t *rtype) In(i int) Type {
+	if t.Kind() != Func {
 		panic("reflect: In of non-func type")
 	}
-<<<<<<< go/./internal/reflectlite/type.go
 	tt := (*funcType)(unsafe.Pointer(t))
 	return toType(tt.in[i])
-=======
-	return toType(tt.InSlice()[i])
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-func (t rtype) Key() Type {
-	tt := t.Type.MapType()
-	if tt == nil {
+func (t *rtype) Key() Type {
+	if t.Kind() != Map {
 		panic("reflect: Key of non-map type")
 	}
-	return toType(tt.Key)
+	tt := (*mapType)(unsafe.Pointer(t))
+	return toType(tt.key)
 }
 
-func (t rtype) Len() int {
-	tt := t.Type.ArrayType()
-	if tt == nil {
+func (t *rtype) Len() int {
+	if t.Kind() != Array {
 		panic("reflect: Len of non-array type")
 	}
-	return int(tt.Len)
+	tt := (*arrayType)(unsafe.Pointer(t))
+	return int(tt.len)
 }
 
-func (t rtype) NumField() int {
-	tt := t.Type.StructType()
-	if tt == nil {
+func (t *rtype) NumField() int {
+	if t.Kind() != Struct {
 		panic("reflect: NumField of non-struct type")
 	}
-	return len(tt.Fields)
+	tt := (*structType)(unsafe.Pointer(t))
+	return len(tt.fields)
 }
 
-func (t rtype) NumIn() int {
-	tt := t.Type.FuncType()
-	if tt == nil {
+func (t *rtype) NumIn() int {
+	if t.Kind() != Func {
 		panic("reflect: NumIn of non-func type")
 	}
-<<<<<<< go/./internal/reflectlite/type.go
 	tt := (*funcType)(unsafe.Pointer(t))
 	return len(tt.in)
-=======
-	return int(tt.InCount)
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-func (t rtype) NumOut() int {
-	tt := t.Type.FuncType()
-	if tt == nil {
+func (t *rtype) NumOut() int {
+	if t.Kind() != Func {
 		panic("reflect: NumOut of non-func type")
 	}
-<<<<<<< go/./internal/reflectlite/type.go
 	tt := (*funcType)(unsafe.Pointer(t))
 	return len(tt.out)
-=======
-	return tt.NumOut()
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
-func (t rtype) Out(i int) Type {
-	tt := t.Type.FuncType()
-	if tt == nil {
+func (t *rtype) Out(i int) Type {
+	if t.Kind() != Func {
 		panic("reflect: Out of non-func type")
 	}
-<<<<<<< go/./internal/reflectlite/type.go
 	tt := (*funcType)(unsafe.Pointer(t))
 	return toType(tt.out[i])
-=======
-	return toType(tt.OutSlice()[i])
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
 // add returns p+x.
@@ -671,6 +495,9 @@ func add(p unsafe.Pointer, x uintptr, whySafe string) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(p) + x)
 }
 
+// NumMethod returns the number of interface methods in the type's method set.
+func (t *interfaceType) NumMethod() int { return len(t.methods) }
+
 // TypeOf returns the reflection Type that represents the dynamic type of i.
 // If i is a nil interface value, TypeOf returns nil.
 func TypeOf(i any) Type {
@@ -678,26 +505,24 @@ func TypeOf(i any) Type {
 	return toType(eface.typ)
 }
 
-func (t rtype) Implements(u Type) bool {
+func (t *rtype) Implements(u Type) bool {
 	if u == nil {
 		panic("reflect: nil type passed to Type.Implements")
 	}
 	if u.Kind() != Interface {
 		panic("reflect: non-interface type passed to Type.Implements")
 	}
-	return implements(u.common(), t.common())
+	return implements(u.(*rtype), t)
 }
 
-func (t rtype) AssignableTo(u Type) bool {
+func (t *rtype) AssignableTo(u Type) bool {
 	if u == nil {
 		panic("reflect: nil type passed to Type.AssignableTo")
 	}
-	uu := u.common()
-	tt := t.common()
-	return directlyAssignable(uu, tt) || implements(uu, tt)
+	uu := u.(*rtype)
+	return directlyAssignable(uu, t) || implements(uu, t)
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func (t *rtype) Comparable() bool {
 	switch t.Kind() {
 	case Bool, Int, Int8, Int16, Int32, Int64,
@@ -724,23 +549,17 @@ func (t *rtype) Comparable() bool {
 	default:
 		panic("reflectlite: impossible")
 	}
-=======
-func (t rtype) Comparable() bool {
-	return t.Equal != nil
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 }
 
 // implements reports whether the type V implements the interface type T.
-func implements(T, V *abi.Type) bool {
-	t := T.InterfaceType()
-	if t == nil {
+func implements(T, V *rtype) bool {
+	if T.Kind() != Interface {
 		return false
 	}
-	if len(t.Methods) == 0 {
+	t := (*interfaceType)(unsafe.Pointer(T))
+	if len(t.methods) == 0 {
 		return true
 	}
-	rT := toRType(T)
-	rV := toRType(V)
 
 	// The same algorithm applies in both cases, but the
 	// method tables for an interface type and a concrete type
@@ -757,34 +576,11 @@ func implements(T, V *abi.Type) bool {
 	if V.Kind() == Interface {
 		v := (*interfaceType)(unsafe.Pointer(V))
 		i := 0
-<<<<<<< go/./internal/reflectlite/type.go
 		for j := 0; j < len(v.methods); j++ {
 			tm := &t.methods[i]
 			vm := &v.methods[j]
 			if *vm.name == *tm.name && (vm.pkgPath == tm.pkgPath || (vm.pkgPath != nil && tm.pkgPath != nil && *vm.pkgPath == *tm.pkgPath)) && rtypeEqual(toType(vm.typ).common(), toType(tm.typ).common()) {
 				if i++; i >= len(t.methods) {
-=======
-		for j := 0; j < len(v.Methods); j++ {
-			tm := &t.Methods[i]
-			tmName := rT.nameOff(tm.Name)
-			vm := &v.Methods[j]
-			vmName := rV.nameOff(vm.Name)
-			if vmName.Name() == tmName.Name() && rV.typeOff(vm.Typ) == rT.typeOff(tm.Typ) {
-				if !tmName.IsExported() {
-					tmPkgPath := pkgPath(tmName)
-					if tmPkgPath == "" {
-						tmPkgPath = t.PkgPath.Name()
-					}
-					vmPkgPath := pkgPath(vmName)
-					if vmPkgPath == "" {
-						vmPkgPath = v.PkgPath.Name()
-					}
-					if tmPkgPath != vmPkgPath {
-						continue
-					}
-				}
-				if i++; i >= len(t.Methods) {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 					return true
 				}
 			}
@@ -792,40 +588,16 @@ func implements(T, V *abi.Type) bool {
 		return false
 	}
 
-	v := V.Uncommon()
+	v := V.uncommon()
 	if v == nil {
 		return false
 	}
 	i := 0
-<<<<<<< go/./internal/reflectlite/type.go
 	for j := 0; j < len(v.methods); j++ {
 		tm := &t.methods[i]
 		vm := &v.methods[j]
 		if *vm.name == *tm.name && (vm.pkgPath == tm.pkgPath || (vm.pkgPath != nil && tm.pkgPath != nil && *vm.pkgPath == *tm.pkgPath)) && rtypeEqual(toType(vm.mtyp).common(), toType(tm.typ).common()) {
 			if i++; i >= len(t.methods) {
-=======
-	vmethods := v.Methods()
-	for j := 0; j < int(v.Mcount); j++ {
-		tm := &t.Methods[i]
-		tmName := rT.nameOff(tm.Name)
-		vm := vmethods[j]
-		vmName := rV.nameOff(vm.Name)
-		if vmName.Name() == tmName.Name() && rV.typeOff(vm.Mtyp) == rT.typeOff(tm.Typ) {
-			if !tmName.IsExported() {
-				tmPkgPath := pkgPath(tmName)
-				if tmPkgPath == "" {
-					tmPkgPath = t.PkgPath.Name()
-				}
-				vmPkgPath := pkgPath(vmName)
-				if vmPkgPath == "" {
-					vmPkgPath = rV.nameOff(v.PkgPath).Name()
-				}
-				if tmPkgPath != vmPkgPath {
-					continue
-				}
-			}
-			if i++; i >= len(t.Methods) {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return true
 			}
 		}
@@ -838,7 +610,7 @@ func implements(T, V *abi.Type) bool {
 // https://golang.org/doc/go_spec.html#Assignability
 // Ignoring the interface rules (implemented elsewhere)
 // and the ideal constant rules (no ideal constants at run time).
-func directlyAssignable(T, V *abi.Type) bool {
+func directlyAssignable(T, V *rtype) bool {
 	// x's type V is identical to T?
 	if rtypeEqual(T, V) {
 		return true
@@ -846,7 +618,7 @@ func directlyAssignable(T, V *abi.Type) bool {
 
 	// Otherwise at least one of T and V must not be defined
 	// and they must have the same kind.
-	if T.HasName() && V.HasName() || T.Kind() != V.Kind() {
+	if T.hasName() && V.hasName() || T.Kind() != V.Kind() {
 		return false
 	}
 
@@ -854,25 +626,20 @@ func directlyAssignable(T, V *abi.Type) bool {
 	return haveIdenticalUnderlyingType(T, V, true)
 }
 
-func haveIdenticalType(T, V *abi.Type, cmpTags bool) bool {
+func haveIdenticalType(T, V Type, cmpTags bool) bool {
 	if cmpTags {
 		return T == V
 	}
 
-	if toRType(T).Name() != toRType(V).Name() || T.Kind() != V.Kind() {
+	if T.Name() != V.Name() || T.Kind() != V.Kind() {
 		return false
 	}
 
-	return haveIdenticalUnderlyingType(T, V, false)
+	return haveIdenticalUnderlyingType(T.common(), V.common(), false)
 }
 
-<<<<<<< go/./internal/reflectlite/type.go
 func haveIdenticalUnderlyingType(T, V *rtype, cmpTags bool) bool {
 	if rtypeEqual(T, V) {
-=======
-func haveIdenticalUnderlyingType(T, V *abi.Type, cmpTags bool) bool {
-	if T == V {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 		return true
 	}
 
@@ -883,34 +650,30 @@ func haveIdenticalUnderlyingType(T, V *abi.Type, cmpTags bool) bool {
 
 	// Non-composite types of equal kind have same underlying type
 	// (the predefined instance of the type).
-	if abi.Bool <= kind && kind <= abi.Complex128 || kind == abi.String || kind == abi.UnsafePointer {
+	if Bool <= kind && kind <= Complex128 || kind == String || kind == UnsafePointer {
 		return true
 	}
 
 	// Composite types.
 	switch kind {
-	case abi.Array:
+	case Array:
 		return T.Len() == V.Len() && haveIdenticalType(T.Elem(), V.Elem(), cmpTags)
 
-	case abi.Chan:
+	case Chan:
 		// Special case:
 		// x is a bidirectional channel value, T is a channel type,
 		// and x's type V and T have identical element types.
-		if V.ChanDir() == abi.BothDir && haveIdenticalType(T.Elem(), V.Elem(), cmpTags) {
+		if V.chanDir() == bothDir && haveIdenticalType(T.Elem(), V.Elem(), cmpTags) {
 			return true
 		}
 
 		// Otherwise continue test for identical underlying type.
-		return V.ChanDir() == T.ChanDir() && haveIdenticalType(T.Elem(), V.Elem(), cmpTags)
+		return V.chanDir() == T.chanDir() && haveIdenticalType(T.Elem(), V.Elem(), cmpTags)
 
-	case abi.Func:
+	case Func:
 		t := (*funcType)(unsafe.Pointer(T))
 		v := (*funcType)(unsafe.Pointer(V))
-<<<<<<< go/./internal/reflectlite/type.go
 		if t.dotdotdot != v.dotdotdot || len(t.in) != len(v.in) || len(t.out) != len(v.out) {
-=======
-		if t.OutCount != v.OutCount || t.InCount != v.InCount {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 			return false
 		}
 		for i, typ := range t.in {
@@ -928,67 +691,41 @@ func haveIdenticalUnderlyingType(T, V *abi.Type, cmpTags bool) bool {
 	case Interface:
 		t := (*interfaceType)(unsafe.Pointer(T))
 		v := (*interfaceType)(unsafe.Pointer(V))
-		if len(t.Methods) == 0 && len(v.Methods) == 0 {
+		if len(t.methods) == 0 && len(v.methods) == 0 {
 			return true
 		}
 		// Might have the same methods but still
 		// need a run time conversion.
 		return false
 
-	case abi.Map:
+	case Map:
 		return haveIdenticalType(T.Key(), V.Key(), cmpTags) && haveIdenticalType(T.Elem(), V.Elem(), cmpTags)
 
-	case Ptr, abi.Slice:
+	case Ptr, Slice:
 		return haveIdenticalType(T.Elem(), V.Elem(), cmpTags)
 
-	case abi.Struct:
+	case Struct:
 		t := (*structType)(unsafe.Pointer(T))
 		v := (*structType)(unsafe.Pointer(V))
-		if len(t.Fields) != len(v.Fields) {
+		if len(t.fields) != len(v.fields) {
 			return false
 		}
-<<<<<<< go/./internal/reflectlite/type.go
 		for i := range t.fields {
 			tf := &t.fields[i]
 			vf := &v.fields[i]
 			if tf.name != vf.name && (tf.name == nil || vf.name == nil || *tf.name != *vf.name) {
-=======
-		if t.PkgPath.Name() != v.PkgPath.Name() {
-			return false
-		}
-		for i := range t.Fields {
-			tf := &t.Fields[i]
-			vf := &v.Fields[i]
-			if tf.Name.Name() != vf.Name.Name() {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return false
 			}
-<<<<<<< go/./internal/reflectlite/type.go
 			if tf.pkgPath != vf.pkgPath && (tf.pkgPath == nil || vf.pkgPath == nil || *tf.pkgPath != *vf.pkgPath) {
-=======
-			if !haveIdenticalType(tf.Typ, vf.Typ, cmpTags) {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return false
 			}
-<<<<<<< go/./internal/reflectlite/type.go
 			if !haveIdenticalType(tf.typ, vf.typ, cmpTags) {
-=======
-			if cmpTags && tf.Name.Tag() != vf.Name.Tag() {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return false
 			}
-<<<<<<< go/./internal/reflectlite/type.go
 			if cmpTags && tf.tag != vf.tag && (tf.tag == nil || vf.tag == nil || *tf.tag != *vf.tag) {
-=======
-			if tf.Offset != vf.Offset {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return false
 			}
-<<<<<<< go/./internal/reflectlite/type.go
 			if tf.offsetEmbed != vf.offsetEmbed {
-=======
-			if tf.Embedded() != vf.Embedded() {
->>>>>>> /tmp/go121/src/./internal/reflectlite/type.go
 				return false
 			}
 		}
@@ -1003,14 +740,14 @@ func haveIdenticalUnderlyingType(T, V *abi.Type, cmpTags bool) bool {
 // a nil *rtype must be replaced by a nil Type, but in gccgo this
 // function takes care of ensuring that multiple *rtype for the same
 // type are coalesced into a single Type.
-func toType(t *abi.Type) Type {
+func toType(t *rtype) Type {
 	if t == nil {
 		return nil
 	}
-	return toRType(t)
+	return t
 }
 
 // ifaceIndir reports whether t is stored indirectly in an interface value.
-func ifaceIndir(t *abi.Type) bool {
-	return t.Kind_&abi.KindDirectIface == 0
+func ifaceIndir(t *rtype) bool {
+	return t.kind&kindDirectIface == 0
 }

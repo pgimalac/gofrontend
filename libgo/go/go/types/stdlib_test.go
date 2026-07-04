@@ -39,6 +39,8 @@ import (
 var stdLibImporter = importer.ForCompiler(token.NewFileSet(), "source", nil)
 
 func TestStdlib(t *testing.T) {
+	t.Skip("skipping for gccgo")
+
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
@@ -366,14 +368,7 @@ var excluded = map[string]bool{
 var printPackageMu sync.Mutex
 
 // typecheckFiles typechecks the given package files.
-<<<<<<< go/./go/types/stdlib_test.go
-func typecheckFiles(t *testing.T, path string, filenames []string) {
-	t.Skip("skipping for gccgo")
-
-
-=======
 func typecheckFiles(path string, filenames []string, importer Importer) (*Package, error) {
->>>>>>> /tmp/go121/src/./go/types/stdlib_test.go
 	fset := token.NewFileSet()
 
 	// Parse package files.

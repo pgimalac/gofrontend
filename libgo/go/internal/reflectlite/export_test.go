@@ -15,22 +15,17 @@ func Field(v Value, i int) Value {
 		panic(&ValueError{"reflect.Value.Field", v.kind()})
 	}
 	tt := (*structType)(unsafe.Pointer(v.typ))
-	if uint(i) >= uint(len(tt.Fields)) {
+	if uint(i) >= uint(len(tt.fields)) {
 		panic("reflect: Field index out of range")
 	}
-	field := &tt.Fields[i]
-	typ := field.Typ
+	field := &tt.fields[i]
+	typ := field.typ
 
 	// Inherit permission bits from v, but clear flagEmbedRO.
 	fl := v.flag&(flagStickyRO|flagIndir|flagAddr) | flag(typ.Kind())
 	// Using an unexported field forces flagRO.
-<<<<<<< go/./internal/reflectlite/export_test.go
 	if field.pkgPath != nil {
 		if field.embedded() {
-=======
-	if !field.Name.IsExported() {
-		if field.Embedded() {
->>>>>>> /tmp/go121/src/./internal/reflectlite/export_test.go
 			fl |= flagEmbedRO
 		} else {
 			fl |= flagStickyRO
@@ -41,31 +36,27 @@ func Field(v Value, i int) Value {
 	// In the former case, we want v.ptr + offset.
 	// In the latter case, we must have field.offset = 0,
 	// so v.ptr + field.offset is still the correct address.
-<<<<<<< go/./internal/reflectlite/export_test.go
 	ptr := add(v.ptr, field.offset(), "same as non-reflect &v.field")
-=======
-	ptr := add(v.ptr, field.Offset, "same as non-reflect &v.field")
->>>>>>> /tmp/go121/src/./internal/reflectlite/export_test.go
 	return Value{typ, ptr, fl}
 }
 
 func TField(typ Type, i int) Type {
-	t := typ.(rtype)
+	t := typ.(*rtype)
 	if t.Kind() != Struct {
 		panic("reflect: Field of non-struct type")
 	}
-	tt := (*structType)(unsafe.Pointer(t.Type))
+	tt := (*structType)(unsafe.Pointer(t))
 
 	return StructFieldType(tt, i)
 }
 
 // Field returns the i'th struct field.
 func StructFieldType(t *structType, i int) Type {
-	if i < 0 || i >= len(t.Fields) {
+	if i < 0 || i >= len(t.fields) {
 		panic("reflect: Field index out of bounds")
 	}
-	p := &t.Fields[i]
-	return toType(p.Typ)
+	p := &t.fields[i]
+	return toType(p.typ)
 }
 
 // Zero returns a Value representing the zero value for the specified type.
@@ -77,7 +68,7 @@ func Zero(typ Type) Value {
 	if typ == nil {
 		panic("reflect: Zero(nil)")
 	}
-	t := typ.common()
+	t := typ.(*rtype)
 	fl := flag(t.Kind())
 	if ifaceIndir(t) {
 		return Value{t, unsafe_New(t), fl | flagIndir}
@@ -114,18 +105,12 @@ func FirstMethodNameBytes(t Type) *byte {
 	if ut == nil {
 		panic("type has no methods")
 	}
-<<<<<<< go/./internal/reflectlite/export_test.go
 	m := ut.methods[0]
 	mname := t.(*rtype).nameOff(m.name)
 	if *mname.data(0, "name flag field")&(1<<2) == 0 {
-=======
-	m := ut.Methods()[0]
-	mname := t.(rtype).nameOff(m.Name)
-	if *mname.DataChecked(0, "name flag field")&(1<<2) == 0 {
->>>>>>> /tmp/go121/src/./internal/reflectlite/export_test.go
 		panic("method name does not have pkgPath *string")
 	}
-	return mname.Bytes
+	return mname.bytes
 }
 */
 

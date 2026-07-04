@@ -55,23 +55,11 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	// Declare all variables at top in case any
 	// declarations require heap allocation (e.g., err1).
 	var (
-<<<<<<< go/./syscall/exec_bsd.go
 		r1     Pid_t
 		err1   Errno
 		nextfd int
 		i      int
-=======
-		r1              uintptr
-		err1            Errno
-		nextfd          int
-		i               int
-		pgrp            _C_int
-		cred            *Credential
-		ngroups, groups uintptr
->>>>>>> /tmp/go121/src/./syscall/exec_bsd.go
 	)
-
-	rlim, rlimOK := origRlimitNofile.Load().(Rlimit)
 
 	// guard against side effects of shuffling fds below.
 	// Make sure that nextfd is beyond any currently open files so
@@ -129,13 +117,7 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	if sys.Foreground {
-<<<<<<< go/./syscall/exec_bsd.go
 		pgrp := Pid_t(sys.Pgid)
-=======
-		// This should really be pid_t, however _C_int (aka int32) is
-		// generally equivalent.
-		pgrp = _C_int(sys.Pgid)
->>>>>>> /tmp/go121/src/./syscall/exec_bsd.go
 		if pgrp == 0 {
 			pgrp = raw_getpid()
 		}
@@ -160,15 +142,9 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// User and groups
-<<<<<<< go/./syscall/exec_bsd.go
 	if cred := sys.Credential; cred != nil {
 		ngroups := len(cred.Groups)
 		var groups unsafe.Pointer
-=======
-	if cred = sys.Credential; cred != nil {
-		ngroups = uintptr(len(cred.Groups))
-		groups = uintptr(0)
->>>>>>> /tmp/go121/src/./syscall/exec_bsd.go
 		if ngroups > 0 {
 			gids := make([]Gid_t, ngroups)
 			for i, v := range cred.Groups {
@@ -293,11 +269,6 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		if err1 != 0 {
 			goto childerror
 		}
-	}
-
-	// Restore original rlimit.
-	if rlimOK && rlim.Cur != 0 {
-		RawSyscall(SYS_SETRLIMIT, uintptr(RLIMIT_NOFILE), uintptr(unsafe.Pointer(&rlim)), 0)
 	}
 
 	// Time to exec.

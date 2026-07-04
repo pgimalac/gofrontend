@@ -14,11 +14,8 @@ import (
 	"debug/elf"
 	"encoding/json"
 	"fmt"
-<<<<<<< go/./cmd/go/internal/work/action.go
-	"internal/xcoff"
-=======
 	"internal/platform"
->>>>>>> /tmp/go121/src/./cmd/go/internal/work/action.go
+	"internal/xcoff"
 	"os"
 	"path/filepath"
 	"strings"
@@ -386,7 +383,6 @@ func (b *Builder) NewObjdir() string {
 func readpkglist(shlibpath string) (pkgs []*load.Package) {
 	var stk load.ImportStack
 	if cfg.BuildToolchainName == "gccgo" {
-<<<<<<< go/./cmd/go/internal/work/action.go
 		var data []byte
 		if f, err := elf.Open(shlibpath); err == nil {
 			sect := f.Section(".go_export")
@@ -400,26 +396,7 @@ func readpkglist(shlibpath string) (pkgs []*load.Package) {
 			var found bool
 			if t, found = strings.CutPrefix(t, "pkgpath "); found {
 				t = strings.TrimSuffix(t, ";")
-				pkgs = append(pkgs, load.LoadImportWithFlags(t, base.Cwd(), nil, &stk, nil, 0))
-=======
-		f, err := elf.Open(shlibpath)
-		if err != nil {
-			base.Fatal(fmt.Errorf("failed to open shared library: %v", err))
-		}
-		sect := f.Section(".go_export")
-		if sect == nil {
-			base.Fatal(fmt.Errorf("%s: missing .go_export section", shlibpath))
-		}
-		data, err := sect.Data()
-		if err != nil {
-			base.Fatal(fmt.Errorf("%s: failed to read .go_export section: %v", shlibpath, err))
-		}
-		pkgpath := []byte("pkgpath ")
-		for _, line := range bytes.Split(data, []byte{'\n'}) {
-			if path, found := bytes.CutPrefix(line, pkgpath); found {
-				path = bytes.TrimSuffix(path, []byte{';'})
-				pkgs = append(pkgs, load.LoadPackageWithFlags(string(path), base.Cwd(), &stk, nil, 0))
->>>>>>> /tmp/go121/src/./cmd/go/internal/work/action.go
+				pkgs = append(pkgs, load.LoadPackageWithFlags(t, base.Cwd(), &stk, nil, 0))
 			}
 		}
 	} else {

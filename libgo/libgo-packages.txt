@@ -3,6 +3,7 @@ archive/zip
 bufio
 bytes
 cmd/go/internal/mmap
+cmp
 compress/bzip2
 compress/flate
 compress/gzip
@@ -126,6 +127,7 @@ image/jpeg
 image/png
 index/suffixarray
 internal/abi
+internal/bisect
 internal/buildcfg
 internal/bytealg
 internal/cfg
@@ -150,6 +152,7 @@ internal/fmtsort
 internal/fuzz
 internal/goarch
 internal/godebug
+internal/godebugs
 internal/goexperiment
 internal/goos
 internal/goroot
@@ -181,11 +184,18 @@ internal/txtar
 internal/types/errors
 internal/unsafeheader
 internal/xcoff
+internal/zstd
 io
 io/fs
 io/ioutil
 log
+log/internal
+log/slog
+log/slog/internal
+log/slog/internal/buffer
+log/slog/internal/slogtest
 log/syslog
+maps
 math
 math/big
 math/bits
@@ -237,6 +247,7 @@ runtime/internal/syscall
 runtime/metrics
 runtime/pprof
 runtime/trace
+slices
 sort
 strconv
 strings
@@ -248,6 +259,7 @@ testing/fstest
 testing/internal/testdeps
 testing/iotest
 testing/quick
+testing/slogtest
 text/scanner
 text/tabwriter
 text/template

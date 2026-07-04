@@ -597,14 +597,7 @@ func LockOSCounts() (external, internal uint32) {
 //go:noinline
 func TracebackSystemstack(stk []uintptr, i int) int {
 	if i == 0 {
-<<<<<<< go/./runtime/export_test.go
 		return callersRaw(stk)
-=======
-		pc, sp := getcallerpc(), getcallersp()
-		var u unwinder
-		u.initAt(pc, sp, 0, getg(), unwindJumpStack) // Don't ignore errors, for testing
-		return tracebackPCs(&u, 0, stk)
->>>>>>> /tmp/go121/src/./runtime/export_test.go
 	}
 	n := 0
 	systemstack(func() {
@@ -1828,53 +1821,6 @@ const GTrackingPeriod = gTrackingPeriod
 
 var ZeroBase = unsafe.Pointer(&zerobase)
 
-<<<<<<< go/./runtime/export_test.go
-=======
-const UserArenaChunkBytes = userArenaChunkBytes
-
-type UserArena struct {
-	arena *userArena
-}
-
-func NewUserArena() *UserArena {
-	return &UserArena{newUserArena()}
-}
-
-func (a *UserArena) New(out *any) {
-	i := efaceOf(out)
-	typ := i._type
-	if typ.Kind_&kindMask != kindPtr {
-		panic("new result of non-ptr type")
-	}
-	typ = (*ptrtype)(unsafe.Pointer(typ)).Elem
-	i.data = a.arena.new(typ)
-}
-
-func (a *UserArena) Slice(sl any, cap int) {
-	a.arena.slice(sl, cap)
-}
-
-func (a *UserArena) Free() {
-	a.arena.free()
-}
-
-func GlobalWaitingArenaChunks() int {
-	n := 0
-	systemstack(func() {
-		lock(&mheap_.lock)
-		for s := mheap_.userArena.quarantineList.first; s != nil; s = s.next {
-			n++
-		}
-		unlock(&mheap_.lock)
-	})
-	return n
-}
-
-func UserArenaClone[T any](s T) T {
-	return arena_heapify(s).(T)
-}
-
->>>>>>> /tmp/go121/src/./runtime/export_test.go
 var AlignUp = alignUp
 
 // BlockUntilEmptyFinalizerQueue blocks until either the finalizer
@@ -1909,8 +1855,11 @@ func PersistentAlloc(n uintptr) unsafe.Pointer {
 
 // FPCallers works like Callers and uses frame pointer unwinding to populate
 // pcBuf with the return addresses of the physical frames on the stack.
+//
+// gccgo does not support frame pointer unwinding, so this is a stub that
+// returns no frames.
 func FPCallers(pcBuf []uintptr) int {
-	return fpTracebackPCs(unsafe.Pointer(getfp()), pcBuf)
+	return 0
 }
 
 var (

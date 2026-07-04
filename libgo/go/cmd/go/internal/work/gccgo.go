@@ -276,47 +276,12 @@ func (tools gccgoToolchain) link(b *Builder, root *Action, out, importcfg string
 		const ldflagsPrefix = "_CGO_LDFLAGS="
 		for _, line := range strings.Split(string(flags), "\n") {
 			if strings.HasPrefix(line, ldflagsPrefix) {
-<<<<<<< go/./cmd/go/internal/work/gccgo.go
-				line = line[len(ldflagsPrefix):]
-				quote := byte(0)
-				start := true
-				var nl []byte
-				for len(line) > 0 {
-					b := line[0]
-					line = line[1:]
-					if quote == 0 && (b == ' ' || b == '\t') {
-						if len(nl) > 0 {
-							cgoldflags = append(cgoldflags, string(nl))
-							nl = nil
-						}
-						start = true
-						continue
-					} else if b == '"' || b == '\'' {
-						quote = b
-					} else if b == quote {
-						quote = 0
-					} else if quote == 0 && start && b == '-' && strings.HasPrefix(line, "g") {
-						line = line[1:]
-						continue
-					} else if quote == 0 && start && b == '-' && strings.HasPrefix(line, "O") {
-						for len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
-							line = line[1:]
-						}
-						continue
-					}
-					nl = append(nl, b)
-					start = false
-				}
-				if len(nl) > 0 {
-					cgoldflags = append(cgoldflags, string(nl))
-=======
 				flag := line[len(ldflagsPrefix):]
 				// Every _cgo_flags file has -g and -O2 in _CGO_LDFLAGS
 				// but they don't mean anything to the linker so filter
 				// them out.
 				if flag != "-g" && !strings.HasPrefix(flag, "-O") {
 					cgoldflags = append(cgoldflags, flag)
->>>>>>> /tmp/go121/src/./cmd/go/internal/work/gccgo.go
 				}
 			}
 		}

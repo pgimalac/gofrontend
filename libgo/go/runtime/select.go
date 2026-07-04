@@ -373,51 +373,11 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 		recvOK = caseSuccess
 	}
 
-<<<<<<< go/./runtime/select.go
-=======
-	if raceenabled {
-		if casi < nsends {
-			raceReadObjectPC(c.elemtype, cas.elem, casePC(casi), chansendpc)
-		} else if cas.elem != nil {
-			raceWriteObjectPC(c.elemtype, cas.elem, casePC(casi), chanrecvpc)
-		}
-	}
-	if msanenabled {
-		if casi < nsends {
-			msanread(cas.elem, c.elemtype.Size_)
-		} else if cas.elem != nil {
-			msanwrite(cas.elem, c.elemtype.Size_)
-		}
-	}
-	if asanenabled {
-		if casi < nsends {
-			asanread(cas.elem, c.elemtype.Size_)
-		} else if cas.elem != nil {
-			asanwrite(cas.elem, c.elemtype.Size_)
-		}
-	}
-
->>>>>>> /tmp/go121/src/./runtime/select.go
 	selunlock(scases, lockorder)
 	goto retc
 
 bufrecv:
 	// can receive from buffer
-<<<<<<< go/./runtime/select.go
-=======
-	if raceenabled {
-		if cas.elem != nil {
-			raceWriteObjectPC(c.elemtype, cas.elem, casePC(casi), chanrecvpc)
-		}
-		racenotify(c, c.recvx, nil)
-	}
-	if msanenabled && cas.elem != nil {
-		msanwrite(cas.elem, c.elemtype.Size_)
-	}
-	if asanenabled && cas.elem != nil {
-		asanwrite(cas.elem, c.elemtype.Size_)
-	}
->>>>>>> /tmp/go121/src/./runtime/select.go
 	recvOK = true
 	qp = chanbuf(c, c.recvx)
 	if cas.elem != nil {
@@ -434,19 +394,6 @@ bufrecv:
 
 bufsend:
 	// can send to buffer
-<<<<<<< go/./runtime/select.go
-=======
-	if raceenabled {
-		racenotify(c, c.sendx, nil)
-		raceReadObjectPC(c.elemtype, cas.elem, casePC(casi), chansendpc)
-	}
-	if msanenabled {
-		msanread(cas.elem, c.elemtype.Size_)
-	}
-	if asanenabled {
-		asanread(cas.elem, c.elemtype.Size_)
-	}
->>>>>>> /tmp/go121/src/./runtime/select.go
 	typedmemmove(c.elemtype, chanbuf(c, c.sendx), cas.elem)
 	c.sendx++
 	if c.sendx == c.dataqsiz {
@@ -479,18 +426,6 @@ rclose:
 
 send:
 	// can send to a sleeping receiver (sg)
-<<<<<<< go/./runtime/select.go
-=======
-	if raceenabled {
-		raceReadObjectPC(c.elemtype, cas.elem, casePC(casi), chansendpc)
-	}
-	if msanenabled {
-		msanread(cas.elem, c.elemtype.Size_)
-	}
-	if asanenabled {
-		asanread(cas.elem, c.elemtype.Size_)
-	}
->>>>>>> /tmp/go121/src/./runtime/select.go
 	send(c, sg, cas.elem, func() { selunlock(scases, lockorder) }, 2)
 	if debugSelect {
 		print("syncsend: cas0=", cas0, " c=", c, "\n")

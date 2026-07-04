@@ -15,20 +15,11 @@ import (
 )
 
 func checkMono(t *testing.T, body string) error {
-<<<<<<< go/./go/types/mono_test.go
 	if runtime.Compiler == "gccgo" {
 		t.Skip("skipping for gofronted: fails to import unsafe")
 	}
 
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "x.go", "package x; import `unsafe`; var _ unsafe.Pointer;\n"+body, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := []*ast.File{file}
-=======
 	src := "package x; import `unsafe`; var _ unsafe.Pointer;\n" + body
->>>>>>> /tmp/go121/src/./go/types/mono_test.go
 
 	var buf strings.Builder
 	conf := types.Config{

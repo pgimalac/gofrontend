@@ -240,7 +240,6 @@ func newFile(fd int, name string, kind newFileKind) *File {
 	return f
 }
 
-<<<<<<< go/./os/file_unix.go
 // Auxiliary information if the File describes a directory
 type dirInfo struct {
 	dir *syscall.DIR // from opendir
@@ -255,10 +254,9 @@ func (d *dirInfo) close() {
 	}
 }
 
-=======
 func sigpipe() // implemented in package runtime
 
->>>>>>> /tmp/go121/src/./os/file_unix.go
+
 // epipecheck raises SIGPIPE if we get an EPIPE error on standard
 // output or standard error. See the SIGPIPE docs in os/signal, and
 // issue 11845.

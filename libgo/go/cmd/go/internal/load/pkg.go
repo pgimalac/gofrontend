@@ -1489,19 +1489,8 @@ func disallowInternal(ctx context.Context, srcDir string, importer *Package, imp
 	}
 
 	// We can't check standard packages with gccgo.
-<<<<<<< go/./cmd/go/internal/load/pkg.go
-	if cfg.BuildContext.Compiler == "gccgo" {
-		if importer == nil {
-			if p.Standard {
-				return p
-			}
-		} else if importer.Standard || strings.HasPrefix(importerPath, "cmd/") {
-			return p
-		}
-=======
 	if cfg.BuildContext.Compiler == "gccgo" && p.Standard {
 		return nil
->>>>>>> /tmp/go121/src/./cmd/go/internal/load/pkg.go
 	}
 
 	// The sort package depends on internal/reflectlite, but during bootstrap

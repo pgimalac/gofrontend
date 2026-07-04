@@ -19,47 +19,11 @@ func sys_umtx_op(addr *uint32, mode int32, val uint32, uaddr1 uinptr, ts *umtx_t
 //extern sysctl
 func sysctl(*uint32, uint32, *byte, *uintptr, *byte, uintptr) int32
 
-<<<<<<< go/./runtime/os_freebsd.go
 const (
 	_CTL_MAXNAME     = 24
 	_CPU_LEVEL_WHICH = 3
 	_CPU_WHICH_PID   = 2
 )
-=======
-//go:noescape
-func sigprocmask(how int32, new, old *sigset)
-
-//go:noescape
-func setitimer(mode int32, new, old *itimerval)
-
-//go:noescape
-func sysctl(mib *uint32, miblen uint32, out *byte, size *uintptr, dst *byte, ndst uintptr) int32
-
-func raiseproc(sig uint32)
-
-func thr_self() thread
-func thr_kill(tid thread, sig int)
-
-//go:noescape
-func sys_umtx_op(addr *uint32, mode int32, val uint32, uaddr1 uintptr, ut *umtx_time) int32
-
-func osyield()
-
-//go:nosplit
-func osyield_no_g() {
-	osyield()
-}
-
-func kqueue() int32
-
-//go:noescape
-func kevent(kq int32, ch *keventt, nch int32, ev *keventt, nev int32, ts *timespec) int32
-
-func pipe2(flags int32) (r, w int32, errno int32)
-func fcntl(fd, cmd, arg int32) (ret int32, errno int32)
-
-func issetugid() int32
->>>>>>> /tmp/go121/src/./runtime/os_freebsd.go
 
 // From FreeBSD's <sys/sysctl.h>
 const (

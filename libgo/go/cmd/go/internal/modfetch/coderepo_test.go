@@ -795,28 +795,6 @@ func TestCodeRepoVersions(t *testing.T) {
 				testenv.SkipFlaky(t, 54503)
 			}
 
-<<<<<<< go/./cmd/go/internal/modfetch/coderepo_test.go
-	t.Run("parallel", func(t *testing.T) {
-		for _, tt := range codeRepoVersionsTests {
-			t.Run(strings.ReplaceAll(tt.path, "/", "_"), func(t *testing.T) {
-				tt := tt
-				t.Parallel()
-				if tt.vcs != "mod" {
-					testenv.MustHaveExecPath(t, tt.vcs)
-				}
-
-				repo := Lookup("direct", tt.path)
-				list, err := repo.Versions(tt.prefix)
-				if err != nil {
-					t.Fatalf("Versions(%q): %v", tt.prefix, err)
-				}
-				if !reflect.DeepEqual(list.List, tt.versions) {
-					t.Fatalf("Versions(%q):\nhave %v\nwant %v", tt.prefix, list, tt.versions)
-				}
-			})
-		}
-	})
-=======
 			t.Parallel()
 			if tt.vcs != "mod" {
 				testenv.MustHaveExecPath(t, tt.vcs)
@@ -833,7 +811,6 @@ func TestCodeRepoVersions(t *testing.T) {
 			}
 		})
 	}
->>>>>>> /tmp/go121/src/./cmd/go/internal/modfetch/coderepo_test.go
 }
 
 var latestTests = []struct {

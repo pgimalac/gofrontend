@@ -218,14 +218,9 @@ func run(fset *token.FileSet, cfg *Config, analyzers []*analysis.Analyzer) ([]re
 		return compilerImporter.Import(path)
 	})
 	tc := &types.Config{
-<<<<<<< go/.//golang.org/x/tools/go/analysis/unitchecker/unitchecker.go
-		Importer: importer,
-		Sizes:    types.SizesFor("gccgo", build.Default.GOARCH), // assume gccgo ≡ gc?
-=======
 		Importer:  importer,
-		Sizes:     types.SizesFor("gc", build.Default.GOARCH), // assume gccgo ≡ gc?
+		Sizes:     types.SizesFor("gccgo", build.Default.GOARCH), // assume gccgo ≡ gc?
 		GoVersion: cfg.GoVersion,
->>>>>>> /tmp/go121/src/./cmd/vendor/golang.org/x/tools/go/analysis/unitchecker/unitchecker.go
 	}
 	info := &types.Info{
 		Types:      make(map[ast.Expr]types.TypeAndValue),

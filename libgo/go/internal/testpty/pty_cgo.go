@@ -34,7 +34,6 @@ func libc_close(int32) int32
 const _O_RDWR = 2
 
 func open() (pty *os.File, processTTY string, err error) {
-<<<<<<< go/./internal/testpty/pty_cgo.go
 	m := posix_openpt(_O_RDWR)
 	if m < 0 {
 		return nil, "", ptyError("posix_openpt", syscall.GetErrno())
@@ -43,24 +42,12 @@ func open() (pty *os.File, processTTY string, err error) {
 		errno := syscall.GetErrno()
 		libc_close(m)
 		return nil, "", ptyError("grantpt", errno)
-=======
-	m, err := C.posix_openpt(C.O_RDWR)
-	if m < 0 {
-		return nil, "", ptyError("posix_openpt", err)
->>>>>>> /tmp/go121/src/./internal/testpty/pty_cgo.go
 	}
-<<<<<<< go/./internal/testpty/pty_cgo.go
 	if unlockpt(m) < 0 {
 		errno := syscall.GetErrno()
 		libc_close(m)
 		return nil, "", ptyError("unlockpt", errno)
-=======
-	if res, err := C.grantpt(m); res < 0 {
-		C.close(m)
-		return nil, "", ptyError("grantpt", err)
->>>>>>> /tmp/go121/src/./internal/testpty/pty_cgo.go
 	}
-<<<<<<< go/./internal/testpty/pty_cgo.go
 	p := ptsname(m)
 	s := (*[32000]byte)(unsafe.Pointer(p))[:]
 	for i, v := range s {
@@ -68,11 +55,6 @@ func open() (pty *os.File, processTTY string, err error) {
 			s = s[:i:i]
 			break
 		}
-=======
-	if res, err := C.unlockpt(m); res < 0 {
-		C.close(m)
-		return nil, "", ptyError("unlockpt", err)
->>>>>>> /tmp/go121/src/./internal/testpty/pty_cgo.go
 	}
 	processTTY = string(s)
 	return os.NewFile(uintptr(m), "pty"), processTTY, nil

@@ -130,11 +130,7 @@ func makeValueMethod(v Value) Value {
 
 	makeFuncFFI(makeCIF(ftyp), unsafe.Pointer(impl))
 
-<<<<<<< go/./reflect/makefunc.go
 	return Value{t, unsafe.Pointer(&impl), v.flag&flagRO | flag(Func) | flagIndir}
-=======
-	return Value{ftyp.Common(), unsafe.Pointer(fv), v.flag&flagRO | flag(Func)}
->>>>>>> /tmp/go121/src/./reflect/makefunc.go
 }
 
 // methodValueCallCodePtr and methodValueCall are only here to provide

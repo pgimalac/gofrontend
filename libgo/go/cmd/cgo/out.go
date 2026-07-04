@@ -46,24 +46,15 @@ func (p *Package) writeDefs() {
 	var gccgoInit strings.Builder
 
 	fflg := creat(*objDir + "_cgo_flags")
-	var flags []string
 	for k, v := range p.CgoFlags {
-<<<<<<< go/./cmd/cgo/out.go
-		flags = append(flags, fmt.Sprintf("_CGO_%s=%s", k, strings.Join(v, " ")))
-=======
 		for _, arg := range v {
 			fmt.Fprintf(fflg, "_CGO_%s=%s\n", k, arg)
 		}
->>>>>>> /tmp/go121/src/./cmd/cgo/out.go
 		if k == "LDFLAGS" && !*gccgo {
 			for _, arg := range v {
 				fmt.Fprintf(fgo2, "//go:cgo_ldflag %q\n", arg)
 			}
 		}
-	}
-	sort.Strings(flags)
-	for _, flag := range flags {
-		fmt.Fprintln(fflg, flag)
 	}
 	fflg.Close()
 

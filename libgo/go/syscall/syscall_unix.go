@@ -7,13 +7,6 @@
 package syscall
 
 import (
-<<<<<<< go/./syscall/syscall_unix.go
-=======
-	errorspkg "errors"
-	"internal/bytealg"
-	"internal/itoa"
-	"internal/oserror"
->>>>>>> /tmp/go121/src/./syscall/syscall_unix.go
 	"internal/race"
 	"runtime"
 	"sync"
@@ -95,56 +88,14 @@ func (m *mmapper) Munmap(data []byte) (err error) {
 	return nil
 }
 
-<<<<<<< go/./syscall/syscall_unix.go
 var mapper = &mmapper{
 	active: make(map[*byte][]byte),
 	mmap:   mmap,
 	munmap: munmap,
-=======
-// An Errno is an unsigned number describing an error condition.
-// It implements the error interface. The zero Errno is by convention
-// a non-error, so code to convert from Errno to error should use:
-//
-//	err = nil
-//	if errno != 0 {
-//		err = errno
-//	}
-//
-// Errno values can be tested against error values using errors.Is.
-// For example:
-//
-//	_, _, err := syscall.Syscall(...)
-//	if errors.Is(err, fs.ErrNotExist) ...
-type Errno uintptr
-
-func (e Errno) Error() string {
-	if 0 <= int(e) && int(e) < len(errors) {
-		s := errors[e]
-		if s != "" {
-			return s
-		}
-	}
-	return "errno " + itoa.Itoa(int(e))
->>>>>>> /tmp/go121/src/./syscall/syscall_unix.go
 }
 
-<<<<<<< go/./syscall/syscall_unix.go
 func Mmap(fd int, offset int64, length int, prot int, flags int) (data []byte, err error) {
 	return mapper.Mmap(fd, offset, length, prot, flags)
-=======
-func (e Errno) Is(target error) bool {
-	switch target {
-	case oserror.ErrPermission:
-		return e == EACCES || e == EPERM
-	case oserror.ErrExist:
-		return e == EEXIST || e == ENOTEMPTY
-	case oserror.ErrNotExist:
-		return e == ENOENT
-	case errorspkg.ErrUnsupported:
-		return e == ENOSYS || e == ENOTSUP || e == EOPNOTSUPP
-	}
-	return false
->>>>>>> /tmp/go121/src/./syscall/syscall_unix.go
 }
 
 func Munmap(b []byte) (err error) {

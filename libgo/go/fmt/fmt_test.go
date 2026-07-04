@@ -1430,7 +1430,6 @@ var mallocTest = []struct {
 	desc  string
 	fn    func()
 }{
-<<<<<<< go/./fmt/fmt_test.go
 	{5, `Sprintf("")`, func() { Sprintf("") }},
 	{5, `Sprintf("xxx")`, func() { Sprintf("xxx") }},
 	{5, `Sprintf("%x")`, func() { Sprintf("%x", 7) }},
@@ -1438,20 +1437,6 @@ var mallocTest = []struct {
 	{5, `Sprintf("%x %x")`, func() { Sprintf("%x %x", 7, 112) }},
 	{20, `Sprintf("%g")`, func() { Sprintf("%g", float32(3.14159)) }}, // TODO: Can this be 1?
 	{5, `Fprintf(buf, "%s")`, func() { mallocBuf.Reset(); Fprintf(&mallocBuf, "%s", "hello") }},
-=======
-	{0, `Sprintf("")`, func() { _ = Sprintf("") }},
-	{1, `Sprintf("xxx")`, func() { _ = Sprintf("xxx") }},
-	{0, `Sprintf("%x")`, func() { _ = Sprintf("%x", 7) }},
-	{1, `Sprintf("%x")`, func() { _ = Sprintf("%x", 1<<16) }},
-	{3, `Sprintf("%80000s")`, func() { _ = Sprintf("%80000s", "hello") }}, // large buffer (>64KB)
-	{1, `Sprintf("%s")`, func() { _ = Sprintf("%s", "hello") }},
-	{1, `Sprintf("%x %x")`, func() { _ = Sprintf("%x %x", 7, 112) }},
-	{1, `Sprintf("%g")`, func() { _ = Sprintf("%g", float32(3.14159)) }},
-	{0, `Fprintf(buf, "%s")`, func() { mallocBuf.Reset(); Fprintf(&mallocBuf, "%s", "hello") }},
-	{0, `Fprintf(buf, "%x")`, func() { mallocBuf.Reset(); Fprintf(&mallocBuf, "%x", 7) }},
-	{0, `Fprintf(buf, "%x")`, func() { mallocBuf.Reset(); Fprintf(&mallocBuf, "%x", 1<<16) }},
-	{2, `Fprintf(buf, "%80000s")`, func() { mallocBuf.Reset(); Fprintf(&mallocBuf, "%80000s", "hello") }}, // large buffer (>64KB)
->>>>>>> /tmp/go121/src/./fmt/fmt_test.go
 	// If the interface value doesn't need to allocate, amortized allocation overhead should be zero.
 	{5, `Fprintf(buf, "%x %x %x")`, func() {
 		mallocBuf.Reset()

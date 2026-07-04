@@ -170,10 +170,6 @@ func suspendG(gp *g) suspendGState {
 			// _Gscan bit and thus own the stack.
 			gp.preemptStop = false
 			gp.preempt = false
-<<<<<<< go/./runtime/preempt.go
-=======
-			gp.stackguard0 = gp.stack.lo + stackGuard
->>>>>>> /tmp/go121/src/./runtime/preempt.go
 
 			// The goroutine was already at a safe-point
 			// and we've now locked that in.
@@ -309,36 +305,6 @@ func asyncPreempt2() {
 	gp.asyncSafePoint = false
 }
 
-<<<<<<< go/./runtime/preempt.go
-=======
-// asyncPreemptStack is the bytes of stack space required to inject an
-// asyncPreempt call.
-var asyncPreemptStack = ^uintptr(0)
-
-func init() {
-	f := findfunc(abi.FuncPCABI0(asyncPreempt))
-	total := funcMaxSPDelta(f)
-	f = findfunc(abi.FuncPCABIInternal(asyncPreempt2))
-	total += funcMaxSPDelta(f)
-	// Add some overhead for return PCs, etc.
-	asyncPreemptStack = uintptr(total) + 8*goarch.PtrSize
-	if asyncPreemptStack > stackNosplit {
-		// We need more than the nosplit limit. This isn't
-		// unsafe, but it may limit asynchronous preemption.
-		//
-		// This may be a problem if we start using more
-		// registers. In that case, we should store registers
-		// in a context object. If we pre-allocate one per P,
-		// asyncPreempt can spill just a few registers to the
-		// stack, then grab its context object and spill into
-		// it. When it enters the runtime, it would allocate a
-		// new context for the P.
-		print("runtime: asyncPreemptStack=", asyncPreemptStack, "\n")
-		throw("async stack too large")
-	}
-}
-
->>>>>>> /tmp/go121/src/./runtime/preempt.go
 // wantAsyncPreempt returns whether an asynchronous preemption is
 // queued for gp.
 func wantAsyncPreempt(gp *g) bool {
@@ -383,41 +349,7 @@ func isAsyncSafePoint(gp *g, pc uintptr) (bool, uintptr) {
 		// Not Go code.
 		return false, 0
 	}
-<<<<<<< go/./runtime/preempt.go
 	name := f.Name()
-=======
-	if (GOARCH == "mips" || GOARCH == "mipsle" || GOARCH == "mips64" || GOARCH == "mips64le") && lr == pc+8 && funcspdelta(f, pc, nil) == 0 {
-		// We probably stopped at a half-executed CALL instruction,
-		// where the LR is updated but the PC has not. If we preempt
-		// here we'll see a seemingly self-recursive call, which is in
-		// fact not.
-		// This is normally ok, as we use the return address saved on
-		// stack for unwinding, not the LR value. But if this is a
-		// call to morestack, we haven't created the frame, and we'll
-		// use the LR for unwinding, which will be bad.
-		return false, 0
-	}
-	up, startpc := pcdatavalue2(f, abi.PCDATA_UnsafePoint, pc)
-	if up == abi.UnsafePointUnsafe {
-		// Unsafe-point marked by compiler. This includes
-		// atomic sequences (e.g., write barrier) and nosplit
-		// functions (except at calls).
-		return false, 0
-	}
-	if fd := funcdata(f, abi.FUNCDATA_LocalsPointerMaps); fd == nil || f.flag&abi.FuncFlagAsm != 0 {
-		// This is assembly code. Don't assume it's well-formed.
-		// TODO: Empirically we still need the fd == nil check. Why?
-		//
-		// TODO: Are there cases that are safe but don't have a
-		// locals pointer map, like empty frame functions?
-		// It might be possible to preempt any assembly functions
-		// except the ones that have funcFlag_SPWRITE set in f.flag.
-		return false, 0
-	}
-	// Check the inner-most name
-	u, uf := newInlineUnwinder(f, pc, nil)
-	name := u.srcFunc(uf).name()
->>>>>>> /tmp/go121/src/./runtime/preempt.go
 	if hasPrefix(name, "runtime.") ||
 		hasPrefix(name, "runtime_1internal_1") ||
 		hasPrefix(name, "reflect.") {
@@ -433,20 +365,5 @@ func isAsyncSafePoint(gp *g, pc uintptr) (bool, uintptr) {
 		// in incrementally.
 		return false, 0
 	}
-<<<<<<< go/./runtime/preempt.go
-=======
-	switch up {
-	case abi.UnsafePointRestart1, abi.UnsafePointRestart2:
-		// Restartable instruction sequence. Back off PC to
-		// the start PC.
-		if startpc == 0 || startpc > pc || pc-startpc > 20 {
-			throw("bad restart PC")
-		}
-		return true, startpc
-	case abi.UnsafePointRestartAtEntry:
-		// Restart from the function entry at resumption.
-		return true, f.entry()
-	}
->>>>>>> /tmp/go121/src/./runtime/preempt.go
 	return true, pc
 }

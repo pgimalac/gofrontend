@@ -943,27 +943,15 @@ func testResumption(t *testing.T, version uint16) {
 		t.Fatal("ticket didn't change after resumption")
 	}
 
-<<<<<<< go/./crypto/tls/handshake_client_test.go
 	// An old session ticket can resume, but the server will provide a ticket encrypted with a fresh key.
 	serverConfig.Time = func() time.Time { return testTime().Add(24*time.Hour + time.Minute) }
-=======
-	// An old session ticket is replaced with a ticket encrypted with a fresh key.
-	ticket = getTicket()
-	serverConfig.Time = func() time.Time { return time.Now().Add(24*time.Hour + time.Minute) }
->>>>>>> /tmp/go121/src/./crypto/tls/handshake_client_test.go
 	testResumeState("ResumeWithOldTicket", true)
 	if bytes.Equal(ticket, getTicket()) {
 		t.Fatal("old first ticket matches the fresh one")
 	}
 
-<<<<<<< go/./crypto/tls/handshake_client_test.go
 	// Now the session tickey key is expired, so a full handshake should occur.
 	serverConfig.Time = func() time.Time { return testTime().Add(24*8*time.Hour + time.Minute) }
-=======
-	// Once the session master secret is expired, a full handshake should occur.
-	ticket = getTicket()
-	serverConfig.Time = func() time.Time { return time.Now().Add(24*8*time.Hour + time.Minute) }
->>>>>>> /tmp/go121/src/./crypto/tls/handshake_client_test.go
 	testResumeState("ResumeWithExpiredTicket", false)
 	if bytes.Equal(ticket, getTicket()) {
 		t.Fatal("expired first ticket matches the fresh one")
@@ -1003,10 +991,7 @@ func testResumption(t *testing.T, version uint16) {
 	testResumeState("GetFreshSessionTicket", false)
 	for i := 0; i < 13; i++ {
 		d += 12 * time.Hour
-<<<<<<< go/./crypto/tls/handshake_client_test.go
 		serverConfig.Time = func() time.Time { return testTime().Add(d) }
-=======
->>>>>>> /tmp/go121/src/./crypto/tls/handshake_client_test.go
 		testResumeState("OldSessionTicket", true)
 	}
 	// Expire it (now a little more than 7 days) and make sure a full
@@ -1014,10 +999,7 @@ func testResumption(t *testing.T, version uint16) {
 	// TLS 1.3 since the client should be using a fresh ticket sent over
 	// by the server.
 	d += 12 * time.Hour
-<<<<<<< go/./crypto/tls/handshake_client_test.go
 	serverConfig.Time = func() time.Time { return testTime().Add(d) }
-=======
->>>>>>> /tmp/go121/src/./crypto/tls/handshake_client_test.go
 	if version == VersionTLS13 {
 		testResumeState("ExpiredSessionTicket", true)
 	} else {

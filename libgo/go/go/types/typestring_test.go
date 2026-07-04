@@ -137,14 +137,9 @@ func TestTypeString(t *testing.T) {
 }
 
 func TestQualifiedTypeString(t *testing.T) {
-<<<<<<< go/./go/types/typestring_test.go
 	t.Skip("skipping for gccgo--no importer")
-	p := mustTypecheck("p.go", "package p; type T int", nil)
-	q := mustTypecheck("q.go", "package q", nil)
-=======
 	p := mustTypecheck("package p; type T int", nil, nil)
 	q := mustTypecheck("package q", nil, nil)
->>>>>>> /tmp/go121/src/./go/types/typestring_test.go
 
 	pT := p.Scope().Lookup("T").Type()
 	for _, test := range []struct {
