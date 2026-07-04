@@ -32,6 +32,7 @@ cmd/go/internal/mvs
 cmd/go/internal/par
 cmd/go/internal/robustio
 cmd/go/internal/run
+cmd/go/internal/script
 cmd/go/internal/search
 cmd/go/internal/str
 cmd/go/internal/test
@@ -40,6 +41,8 @@ cmd/go/internal/tool
 cmd/go/internal/toolchain
 cmd/go/internal/trace
 cmd/go/internal/vcs
+cmd/go/internal/vcweb
+cmd/go/internal/vcweb/vcstest
 cmd/go/internal/version
 cmd/go/internal/vet
 cmd/go/internal/web

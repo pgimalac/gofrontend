@@ -9,6 +9,7 @@ import (
 	"internal/testenv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -262,6 +263,12 @@ func main() {
 `
 
 func TestTesting(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		// The gccgo test harness (gotest) does not build test
+		// binaries via "go test", so it does not set the
+		// testing.testBinary variable that Testing() relies on.
+		t.Skip("skipping testing.Testing() test; gccgo gotest does not set testBinary")
+	}
 	if !testing.Testing() {
 		t.Errorf("testing.Testing() == %t, want %t", testing.Testing(), true)
 	}

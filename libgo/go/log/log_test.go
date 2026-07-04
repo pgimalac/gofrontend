@@ -202,6 +202,9 @@ func TestEmptyPrintCreatesLine(t *testing.T) {
 }
 
 func TestDiscard(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		t.Skip("skipping allocations test; gccgo allocation behavior differs from gc")
+	}
 	l := New(io.Discard, "", 0)
 	s := strings.Repeat("a", 102400)
 	c := testing.AllocsPerRun(100, func() { l.Printf("%s", s) })

@@ -7,7 +7,6 @@ package reflectlite_test
 import (
 	"encoding/base64"
 	"fmt"
-	"internal/abi"
 	. "internal/reflectlite"
 	"math"
 	"reflect"
@@ -241,37 +240,37 @@ func TestSetValue(t *testing.T) {
 	for i, tt := range valueTests {
 		v := ValueOf(tt.i).Elem()
 		switch v.Kind() {
-		case abi.Int:
+		case Int:
 			v.Set(ValueOf(int(132)))
-		case abi.Int8:
+		case Int8:
 			v.Set(ValueOf(int8(8)))
-		case abi.Int16:
+		case Int16:
 			v.Set(ValueOf(int16(16)))
-		case abi.Int32:
+		case Int32:
 			v.Set(ValueOf(int32(32)))
-		case abi.Int64:
+		case Int64:
 			v.Set(ValueOf(int64(64)))
-		case abi.Uint:
+		case Uint:
 			v.Set(ValueOf(uint(132)))
-		case abi.Uint8:
+		case Uint8:
 			v.Set(ValueOf(uint8(8)))
-		case abi.Uint16:
+		case Uint16:
 			v.Set(ValueOf(uint16(16)))
-		case abi.Uint32:
+		case Uint32:
 			v.Set(ValueOf(uint32(32)))
-		case abi.Uint64:
+		case Uint64:
 			v.Set(ValueOf(uint64(64)))
-		case abi.Float32:
+		case Float32:
 			v.Set(ValueOf(float32(256.25)))
-		case abi.Float64:
+		case Float64:
 			v.Set(ValueOf(512.125))
-		case abi.Complex64:
+		case Complex64:
 			v.Set(ValueOf(complex64(532.125 + 10i)))
-		case abi.Complex128:
+		case Complex128:
 			v.Set(ValueOf(complex128(564.25 + 1i)))
-		case abi.String:
+		case String:
 			v.Set(ValueOf("stringy cheese"))
-		case abi.Bool:
+		case Bool:
 			v.Set(ValueOf(true))
 		}
 		s := valueToString(v)
@@ -947,7 +946,7 @@ func TestInvalid(t *testing.T) {
 		t.Errorf("field: IsValid=%v, Kind=%v, want true, Interface", v.IsValid(), v.Kind())
 	}
 	v = v.Elem()
-	if v.IsValid() != false || v.Kind() != abi.Invalid {
+	if v.IsValid() != false || v.Kind() != Invalid {
 		t.Errorf("field elem: IsValid=%v, Kind=%v, want false, Invalid", v.IsValid(), v.Kind())
 	}
 }

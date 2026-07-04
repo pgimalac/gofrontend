@@ -33,6 +33,12 @@ const (
 // counterpart. If -write is set, this test actually writes the expected
 // content to go/types; otherwise, it just compares with the existing content.
 func TestGenerate(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		// This test reads the gc compiler's cmd/compile/internal/types2
+		// sources from GOROOT to regenerate go/types. Those sources are
+		// not shipped with a gccgo installation.
+		t.Skip("skipping generate test; gc compiler sources are not present in a gccgo GOROOT")
+	}
 	// If filesToWrite is set, write the generated content to disk.
 	// In the special case of "all", write all files in filemap.
 	write := *filesToWrite != ""

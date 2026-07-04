@@ -33,5 +33,3 @@ func (mu *XFDMutex) RWLock(read bool) bool {
 func (mu *XFDMutex) RWUnlock(read bool) bool {
 	return mu.rwunlock(read)
 }
-
-var Fcntl = fcntl

@@ -294,6 +294,14 @@ gobuild() {
     line=$(echo "$line" | sed -e 's/go1\.[0-9]\+/1/g' -e 's/goexperiment\./goexperiment/')
     line=" $line "
     wrap='[ ()!&|]'
+    # The "unix" meta build tag matches any Unix-like GOOS.
+    case "$goos" in
+	aix | android | darwin | dragonfly | freebsd | hurd | illumos | ios | linux | netbsd | openbsd | solaris)
+	    unixtag=1 ;;
+	*)
+	    unixtag=0 ;;
+    esac
+    line=$(echo "$line" | sed -e "s/\\(${wrap}\\)unix\\(${wrap}\\)/\\1${unixtag}\\2/g")
     for ones in $goarch $goos cgo gccgo goexperimentfieldtrack; do
 	line=$(echo "$line" | sed -e "s/\\(${wrap}\\)${ones}\\(${wrap}\\)/"'\11\2/g')
     done

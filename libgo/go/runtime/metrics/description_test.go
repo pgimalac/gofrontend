@@ -26,7 +26,7 @@ import (
 
 // Implemented in the runtime.
 //
-//go:linkname runtime_readMetricNames
+//go:linkname runtime_readMetricNames runtime.readMetricNames
 func runtime_readMetricNames() []string
 
 func TestNames(t *testing.T) {

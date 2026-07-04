@@ -177,7 +177,7 @@ func TestCloneNEWUSERAndRemapNoRootSetgroupsEnableSetgroups(t *testing.T) {
 }
 
 func TestEmptyCredGroupsDisableSetgroups(t *testing.T) {
-	cmd := whoamiNEWUSER(t, os.Getuid(), os.Getgid(), false)
+	cmd := whoamiCmd(t, os.Getuid(), os.Getgid(), false)
 	cmd.SysProcAttr.Credential = &syscall.Credential{}
 	if err := cmd.Run(); err != nil {
 		if testenv.SyscallIsNotSupported(err) {

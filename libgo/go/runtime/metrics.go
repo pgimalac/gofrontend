@@ -813,7 +813,7 @@ type metricName struct {
 // readMetricNames is the implementation of runtime/metrics.readMetricNames,
 // used by the runtime/metrics test and otherwise unreferenced.
 //
-//go:linkname readMetricNames runtime_1metrics_1test.runtime_readMetricNames
+//go:linkname readMetricNames
 func readMetricNames() []string {
 	metricsLock()
 	initMetrics()

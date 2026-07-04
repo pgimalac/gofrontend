@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"internal/testenv"
 	"math/big"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,9 @@ func testKeyBasics(t *testing.T, priv *PrivateKey) {
 }
 
 func TestAllocations(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		t.Skip("skipping allocations test; gccgo escape analysis differs from gc")
+	}
 	if boring.Enabled {
 		t.Skip("skipping allocations test with BoringCrypto")
 	}

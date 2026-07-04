@@ -7,6 +7,7 @@ package utf16_test
 import (
 	"internal/testenv"
 	"reflect"
+	"runtime"
 	"testing"
 	"unicode"
 	. "unicode/utf16"
@@ -105,6 +106,9 @@ var decodeTests = []decodeTest{
 }
 
 func TestAllocationsDecode(t *testing.T) {
+	if runtime.Compiler == "gccgo" {
+		t.Skip("skipping allocations test; gccgo escape analysis differs from gc")
+	}
 	testenv.SkipIfOptimizationOff(t)
 
 	for _, tt := range decodeTests {
