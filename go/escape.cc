@@ -1606,6 +1606,7 @@ Escape_analysis_assign::expression(Expression** pexpr)
                 }
                 break;
 
+              case Builtin_call_expression::BUILTIN_CLEAR:
               case Builtin_call_expression::BUILTIN_CLOSE:
               case Builtin_call_expression::BUILTIN_DELETE:
               case Builtin_call_expression::BUILTIN_PRINT:
@@ -1615,6 +1616,8 @@ Escape_analysis_assign::expression(Expression** pexpr)
               case Builtin_call_expression::BUILTIN_COMPLEX:
               case Builtin_call_expression::BUILTIN_REAL:
               case Builtin_call_expression::BUILTIN_IMAG:
+              case Builtin_call_expression::BUILTIN_MIN:
+              case Builtin_call_expression::BUILTIN_MAX:
               case Builtin_call_expression::BUILTIN_RECOVER:
               case Builtin_call_expression::BUILTIN_ALIGNOF:
               case Builtin_call_expression::BUILTIN_OFFSETOF:

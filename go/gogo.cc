@@ -284,6 +284,21 @@ Gogo::Gogo(Backend* backend, Linemap* linemap, int, int pointer_size)
   delete_type->set_is_varargs();
   delete_type->set_is_builtin();
   this->globals_->add_function_declaration("delete", NULL, delete_type, loc);
+
+  Function_type* min_type = Type::make_function_type(NULL, NULL, NULL, loc);
+  min_type->set_is_varargs();
+  min_type->set_is_builtin();
+  this->globals_->add_function_declaration("min", NULL, min_type, loc);
+
+  Function_type* max_type = Type::make_function_type(NULL, NULL, NULL, loc);
+  max_type->set_is_varargs();
+  max_type->set_is_builtin();
+  this->globals_->add_function_declaration("max", NULL, max_type, loc);
+
+  Function_type* clear_type = Type::make_function_type(NULL, NULL, NULL, loc);
+  clear_type->set_is_varargs();
+  clear_type->set_is_builtin();
+  this->globals_->add_function_declaration("clear", NULL, clear_type, loc);
 }
 
 std::string

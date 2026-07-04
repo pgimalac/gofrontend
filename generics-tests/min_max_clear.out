@@ -1,0 +1,11 @@
+3 5
+1 9
+2.25 9
+apple cherry
+3 5 2.25
+3 10
+42 42
+map: 0
+slice: [0 0 0 0] 4
+ptrslice: true true true
+strslice: ["" "" ""]
