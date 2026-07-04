@@ -366,12 +366,3 @@ func cgoSockaddr(ip IP, zone string) (*syscall.RawSockaddr, syscall.Socklen_t) {
 	}
 	return nil, 0
 }
-
-func copyIP(x IP) IP {
-	if len(x) < 16 {
-		return x.To16()
-	}
-	y := make(IP, len(x))
-	copy(y, x)
-	return y
-}
