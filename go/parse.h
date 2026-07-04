@@ -415,7 +415,9 @@ class Parse
   // (each a captured token sequence).  Returns the instance type.
   Type* instantiate_generic_type(Generic_function_info*,
 				 const std::vector<std::vector<Token> >&,
-				 Location);
+				 Location,
+				 const std::map<std::string, std::string>*
+				   extra_pkg_aliases = NULL);
   // Parse a "[type-args]" list at a use site of a generic type, given
   // the template, and return the resulting instance type.
   Type* generic_type_instantiation(Generic_function_info*, Location);

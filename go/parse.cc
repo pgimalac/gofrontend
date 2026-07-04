@@ -4298,8 +4298,18 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
 Type*
 Parse::instantiate_generic_type(Generic_function_info* info,
 				const std::vector<std::vector<Token> >& type_args,
-				Location location)
+				Location location,
+				const std::map<std::string, std::string>*
+				  extra_pkg_aliases)
 {
+  // The alias->pkgpath map for re-parsing this instance: the template's own
+  // imports, plus the caller's bindings for the type-argument packages (so a
+  // cross-package type argument resolves to the exact package even when a
+  // same-named package -- e.g. the ubiquitous "internal" -- is in scope).
+  std::map<std::string, std::string> merged_aliases = info->package_aliases();
+  if (extra_pkg_aliases != NULL)
+    merged_aliases.insert(extra_pkg_aliases->begin(), extra_pkg_aliases->end());
+
   // Build a mangled key from the type arguments and check the cache.
   std::string key = this->instance_key(type_args);
   Named_object* cached = info->find_instance(key);
@@ -4319,7 +4329,8 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     }
 
   record_constraint_obligations(this->gogo_, info, type_args,
-				Gogo::message_name(info->name()), location);
+				Gogo::message_name(info->name()), location,
+				extra_pkg_aliases);
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
@@ -4347,7 +4358,7 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
-  ip.set_replay_pkg_aliases(&info->package_aliases());
+  ip.set_replay_pkg_aliases(&merged_aliases);
   Type* underlying = ip.type();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
@@ -4368,7 +4379,7 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     bool all_ok = true;
     for (size_t i = 0; i < type_args.size(); ++i)
       {
-	Type* at = this->parse_type_from_tokens(type_args[i]);
+	Type* at = this->parse_type_from_tokens(type_args[i], &merged_aliases);
 	if (at == NULL || at->is_error_type())
 	  {
 	    all_ok = false;
@@ -4528,7 +4539,17 @@ Parse::generic_type_instantiation(Generic_function_info* info,
   // Consume "]".
   this->advance_token();
 
-  return this->instantiate_generic_type(info, type_args, location);
+  // Record the package-qualifier bindings of the type arguments from the
+  // current (correct) scope, so the instance re-parse resolves each qualifier
+  // to the exact package the argument came from -- even when a same-named
+  // package (e.g. "internal") is imported elsewhere or is the template's own
+  // package name.
+  std::map<std::string, std::string> pkg_bindings;
+  for (size_t i = 0; i < type_args.size(); ++i)
+    this->note_token_package_usage(type_args[i], &pkg_bindings);
+
+  return this->instantiate_generic_type(info, type_args, location,
+					&pkg_bindings);
 }
 
 // Generics: a use of a generic type before its declaration.  Parse the
