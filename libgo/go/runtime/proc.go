@@ -710,8 +710,8 @@ func schedinit() {
 
 	mallocinit()
 	cpuinit()      // must run before alginit
+	randinit()     // must run before alginit (alginit's AES hash seed uses bootstrapRand)
 	alginit()  // maps, hash, rand must not be used before this call
-	randinit() // must run before mcommoninit
 	mcommoninit(gp.m, -1)
 
 	sigsave(&gp.m.sigmask)
