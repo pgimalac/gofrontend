@@ -4369,10 +4369,28 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // spelling for any instance.
   {
     std::vector<Token> spelling;
+    // A generic type imported from another package must be spelled with its
+    // package qualifier ("pkg.Name"), so that when this spelling is later
+    // replayed as an inferred type argument (e.g. "reset(h.pts)" infers
+    // T = metricdata.DataPoint[N]) the base name still resolves.  A bare
+    // "DataPoint[int64]" would be undefined in the re-parsing package.
+    Package* dpkg = info->defining_package();
+    std::string base = info->name();
+    bool base_hidden = Gogo::is_hidden_name(base);
+    std::string base_src =
+      base_hidden ? Gogo::unpack_hidden_name(base) : base;
+    bool base_exported =
+      base_hidden ? false : Lex::is_exported_name(base_src);
+    if (dpkg != NULL
+	&& dpkg->has_package_name()
+	&& dpkg->pkgpath() != this->gogo_->pkgpath())
+      {
+	spelling.push_back(
+	  Token::make_identifier_token(dpkg->package_name(), false, location));
+	spelling.push_back(Token::make_operator_token(OPERATOR_DOT, location));
+      }
     spelling.push_back(
-      Token::make_identifier_token(info->name(),
-				   Lex::is_exported_name(info->name()),
-				   location));
+      Token::make_identifier_token(base_src, base_exported, location));
     spelling.push_back(Token::make_operator_token(OPERATOR_LSQUARE, location));
     for (size_t i = 0; i < type_args.size(); ++i)
       {
