@@ -2012,6 +2012,23 @@ Parse::parameter_list(bool* is_varargs)
 		   ++p)
 		{
 		  Named_object* no = this->gogo_->lookup(p->name(), NULL);
+		  // Generics: while re-parsing an instantiated template
+		  // (replay), an unnamed parameter/result written as a bare
+		  // predeclared type name (e.g. the "rune" and "int" in a
+		  // "func(S) (rune, int)" parameter) is not connected to its
+		  // universe definition by the global name-resolution pass, so
+		  // it would otherwise become an unresolved unknown.  Resolve
+		  // it directly from the global bindings here, mirroring the
+		  // fallback in type_name.  Restricted to replay mode so normal
+		  // forward references are unaffected.
+		  if (no == NULL && this->replay_tokens_ != NULL)
+		    {
+		      Named_object* g = this->gogo_->lookup_global(
+			Gogo::unpack_hidden_name(p->name()).c_str());
+		      if (g != NULL
+			  && (g->is_type() || g->is_type_declaration()))
+			no = g;
+		    }
 		  Type* type;
 		  if (no == NULL)
 		    no = this->gogo_->add_unknown_name(p->name(),
