@@ -1120,11 +1120,11 @@ Parse::qualified_ident(std::string* pname, Named_object** ppackage)
 // 	SliceType | MapType | ChannelType .
 
 Type*
-Parse::type()
+Parse::type(bool issue_error)
 {
   const Token* token = this->peek_token();
   if (token->is_identifier())
-    return this->type_name(true);
+    return this->type_name(issue_error);
   else if (token->is_op(OPERATOR_LSQUARE))
     return this->array_type(false);
   else if (token->is_keyword(KEYWORD_CHAN)
@@ -1150,7 +1150,7 @@ Parse::type()
   else if (token->is_op(OPERATOR_LPAREN))
     {
       this->advance_token();
-      Type* ret = this->type();
+      Type* ret = this->type(issue_error);
       if (this->peek_token()->is_op(OPERATOR_RPAREN))
 	this->advance_token();
       else
@@ -1340,10 +1340,14 @@ Parse::type_name(bool issue_error)
 	named_object = this->gogo_->add_unknown_name(name, location);
       else
 	{
-	  const std::string& packname(package->package_value()->package_name());
-	  go_error_at(location, "reference to undefined identifier %<%s.%s%>",
-		      Gogo::message_name(packname).c_str(),
-		      Gogo::message_name(name).c_str());
+	  if (issue_error)
+	    {
+	      const std::string& packname(
+		package->package_value()->package_name());
+	      go_error_at(location, "reference to undefined identifier %<%s.%s%>",
+			  Gogo::message_name(packname).c_str(),
+			  Gogo::message_name(name).c_str());
+	    }
 	  issue_error = false;
 	  ok = false;
 	}
@@ -4680,7 +4684,8 @@ Parse::resolve_pending_generic_types()
 
 Type*
 Parse::parse_type_from_tokens(const std::vector<Token>& toks,
-			      const std::map<std::string, std::string>* aliases)
+			      const std::map<std::string, std::string>* aliases,
+			      bool issue_error)
 {
   std::vector<Token> t = toks;
   t.push_back(Token::make_eof_token(Linemap::unknown_location()));
@@ -4690,7 +4695,7 @@ Parse::parse_type_from_tokens(const std::vector<Token>& toks,
     p.set_replay_pkg_aliases(aliases);
   if (!p.type_may_start_here())
     return NULL;
-  return p.type();
+  return p.type(issue_error);
 }
 
 // Generics: resolve a constraint type-set element to a type, looking
@@ -4721,7 +4726,13 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks,
 	return no->type_value();
       return NULL;
     }
-  return this->parse_type_from_tokens(toks, aliases);
+  // Quietly: a constraint term whose package is not available in this
+  // compilation (e.g. a union member's package that the instantiating package
+  // does not import and that is not supplied via genimports) must yield NULL
+  // so the constraint is left unenforced, not a spurious "undefined
+  // identifier" error.  The argument still satisfies the constraint via a
+  // resolvable member.
+  return this->parse_type_from_tokens(toks, aliases, /*issue_error=*/false);
 }
 
 // Generics: see the declaration.  For constraint type inference, return
@@ -6849,9 +6860,16 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	// through the template's alias->pkgpath map, so it names the exact
 	// package the template was defined against rather than an ambiguous
 	// same-named package imported elsewhere (mirrors qualified_ident).
-	// The map is authoritative: an ordinary by-name lookup may have found
-	// a different same-named package, so override it.
-	if (this->replay_pkg_aliases_ != NULL)
+	// The map is authoritative for a package qualifier: an ordinary by-name
+	// lookup may have found a different same-named package, so override it.
+	// But do not override a name that resolves to a local (function-scoped)
+	// binding -- a local variable may deliberately shadow an imported
+	// package (e.g. "var errors error" shadowing the "errors" package), and
+	// such a use as a value must keep the variable, not become the package.
+	if (this->replay_pkg_aliases_ != NULL
+	    && (named_object == NULL
+		|| named_object->is_package())
+	    && in_function == NULL)
 	  {
 	    std::map<std::string, std::string>::const_iterator a =
 	      this->replay_pkg_aliases_->find(id);

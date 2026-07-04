@@ -268,7 +268,7 @@ class Parse
   Expression_list* expression_list(Expression*, bool may_be_sink,
 				   bool may_be_composite_lit);
   bool qualified_ident(std::string*, Named_object**);
-  Type* type();
+  Type* type(bool issue_error = true);
   bool type_may_start_here();
   Type* type_name(bool issue_error);
   Type* array_type(bool may_use_ellipsis);
@@ -366,7 +366,8 @@ class Parse
   // from, not an ambiguous same-named one).
   Type* parse_type_from_tokens(const std::vector<Token>&,
 			       const std::map<std::string, std::string>*
-			         aliases = NULL);
+			         aliases = NULL,
+			       bool issue_error = true);
   // Resolve a constraint type-set element's type without emitting errors,
   // resolving predeclared and package-global names through the global
   // bindings (which a throwaway re-parse cannot do for a name used only in
