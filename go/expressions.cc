@@ -11843,6 +11843,12 @@ Builtin_call_expression::do_determine_type(Gogo* gogo,
 		 pa != args->end();
 		 ++pa)
 	      {
+		// Do NOT determine untyped args here: that would fix an untyped
+		// constant to its default type (e.g. int) before the shared
+		// context below can convert it to the common type (e.g. int64).
+		Type* mm_dummy;
+		if ((*pa)->is_untyped(&mm_dummy))
+		  continue;
 		(*pa)->determine_type_no_context(gogo);
 		if (arg_type == NULL && !(*pa)->type()->is_abstract())
 		  arg_type = (*pa)->type();
