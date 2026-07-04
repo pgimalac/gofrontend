@@ -315,7 +315,11 @@ func main(unsafe.Pointer) {
 
 // os_beforeExit is called from os.Exit(0).
 //
-//go:linkname os_beforeExit os.runtime_beforeExit
+// gccgo mangles an underscore in a Go identifier by doubling it, so the
+// os package reference to runtime_beforeExit is emitted as
+// os.runtime__beforeExit; the linkname target must match.
+//
+//go:linkname os_beforeExit os.runtime__beforeExit
 func os_beforeExit(exitCode int) {
 	runExitHooks(exitCode)
 	if exitCode == 0 && raceenabled {

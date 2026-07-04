@@ -77,12 +77,12 @@ func sync_runtime_SemacquireMutex(addr *uint32, lifo bool, skipframes int) {
 	semacquire1(addr, lifo, semaBlockProfile|semaMutexProfile, skipframes, waitReasonSyncMutexLock)
 }
 
-//go:linkname sync_runtime_SemacquireRWMutexR sync.runtime_SemacquireRWMutexR
+//go:linkname sync_runtime_SemacquireRWMutexR sync.runtime__SemacquireRWMutexR
 func sync_runtime_SemacquireRWMutexR(addr *uint32, lifo bool, skipframes int) {
 	semacquire1(addr, lifo, semaBlockProfile|semaMutexProfile, skipframes, waitReasonSyncRWMutexRLock)
 }
 
-//go:linkname sync_runtime_SemacquireRWMutex sync.runtime_SemacquireRWMutex
+//go:linkname sync_runtime_SemacquireRWMutex sync.runtime__SemacquireRWMutex
 func sync_runtime_SemacquireRWMutex(addr *uint32, lifo bool, skipframes int) {
 	semacquire1(addr, lifo, semaBlockProfile|semaMutexProfile, skipframes, waitReasonSyncRWMutexLock)
 }

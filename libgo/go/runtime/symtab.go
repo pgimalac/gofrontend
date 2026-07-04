@@ -135,7 +135,11 @@ func pcInlineCallers(pc uintptr, locbuf *location, max int32) int32
 
 // runtime_FrameStartLine returns the start line of the function in a Frame.
 //
-//go:linkname runtime_FrameStartLine runtime_1pprof.runtime_FrameStartLine
+// gccgo mangles an underscore in a Go identifier by doubling it, so the
+// runtime/pprof reference to runtime_FrameStartLine is emitted as
+// runtime_1pprof.runtime__FrameStartLine; the linkname target must match.
+//
+//go:linkname runtime_FrameStartLine runtime_1pprof.runtime__FrameStartLine
 func runtime_FrameStartLine(f *Frame) int {
 	return f.startLine
 }

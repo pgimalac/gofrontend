@@ -272,6 +272,29 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 	return slice{p, cap, newcap}
 }
 
+//go:linkname reflect_growslice reflect.growslice
+func reflect_growslice(et *_type, old slice, num int) slice {
+	// Semantically equivalent to slices.Grow, except that the caller
+	// is responsible for ensuring that old.len+num > old.cap.
+	//
+	// gccgo's growslice has an older calling convention than upstream:
+	// growslice(et, oldarray, oldlen, oldcap, cap) returns a slice whose
+	// length equals the requested cap. Request a new length of old.len+num.
+	newLen := old.len + num
+	new := growslice(et, old.array, old.len, old.cap, newLen)
+	// growslice does not zero out new[old.len:new.len] since it assumes that
+	// the memory will be overwritten by an append() that called growslice.
+	// Since the caller of reflect_growslice is not append(),
+	// zero out this region before returning the slice to the reflect package.
+	if et.ptrdata == 0 {
+		oldlenmem := uintptr(old.len) * et.size
+		newlenmem := uintptr(new.len) * et.size
+		memclrNoHeapPointers(add(new.array, oldlenmem), newlenmem-oldlenmem)
+	}
+	new.len = old.len // preserve the old length
+	return new
+}
+
 func isPowerOfTwo(x uintptr) bool {
 	return x&(x-1) == 0
 }

@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build (ppc64 || ppc64le) && !purego
+// This declares an assembly xorBytes that gccgo does not provide;
+// the portable implementation in xor_generic.go is used instead.
+//go:build ignore
 
 package subtle
 
