@@ -4950,8 +4950,24 @@ Parse::resolve_pending_generic_types()
 	{	  go_error_at(p->location, "reference to undefined generic type");
 	  continue;
 	}
-      Type* inst = this->instantiate_generic_type(info, p->type_args,
-						  p->location);
+      // Canonicalize the (raw) type arguments before instantiating, exactly as
+      // the p->info != NULL branch above does.  These arguments were captured
+      // as source tokens when the generic type NAME was still a forward
+      // reference, so they were never canonicalized.  Without this, an argument
+      // that is a type alias -- notably the predeclared "any" (an alias for
+      // "interface{}") -- keeps its alias spelling and produces a different
+      // canonical instance id than the same instantiation written inline (which
+      // is canonicalized to "interface{}").  That yields two distinct instance
+      // objects for one type; a later re-parse of one instance's method
+      // receiver canonicalizes to the OTHER object and re-adds the methods
+      // there, causing a spurious "redefinition of <method>" error.
+      std::vector<std::vector<Token> > targs = p->type_args;
+      std::map<std::string, std::string> bindings;
+      for (size_t k = 0; k < targs.size(); ++k)
+	this->note_token_package_usage(targs[k], &bindings);
+      this->canonicalize_type_args(targs, bindings, p->location);
+      Type* inst = this->instantiate_generic_type(info, targs,
+						  p->location, &bindings);
       // Make the placeholder an alias of the real instantiation.
       Named_type* alias = Type::make_named_type(p->placeholder, inst,
 						p->location);
@@ -5083,6 +5099,39 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 	// A method element is an identifier immediately followed by "(".
 	if (p.size() >= 2 && p[0].is_identifier() && p[1].is_op(OPERATOR_LPAREN))
 	  continue;
+	// An embedded interface element -- a bare type name ("Unmarshallable")
+	// or a qualified one ("pkg.Iface") that resolves to an interface type --
+	// contributes only a method set, not a type term, so it carries no core
+	// type and must be ignored (like a method element).  Constraints such as
+	// "interface{ *T; Unmarshallable }" (go-tpm's New2B) otherwise wrongly
+	// count the embedded interface as a second structural element, which
+	// defeats core-type inference of the second type parameter (P = *T).
+	// Only a bare/qualified name can be an embedded interface; a term with
+	// leading "~", an operator, or a keyword (composite/pointer type) is
+	// structural and handled below.
+	{
+	  bool name_only =
+	    (p.size() == 1 && p[0].is_identifier())
+	    || (p.size() == 3 && p[0].is_identifier()
+		&& p[1].is_op(OPERATOR_DOT) && p[2].is_identifier());
+	  if (name_only)
+	    {
+	      // Do not treat a type-parameter name as an embedded interface: it
+	      // is a bare structural term (handled/rejected later).
+	      bool is_type_param = false;
+	      for (size_t n = 0; n < names.size() && !is_type_param; ++n)
+		if (names[n] == p[0].identifier())
+		  is_type_param = true;
+	      if (!is_type_param)
+		{
+		  Type* pt = this->parse_type_from_tokens(p, NULL,
+							  /*issue_error=*/false);
+		  if (pt != NULL
+		      && pt->forwarded()->interface_type() != NULL)
+		    continue;
+		}
+	    }
+	}
 	if (structural != NULL)
 	  return NULL;
 	structural = &p;
