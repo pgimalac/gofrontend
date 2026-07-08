@@ -404,9 +404,22 @@ Type::are_identical(const Type* t1, const Type* t2, int flags,
       return false;
     }
 
-  // A named type is only identical to itself.
+  // A named type is only identical to itself, with one exception: two generic
+  // instances that share a package-independent canonical id are the same type
+  // even across packages.  Each package creates its own local instance object
+  // (so it can attach the instance's methods, which may only be defined on a
+  // local type), hence pointer identity does not hold; the canonical id, which
+  // encodes the origin generic and the resolved type arguments, does.
   if (t1->named_type() != NULL || t2->named_type() != NULL)
-    return false;
+    {
+      const Named_type* n1 = t1->named_type();
+      const Named_type* n2 = t2->named_type();
+      if (n1 != NULL && n2 != NULL
+	  && !n1->generic_canonical_id().empty()
+	  && n1->generic_canonical_id() == n2->generic_canonical_id())
+	return true;
+      return false;
+    }
 
   // Check type shapes.
   if (t1->classification() != t2->classification())
@@ -1409,8 +1422,10 @@ Type::make_type_descriptor_var(Gogo* gogo)
   if (nt != NULL)
     {
       // We create the descriptor for a builtin type whenever we need
-      // it.
-      is_common = nt->is_builtin();
+      // it.  A generic instance is likewise emitted in every package that
+      // uses it, under a package-independent canonical name, so it must be
+      // common for the linker to keep a single copy.
+      is_common = nt->is_builtin() || !nt->generic_canonical_id().empty();
     }
   else
     {

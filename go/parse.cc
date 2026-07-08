@@ -834,9 +834,14 @@ go_import_generics(Import* imp, Gogo* gogo, Package* package)
 }
 
 // Generics: read the "geninsts" section written by Export::write_generic_
-// instances and register each imported generic instance under its canonical
-// id, so a locally-created instance of the same generic (same canonical id)
-// reuses the imported object and the two are the same nominal type.
+// instances and stamp each imported generic instance type with its
+// package-independent canonical id.  This id is what makes the imported
+// instance compare identical (Type::are_identical) to a locally-created
+// instance of the same generic with the same type arguments, so cross-package
+// uses type-check even though each package has its own instance object.  The
+// imported object is deliberately NOT added to the canonical-instance reuse
+// registry: methods may only be defined on a local type, so a local use must
+// create its own local instance (with methods) rather than reuse this one.
 
 void
 go_import_generic_instances(Import* imp, Gogo* gogo)
@@ -855,13 +860,7 @@ go_import_generic_instances(Import* imp, Gogo* gogo)
 	continue;
       Named_type* nt = type->named_type();
       if (nt != NULL && nt->named_object() != NULL && !id.empty())
-	{
-	  nt->set_generic_canonical_id(id);
-	  // First registration wins; a locally-created instance created later
-	  // with the same id will find and reuse this imported object.
-	  if (gogo->lookup_canonical_generic_instance(id) == NULL)
-	    gogo->add_canonical_generic_instance(id, nt->named_object());
-	}
+	nt->set_generic_canonical_id(id);
     }
 }
 
@@ -4593,6 +4592,35 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     generic_instance_spelling[no] = spelling;
   }
 
+  this->instantiate_instance_methods(info, type_args, nt, underlying, location);
+
+  if (imported)
+    this->gogo_->pop_instantiation_package();
+  this->gogo_->pop_instantiation_context();
+
+  return nt;
+}
+
+// Generics: instantiate (once) the methods of the generic instance NT onto its
+// Named_object, from INFO's method templates substituted with TYPE_ARGS.  The
+// caller must have pushed the instantiation context/package.  Idempotent: an
+// instance's methods are instantiated at most once per compilation, so this is
+// safe to call both when creating an instance and when reusing an imported
+// instance whose defining package never instantiated its method set.
+
+void
+Parse::instantiate_instance_methods(Generic_function_info* info,
+				    const std::vector<std::vector<Token> >&
+				      type_args,
+				    Named_type* nt, Type* underlying,
+				    Location location)
+{
+  // Do this at most once per instance object.
+  static std::set<Named_object*> done;
+  if (nt->named_object() != NULL
+      && !done.insert(nt->named_object()).second)
+    return;
+
   // If any type argument is an inference marker ("$infermarkerK"), this is a
   // transient instance built only to give a marker signature its shape for
   // unification (e.g. a parameter of type "T[N]" while inferring the call's
@@ -4649,12 +4677,6 @@ Parse::instantiate_generic_type(Generic_function_info* info,
       if (uit != NULL)
 	uit->finalize_methods();
     }
-
-  if (imported)
-    this->gogo_->pop_instantiation_package();
-  this->gogo_->pop_instantiation_context();
-
-  return nt;
 }
 
 // Generics: parse a "[type-args]" list at a use site of a generic type

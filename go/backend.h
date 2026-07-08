@@ -740,6 +740,14 @@ class Backend
   // is like a C99 function marked inline but not extern.
   static const unsigned int function_only_inline = 1 << 6;
 
+  // Set if the function may be defined identically in more than one
+  // compilation unit, so it should be emitted in COMDAT (one-only)
+  // linkage and the linker will keep a single copy.  This is used for
+  // the methods and type-specific hash/equal functions of a generic
+  // instance, which is monomorphized independently in every package
+  // that uses it under one package-independent canonical name.
+  static const unsigned int function_is_common = 1 << 7;
+
   // Declare or define a function of FNTYPE.
   // NAME is the Go name of the function.  ASM_NAME, if not the empty
   // string, is the name that should be used in the symbol table; this

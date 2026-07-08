@@ -11,6 +11,7 @@ class Lex;
 class Gogo;
 class Named_object;
 class Type;
+class Named_type;
 class Typed_identifier;
 class Typed_identifier_list;
 class Channel_type;
@@ -439,6 +440,14 @@ class Parse
 				 Location,
 				 const std::map<std::string, std::string>*
 				   extra_pkg_aliases = NULL);
+  // Instantiate (once) the methods of a generic type instance NT onto its
+  // Named_object, from INFO's method templates substituted with TYPE_ARGS.
+  // Idempotent across calls in one compilation.  Used both when creating an
+  // instance and when reusing an imported instance whose method set was not
+  // instantiated in its defining package.
+  void instantiate_instance_methods(Generic_function_info*,
+				    const std::vector<std::vector<Token> >&,
+				    Named_type* nt, Type* underlying, Location);
   // Parse a "[type-args]" list at a use site of a generic type, given
   // the template, and return the resulting instance type.
   Type* generic_type_instantiation(Generic_function_info*, Location);

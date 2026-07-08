@@ -637,6 +637,18 @@ Type::backend_name(Gogo* gogo, Backend_name* bname) const
       unsigned int index;
       if (nt->in_function(&index) == NULL)
 	{
+	  // A generic instance uses a package-independent canonical name so its
+	  // type descriptor and all derived symbols (gc data, hash/eq stubs,
+	  // interface method tables) merge across packages: two packages that
+	  // each instantiate the same generic with the same type arguments must
+	  // share one runtime type descriptor for cross-package type identity.
+	  const std::string& cid = nt->generic_canonical_id();
+	  if (!cid.empty())
+	    {
+	      bname->add(cid);
+	      bname->set_is_non_identifier();
+	      return;
+	    }
 	  const Named_object* no = nt->named_object();
 	  if (no->package() == NULL)
 	    bname->add(gogo->pkgpath());

@@ -1818,8 +1818,29 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
       if (no->is_function() && no->func_value()->is_referenced_by_inline())
 	is_hidden = false;
 
+      // The function descriptor of a generic instance's method or of a
+      // type-specific hash/equal function is emitted under one canonical name
+      // in every package that uses the instance, so make it common (matching
+      // the COMDAT linkage of the function itself).
+      bool is_generic_common = false;
+      if (no->is_function())
+	{
+	  Function* fv = no->func_value();
+	  if (fv->is_type_specific_function())
+	    is_generic_common = true;
+	  else if (fv->type()->is_method())
+	    {
+	      Type* rt = fv->type()->receiver()->type()->deref();
+	      Named_type* rnt = rt->named_type();
+	      if (rnt != NULL && !rnt->generic_canonical_id().empty())
+		is_generic_common = true;
+	    }
+	}
+
       unsigned int flags = 0;
-      if (is_hidden)
+      if (is_generic_common)
+	flags |= Backend::variable_is_common;
+      else if (is_hidden)
 	flags |= Backend::variable_is_hidden;
       bvar = context->backend()->immutable_struct(bname.name(),
 						  bname.optional_asm_name(),
@@ -20685,9 +20706,12 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
     }
 
   if (is_public
-      && this->type_->named_type()->named_object()->package() != NULL)
+      && this->type_->named_type()->named_object()->package() != NULL
+      && this->type_->named_type()->generic_canonical_id().empty())
     {
-      // The interface conversion table is defined elsewhere.
+      // The interface conversion table is defined elsewhere.  (A generic
+      // instance is the exception: it has no single owning package, so each
+      // user emits a common copy under the canonical name -- fall through.)
       Btype* btype = this->type()->get_backend(gogo);
       this->bvar_ =
           gogo->backend()->immutable_struct_reference(mangled_name, "",
@@ -20771,6 +20795,12 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
   unsigned int flags = 0;
   if (!is_public)
     flags |= Backend::variable_is_hidden;
+  // A generic instance is monomorphized in every package that uses it, so its
+  // interface method table is emitted under one canonical name in several
+  // compilation units: make it common so the linker keeps a single copy.
+  Named_type* tnt = this->type_->named_type();
+  if (tnt != NULL && !tnt->generic_canonical_id().empty())
+    flags |= Backend::variable_is_common;
   this->bvar_ = gogo->backend()->immutable_struct(mangled_name, "", flags,
 						  btype, loc);
   gogo->backend()->immutable_struct_set_init(this->bvar_, mangled_name, flags,

@@ -3199,16 +3199,25 @@ Gogo::write_specific_type_functions()
   Specific_type_functions stf(this);
   this->traverse(&stf);
 
+  // Two distinct instance objects for the same generic instance (e.g. one
+  // created locally and one imported from another package) now share a
+  // package-independent canonical backend name.  Their hash/equal functions
+  // would therefore be emitted twice under one symbol -- a redefinition in
+  // this translation unit -- so emit each distinct symbol at most once.
+  std::set<std::string> written;
   while (!this->specific_type_functions_.empty())
     {
       Specific_type_function* tsf = this->specific_type_functions_.back();
       this->specific_type_functions_.pop_back();
-      if (tsf->kind == Specific_type_function::SPECIFIC_HASH)
-	tsf->type->write_hash_function(this, tsf->size, &tsf->bname,
-				       tsf->fntype);
-      else
-	tsf->type->write_equal_function(this, tsf->name, tsf->size,
-					&tsf->bname, tsf->fntype);
+      if (written.insert(tsf->bname.asm_name()).second)
+	{
+	  if (tsf->kind == Specific_type_function::SPECIFIC_HASH)
+	    tsf->type->write_hash_function(this, tsf->size, &tsf->bname,
+					   tsf->fntype);
+	  else
+	    tsf->type->write_equal_function(this, tsf->name, tsf->size,
+					    &tsf->bname, tsf->fntype);
+	}
       delete tsf;
     }
   this->specific_type_functions_are_written_ = true;
@@ -6848,6 +6857,29 @@ Function::get_or_make_decl(Gogo* gogo, Named_object* no)
 
       if (this->is_inline_only_)
 	flags |= Backend::function_only_inline;
+
+      // A monomorphized generic instance is instantiated independently in
+      // every package that uses it, under one package-independent canonical
+      // name.  Its methods (and the type-specific hash/equal functions of its
+      // fields) are therefore emitted in several compilation units under the
+      // same symbol, so emit them in COMDAT linkage for the linker to merge.
+      // A type-specific function likewise has a structural, package-independent
+      // name and may be generated in more than one package.
+      if (this->is_type_specific_function_)
+	{
+	  flags |= Backend::function_is_visible;
+	  flags |= Backend::function_is_common;
+	}
+      else if (this->type_->is_method())
+	{
+	  Type* rt = this->type_->receiver()->type()->deref();
+	  Named_type* rnt = rt->named_type();
+	  if (rnt != NULL && !rnt->generic_canonical_id().empty())
+	    {
+	      flags |= Backend::function_is_visible;
+	      flags |= Backend::function_is_common;
+	    }
+	}
 
       Btype* functype = this->type_->get_backend_fntype(gogo);
 
