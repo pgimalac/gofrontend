@@ -13,6 +13,7 @@
 #include "go-diagnostics.h"
 #include "go-encode-id.h"
 #include "go-sha1.h"
+#include "lex.h"
 #include "operator.h"
 #include "expressions.h"
 #include "statements.h"
@@ -6039,6 +6040,43 @@ Struct_field::field_name() const
 	    return dt->named_type()->generic_embedded_field_name();
 	  if (!dt->named_type()->generic_base_name().empty())
 	    return dt->named_type()->generic_base_name();
+	  // An IMPORTED generic instance carries neither of the above (they are
+	  // set only at instantiation, not in export data), yet a struct that
+	  // embeds it (e.g. request.BaseSizer embedding SizeofFunc[Request]) is
+	  // exported with the field anonymous; on import field_name() must derive
+	  // the embedded field's name from the instance name.  The instance name
+	  // is packed as ".<pkgpath>.<Base>$type<N>"; the field name is <Base>
+	  // (exported) or the package-hidden form ".<pkgpath>.<base>" (unexported).
+	  {
+	    Named_type* nt = dt->named_type();
+	    const std::string& nm = nt->name();
+	    std::string bare = Gogo::unpack_hidden_name(nm);
+	    std::string::size_type tp = bare.find("$type");
+	    if (tp != std::string::npos)
+	      {
+		std::string base = bare.substr(0, tp);
+		if (!base.empty())
+		  {
+		    if (Lex::is_exported_name(base))
+		      nt->set_generic_base_name(base);
+		    else if (Gogo::is_hidden_name(nm))
+		      {
+			// Reconstruct ".<pkgpath>.<base>" from the instance's
+			// own hidden name so an unexported embedded field key
+			// (packed the same way at the use site) matches.
+			std::string pkgpath = Gogo::hidden_name_pkgpath(nm);
+			nt->set_generic_embedded_field_name(
+			  '.' + pkgpath + '.' + base);
+		      }
+		    else
+		      nt->set_generic_base_name(base);
+		    if (!nt->generic_embedded_field_name().empty())
+		      return nt->generic_embedded_field_name();
+		    if (!nt->generic_base_name().empty())
+		      return nt->generic_base_name();
+		  }
+	      }
+	  }
 	  // Note that this can be an alias name.
 	  return dt->named_type()->name();
 	}
