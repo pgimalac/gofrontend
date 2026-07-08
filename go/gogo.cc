@@ -10100,7 +10100,7 @@ Package::Package(const std::string& pkgpath,
 		 const std::string& pkgpath_symbol, Location location)
   : pkgpath_(pkgpath), pkgpath_symbol_(pkgpath_symbol),
     package_name_(), bindings_(new Bindings(NULL)),
-    location_(location)
+    location_(location), real_usage_seen_(false)
 {
   go_assert(!pkgpath.empty());
 }
@@ -10157,6 +10157,7 @@ Package::note_usage(const std::string& alias) const
   if (p == this->aliases_.end())
     return;
   p->second->note_usage();
+  this->real_usage_seen_ = true;
 }
 
 // Forget a given usage.  If forgetting this usage means this package becomes
@@ -10172,7 +10173,11 @@ Package::forget_usage(Expression* usage) const
   go_assert(p != this->fake_uses_.end());
   this->fake_uses_.erase(p);
 
-  if (this->fake_uses_.empty())
+  // Only a package with no real qualified use is actually unused; a real use
+  // (recorded via note_usage, even in a prior file, before per-file clear_used
+  // reset the alias set) means the package is used regardless of this forgotten
+  // fake use.
+  if (this->fake_uses_.empty() && !this->real_usage_seen_)
     go_error_at(this->location(), "imported and not used: %s",
 		Gogo::message_name(this->package_name()).c_str());
 }

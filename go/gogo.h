@@ -3994,6 +3994,13 @@ class Package
   // A set of possibly fake uses of this package. This is mutable because we
   // can track fake uses of a package even if we have a const pointer to it.
   mutable std::set<Expression*> fake_uses_;
+  // Whether a real (non-fake) qualified use of this package was ever recorded
+  // via note_usage.  Persists across per-file clear_used (which clears the
+  // per-file alias set), so forget_usage does not spuriously report a package
+  // "imported and not used" when a fake use added during lowering (e.g. for a
+  // generic-type qualifier) is later forgotten even though the package was
+  // genuinely used.  Mutable for the same reason as fake_uses_.
+  mutable bool real_usage_seen_;
 };
 
 // Return codes for the traversal functions.  This is not an enum
