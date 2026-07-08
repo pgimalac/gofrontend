@@ -6,7 +6,6 @@ package runtime
 
 import (
 	"internal/runtime/atomic"
-	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -140,13 +139,13 @@ func panicCheck2(err string) {
 //
 //go:yeswritebarrierrec
 func goPanicIndex(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "index out of range")
+	panicCheck1(getcallerpc(), "index out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsIndex})
 }
 
 //go:yeswritebarrierrec
 func goPanicIndexU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "index out of range")
+	panicCheck1(getcallerpc(), "index out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsIndex})
 }
 
@@ -154,25 +153,25 @@ func goPanicIndexU(x uint, y int) {
 //
 //go:yeswritebarrierrec
 func goPanicSliceAlen(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceAlen})
 }
 
 //go:yeswritebarrierrec
 func goPanicSliceAlenU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceAlen})
 }
 
 //go:yeswritebarrierrec
 func goPanicSliceAcap(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceAcap})
 }
 
 //go:yeswritebarrierrec
 func goPanicSliceAcapU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceAcap})
 }
 
@@ -180,57 +179,57 @@ func goPanicSliceAcapU(x uint, y int) {
 //
 //go:yeswritebarrierrec
 func goPanicSliceB(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceB})
 }
 
 //go:yeswritebarrierrec
 func goPanicSliceBU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceB})
 }
 
 // failures in the comparisons for s[::x], 0 <= x <= y (y == len(s) or cap(s))
 func goPanicSlice3Alen(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSlice3Alen})
 }
 func goPanicSlice3AlenU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSlice3Alen})
 }
 func goPanicSlice3Acap(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSlice3Acap})
 }
 func goPanicSlice3AcapU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSlice3Acap})
 }
 
 // failures in the comparisons for s[:x:y], 0 <= x <= y
 func goPanicSlice3B(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSlice3B})
 }
 func goPanicSlice3BU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSlice3B})
 }
 
 // failures in the comparisons for s[x:y:], 0 <= x <= y
 func goPanicSlice3C(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSlice3C})
 }
 func goPanicSlice3CU(x uint, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice bounds out of range")
+	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSlice3C})
 }
 
 // failures in the conversion ([x]T)(s) or (*[x]T)(s), 0 <= x <= y, y == len(s)
 func goPanicSliceConvert(x int, y int) {
-	panicCheck1(sys.GetCallerPC(), "slice length too short to convert to array or pointer to array")
+	panicCheck1(getcallerpc(), "slice length too short to convert to array or pointer to array")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsConvert})
 }
 
@@ -238,7 +237,7 @@ var shiftError = error(errorString("negative shift amount"))
 
 //go:yeswritebarrierrec
 func panicshift() {
-	panicCheck1(sys.GetCallerPC(), "negative shift amount")
+	panicCheck1(getcallerpc(), "negative shift amount")
 	panic(shiftError)
 }
 
@@ -1116,32 +1115,32 @@ func sync_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname rand_fatal crypto/rand.fatal
+//go:linkname rand_fatal crypto_1rand.fatal
 func rand_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname sysrand_fatal crypto/internal/sysrand.fatal
+//go:linkname sysrand_fatal crypto_1internal_1sysrand.fatal
 func sysrand_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname fips_fatal crypto/internal/fips140.fatal
+//go:linkname fips_fatal crypto_1internal_1fips140.fatal
 func fips_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname maps_fatal internal/runtime/maps.fatal
+//go:linkname maps_fatal internal_1runtime_1maps.fatal
 func maps_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname internal_sync_throw internal/sync.throw
+//go:linkname internal_sync_throw internal_1sync.throw
 func internal_sync_throw(s string) {
 	throw(s)
 }
 
-//go:linkname internal_sync_fatal internal/sync.fatal
+//go:linkname internal_sync_fatal internal_1sync.fatal
 func internal_sync_fatal(s string) {
 	fatal(s)
 }
@@ -1200,8 +1199,8 @@ var paniclk mutex
 //
 //go:nosplit
 func fatalthrow(t throwType) {
-	pc := sys.GetCallerPC()
-	sp := sys.GetCallerSP()
+	pc := getcallerpc()
+	sp := getcallersp()
 	gp := getg()
 
 	if gp.m.throwing == throwTypeNone {
@@ -1225,8 +1224,8 @@ func fatalthrow(t throwType) {
 //
 //go:nosplit
 func fatalpanic(msgs *_panic) {
-	pc := sys.GetCallerPC()
-	sp := sys.GetCallerSP()
+	pc := getcallerpc()
+	sp := getcallersp()
 	gp := getg()
 	var docrash bool
 

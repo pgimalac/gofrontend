@@ -6,7 +6,6 @@ package runtime
 
 import (
 	"internal/runtime/math"
-	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -55,21 +54,21 @@ func panicunsafestringnilptr() {
 // Keep this code in sync with cmd/compile/internal/walk/builtin.go:walkUnsafeSlice
 func unsafeslice(et *_type, ptr unsafe.Pointer, len int) {
 	if len < 0 {
-		panicunsafeslicelen1(sys.GetCallerPC())
+		panicunsafeslicelen1(getcallerpc())
 	}
 
 	if et.size == 0 {
 		if ptr == nil && len > 0 {
-			panicunsafeslicenilptr1(sys.GetCallerPC())
+			panicunsafeslicenilptr1(getcallerpc())
 		}
 	}
 
 	mem, overflow := math.MulUintptr(et.size, uintptr(len))
 	if overflow || mem > -uintptr(ptr) {
 		if ptr == nil {
-			panicunsafeslicenilptr1(sys.GetCallerPC())
+			panicunsafeslicenilptr1(getcallerpc())
 		}
-		panicunsafeslicelen1(sys.GetCallerPC())
+		panicunsafeslicelen1(getcallerpc())
 	}
 }
 
@@ -77,7 +76,7 @@ func unsafeslice(et *_type, ptr unsafe.Pointer, len int) {
 func unsafeslice64(et *_type, ptr unsafe.Pointer, len64 int64) {
 	len := int(len64)
 	if int64(len) != len64 {
-		panicunsafeslicelen1(sys.GetCallerPC())
+		panicunsafeslicelen1(getcallerpc())
 	}
 	unsafeslice(et, ptr, len)
 }
@@ -97,7 +96,7 @@ func unsafeslicecheckptr(et *_type, ptr unsafe.Pointer, len64 int64) {
 func panicunsafeslicelen() {
 	// This is called only from compiler-generated code, so we can get the
 	// source of the panic.
-	panicunsafeslicelen1(sys.GetCallerPC())
+	panicunsafeslicelen1(getcallerpc())
 }
 
 //go:yeswritebarrierrec
@@ -109,7 +108,7 @@ func panicunsafeslicelen1(pc uintptr) {
 func panicunsafeslicenilptr() {
 	// This is called only from compiler-generated code, so we can get the
 	// source of the panic.
-	panicunsafeslicenilptr1(sys.GetCallerPC())
+	panicunsafeslicenilptr1(getcallerpc())
 }
 
 //go:yeswritebarrierrec

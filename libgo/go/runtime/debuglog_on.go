@@ -8,32 +8,21 @@ package runtime
 
 const dlogEnabled = true
 
-// dlogger is the underlying implementation of the dlogger interface, selected
-// at build time.
-//
-// We use a type alias instead of struct embedding so that the dlogger type is
-// identical to the type returned by method chaining on the methods of this type.
-type dlogger = *dloggerImpl
-
-func dlog1() *dloggerImpl {
-	return dlogImpl()
-}
-
 // dlogPerM is the per-M debug log data. This is embedded in the m
 // struct.
 type dlogPerM struct {
-	dlogCache *dloggerImpl
+	dlogCache *dlogger
 }
 
 // getCachedDlogger returns a cached dlogger if it can do so
 // efficiently, or nil otherwise. The returned dlogger will be owned.
-func getCachedDlogger() *dloggerImpl {
+func getCachedDlogger() *dlogger {
 	mp := acquirem()
 	// We don't return a cached dlogger if we're running on the
 	// signal stack in case the signal arrived while in
 	// get/putCachedDlogger. (Too bad we don't have non-atomic
 	// exchange!)
-	var l *dloggerImpl
+	var l *dlogger
 	if getg() != mp.gsignal {
 		l = mp.dlogCache
 		mp.dlogCache = nil
@@ -44,7 +33,7 @@ func getCachedDlogger() *dloggerImpl {
 
 // putCachedDlogger attempts to return l to the local cache. It
 // returns false if this fails.
-func putCachedDlogger(l *dloggerImpl) bool {
+func putCachedDlogger(l *dlogger) bool {
 	mp := acquirem()
 	if getg() != mp.gsignal && mp.dlogCache == nil {
 		mp.dlogCache = l

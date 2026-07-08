@@ -1065,8 +1065,8 @@ runtime_lo_GOCFLAGS = -fgo-c-header=runtime.inc.raw -fgo-compiling-runtime
 runtime_check_GOCFLAGS = -fgo-compiling-runtime
 runtime_internal_atomic_lo_GOCFLAGS = -fgo-compiling-runtime
 runtime_internal_atomic_lo_check_GOCFLAGS = -fgo-compiling-runtime
-runtime_internal_sys_lo_GOCFLAGS = -fgo-compiling-runtime
-runtime_internal_sys_lo_check_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_sys_lo_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_sys_lo_check_GOCFLAGS = -fgo-compiling-runtime
 
 # If libffi is supported (the normal case) use the ffi build tag for
 # the runtime package.
@@ -1093,8 +1093,8 @@ if HAVE_STATIC_LINK
 syscall_check_GOCFLAGS = -static
 endif
 
-extra_go_files_runtime_internal_sys = version.go
-runtime/internal/sys.lo.dep: $(extra_go_files_runtime_internal_sys)
+extra_go_files_internal_runtime_sys = version.go
+internal/runtime/sys.lo.dep: $(extra_go_files_internal_runtime_sys)
 
 extra_go_files_internal_cpu = cpugen.go
 internal/cpu.lo.dep: $(extra_go_files_internal_cpu)

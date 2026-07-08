@@ -31,3 +31,17 @@ func registerWeakPointer(p unsafe.Pointer) unsafe.Pointer {
 func makeStrongFromWeak(p unsafe.Pointer) unsafe.Pointer {
 	return p
 }
+
+// gcWakeAllStrongFromWeak wakes any goroutines that blocked on a
+// weak->strong conversion during mark termination.
+//
+// gccgo does not support true weak references, so weak->strong
+// conversions never block and work.strongFromWeak.q is always empty.
+// This mirrors the gc runtime's function so mgc.go's mark-termination
+// path compiles and behaves as a no-op.
+func gcWakeAllStrongFromWeak() {
+	lock(&work.strongFromWeak.lock)
+	list := work.strongFromWeak.q.popList()
+	injectglist(&list)
+	unlock(&work.strongFromWeak.lock)
+}

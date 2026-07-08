@@ -187,7 +187,7 @@ func rand() uint64 {
 	}
 }
 
-//go:linkname maps_rand internal/runtime/maps.rand
+//go:linkname maps_rand internal_1runtime_1maps.rand
 func maps_rand() uint64 {
 	return rand()
 }

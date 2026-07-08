@@ -9,7 +9,7 @@
 package runtime
 
 import (
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 )
 
 // Event types in the trace, args are given in square brackets.

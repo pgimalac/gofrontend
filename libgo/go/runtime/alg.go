@@ -7,7 +7,6 @@ package runtime
 import (
 	"internal/cpu"
 	"internal/goarch"
-	"internal/runtime/sys"
 	"unsafe"
 )
 

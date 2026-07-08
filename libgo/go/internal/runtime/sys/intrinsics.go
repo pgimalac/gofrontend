@@ -4,6 +4,34 @@
 
 package sys
 
+//extern __builtin_ctz
+func builtinCtz32(uint32) int32
+
+//extern __builtin_ctzll
+func builtinCtz64(uint64) int32
+
+//go:nosplit
+
+// Ctz64 counts trailing (low-order) zeroes,
+// and if all are zero, then 64.
+func Ctz64(x uint64) int {
+	if x == 0 {
+		return 64
+	}
+	return int(builtinCtz64(x))
+}
+
+//go:nosplit
+
+// Ctz32 counts trailing (low-order) zeroes,
+// and if all are zero, then 32.
+func Ctz32(x uint32) int {
+	if x == 0 {
+		return 32
+	}
+	return int(builtinCtz32(x))
+}
+
 // Copied from math/bits to avoid dependence.
 
 var deBruijn32tab = [32]byte{
@@ -72,6 +100,9 @@ func TrailingZeros64(x uint64) int {
 func TrailingZeros8(x uint8) int {
 	return int(ntz8tab[x])
 }
+
+//extern __builtin_bswap64
+func bswap64(uint64) uint64
 
 const len8tab = "" +
 	"\x00\x01\x02\x02\x03\x03\x03\x03\x04\x04\x04\x04\x04\x04\x04\x04" +
@@ -160,36 +191,23 @@ func Len8(x uint8) int {
 	return int(len8tab[x])
 }
 
+//go:nosplit
+
 // Bswap64 returns its input with byte order reversed
 // 0x0102030405060708 -> 0x0807060504030201
 func Bswap64(x uint64) uint64 {
-	c8 := uint64(0x00ff00ff00ff00ff)
-	a := x >> 8 & c8
-	b := (x & c8) << 8
-	x = a | b
-	c16 := uint64(0x0000ffff0000ffff)
-	a = x >> 16 & c16
-	b = (x & c16) << 16
-	x = a | b
-	c32 := uint64(0x00000000ffffffff)
-	a = x >> 32 & c32
-	b = (x & c32) << 32
-	x = a | b
-	return x
+	return bswap64(x)
 }
+
+//extern __builtin_bswap32
+func bswap32(uint32) uint32
+
+//go:nosplit
 
 // Bswap32 returns its input with byte order reversed
 // 0x01020304 -> 0x04030201
 func Bswap32(x uint32) uint32 {
-	c8 := uint32(0x00ff00ff)
-	a := x >> 8 & c8
-	b := (x & c8) << 8
-	x = a | b
-	c16 := uint32(0x0000ffff)
-	a = x >> 16 & c16
-	b = (x & c16) << 16
-	x = a | b
-	return x
+	return bswap32(x)
 }
 
 // Prefetch prefetches data from memory addr to cache
@@ -206,51 +224,3 @@ func Prefetch(addr uintptr) {}
 //
 // ARM64: Produce PRFM instruction with PLDL1STRM option
 func PrefetchStreamed(addr uintptr) {}
-
-// GetCallerPC returns the program counter (PC) of its caller's caller.
-// GetCallerSP returns the stack pointer (SP) of its caller's caller.
-// Both are implemented as intrinsics on every platform.
-//
-// For example:
-//
-//	func f(arg1, arg2, arg3 int) {
-//		pc := GetCallerPC()
-//		sp := GetCallerSP()
-//	}
-//
-// These two lines find the PC and SP immediately following
-// the call to f (where f will return).
-//
-// The call to GetCallerPC and GetCallerSP must be done in the
-// frame being asked about.
-//
-// The result of GetCallerSP is correct at the time of the return,
-// but it may be invalidated by any subsequent call to a function
-// that might relocate the stack in order to grow or shrink it.
-// A general rule is that the result of GetCallerSP should be used
-// immediately and can only be passed to nosplit functions.
-
-func GetCallerPC() uintptr
-
-func GetCallerSP() uintptr
-
-// GetClosurePtr returns the pointer to the current closure.
-// GetClosurePtr can only be used in an assignment statement
-// at the entry of a function. Moreover, go:nosplit directive
-// must be specified at the declaration of caller function,
-// so that the function prolog does not clobber the closure register.
-// for example:
-//
-//	//go:nosplit
-//	func f(arg1, arg2, arg3 int) {
-//		dx := GetClosurePtr()
-//	}
-//
-// The compiler rewrites calls to this function into instructions that fetch the
-// pointer from a well-known register (DX on x86 architecture, etc.) directly.
-//
-// WARNING: PGO-based devirtualization cannot detect that caller of
-// GetClosurePtr requires closure context, and thus must maintain a list of
-// these functions, which is in
-// cmd/compile/internal/devirtualize/pgo.maybeDevirtualizeFunctionCall.
-func GetClosurePtr() uintptr

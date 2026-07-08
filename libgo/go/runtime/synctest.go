@@ -150,7 +150,7 @@ func (sg *synctestGroup) raceaddr() unsafe.Pointer {
 	return unsafe.Pointer(sg)
 }
 
-//go:linkname synctestRun internal/synctest.Run
+//go:linkname synctestRun internal_1synctest.Run
 func synctestRun(f func()) {
 	if debug.asynctimerchan.Load() != 0 {
 		panic("synctest.Run not supported with asynctimerchan!=0")
@@ -174,8 +174,11 @@ func synctestRun(f func()) {
 		gp.syncGroup = nil
 	}()
 
-	fv := *(**funcval)(unsafe.Pointer(&f))
-	newproc(fv)
+	// gccgo: start the bubble's root goroutine using a native go
+	// statement. The gc runtime uses newproc(fv) with a register-ABI
+	// funcval; gccgo's newproc has a different signature, and the go
+	// statement lowers to __go_go with the correct closure handling.
+	go f()
 
 	sg := gp.syncGroup
 	lock(&sg.mu)
@@ -228,7 +231,7 @@ func synctestidle_c(gp *g, _ unsafe.Pointer) bool {
 	return canIdle
 }
 
-//go:linkname synctestWait internal/synctest.Wait
+//go:linkname synctestWait internal_1synctest.Wait
 func synctestWait() {
 	gp := getg()
 	if gp.syncGroup == nil {
@@ -273,7 +276,7 @@ func synctestwait_c(gp *g, _ unsafe.Pointer) bool {
 	return true
 }
 
-//go:linkname synctest_acquire internal/synctest.acquire
+//go:linkname synctest_acquire internal_1synctest.acquire
 func synctest_acquire() any {
 	if sg := getg().syncGroup; sg != nil {
 		sg.incActive()
@@ -282,12 +285,12 @@ func synctest_acquire() any {
 	return nil
 }
 
-//go:linkname synctest_release internal/synctest.release
+//go:linkname synctest_release internal_1synctest.release
 func synctest_release(sg any) {
 	sg.(*synctestGroup).decActive()
 }
 
-//go:linkname synctest_inBubble internal/synctest.inBubble
+//go:linkname synctest_inBubble internal_1synctest.inBubble
 func synctest_inBubble(sg any, f func()) {
 	gp := getg()
 	if gp.syncGroup != nil {

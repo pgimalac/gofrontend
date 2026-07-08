@@ -190,8 +190,8 @@ func wbMove(typ *_type, dst, src unsafe.Pointer) {
 //go:linkname reflect_typedmemmove reflect.typedmemmove
 func reflect_typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 	if raceenabled {
-		raceWriteObjectPC(typ, dst, sys.GetCallerPC(), abi.FuncPCABIInternal(reflect_typedmemmove))
-		raceReadObjectPC(typ, src, sys.GetCallerPC(), abi.FuncPCABIInternal(reflect_typedmemmove))
+		raceWriteObjectPC(typ, dst, getcallerpc(), abi.FuncPCABIInternal(reflect_typedmemmove))
+		raceReadObjectPC(typ, src, getcallerpc(), abi.FuncPCABIInternal(reflect_typedmemmove))
 	}
 	if msanenabled {
 		msanwrite(dst, typ.size)
@@ -247,7 +247,7 @@ func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe
 	// assignment operations, it's not instrumented in the calling
 	// code and needs its own instrumentation.
 	if raceenabled {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		pc := abi.FuncPCABIInternal(slicecopy)
 		racewriterangepc(dstPtr, uintptr(n)*typ.size, callerpc, pc)
 		racereadrangepc(srcPtr, uintptr(n)*typ.size, callerpc, pc)
@@ -315,7 +315,7 @@ func reflect_typedmemclr(typ *_type, ptr unsafe.Pointer) {
 	typedmemclr(typ, ptr)
 }
 
-//go:linkname maps_typedmemclr internal/runtime/maps.typedmemclr
+//go:linkname maps_typedmemclr internal_1runtime_1maps.typedmemclr
 func maps_typedmemclr(typ *_type, ptr unsafe.Pointer) {
 	typedmemclr(typ, ptr)
 }

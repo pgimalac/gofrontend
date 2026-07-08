@@ -185,6 +185,8 @@ internal/race
 internal/reflectlite
 internal/runtime/atomic
 internal/runtime/exithook
+internal/runtime/math
+internal/runtime/sys
 internal/saferio
 internal/singleflight
 internal/stringslite
@@ -263,8 +265,6 @@ runtime
 runtime/cgo
 runtime/coverage
 runtime/debug
-runtime/internal/math
-runtime/internal/sys
 runtime/internal/syscall
 runtime/metrics
 runtime/pprof

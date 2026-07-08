@@ -1126,8 +1126,8 @@ runtime_lo_GOCFLAGS = -fgo-c-header=runtime.inc.raw -fgo-compiling-runtime
 runtime_check_GOCFLAGS = -fgo-compiling-runtime
 runtime_internal_atomic_lo_GOCFLAGS = -fgo-compiling-runtime
 runtime_internal_atomic_lo_check_GOCFLAGS = -fgo-compiling-runtime
-runtime_internal_sys_lo_GOCFLAGS = -fgo-compiling-runtime
-runtime_internal_sys_lo_check_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_sys_lo_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_sys_lo_check_GOCFLAGS = -fgo-compiling-runtime
 @USE_LIBFFI_FALSE@matchargs_runtime = 
 
 # If libffi is supported (the normal case) use the ffi build tag for
@@ -1146,7 +1146,7 @@ runtime_pprof_check_GOCFLAGS = -static-libgo -fno-inline
 # Use -static for the syscall tests if possible, because otherwise when
 # running as root the re-execs ignore LD_LIBRARY_PATH.
 @HAVE_STATIC_LINK_TRUE@syscall_check_GOCFLAGS = -static
-extra_go_files_runtime_internal_sys = version.go
+extra_go_files_internal_runtime_sys = version.go
 extra_go_files_internal_cpu = cpugen.go
 extra_go_files_internal_goarch = zgoarch.go
 extra_go_files_internal_goos = zgoos.go
@@ -3056,7 +3056,7 @@ $(foreach package,$(PACKAGES),$(eval $(call PACKAGE_template,$(package))))
 $(foreach package,$(GOTOOL_PACKAGES),$(eval $(call PACKAGE_template,$(package))))
 runtime.lo.dep: $(extra_go_files_runtime)
 syscall.lo.dep: $(extra_go_files_syscall)
-runtime/internal/sys.lo.dep: $(extra_go_files_runtime_internal_sys)
+internal/runtime/sys.lo.dep: $(extra_go_files_internal_runtime_sys)
 internal/cpu.lo.dep: $(extra_go_files_internal_cpu)
 internal/goarch.lo.dep: $(extra_go_files_internal_goarch)
 internal/goos.lo.dep: $(extra_go_files_internal_goos)

@@ -290,7 +290,7 @@ package runtime
 import (
 	"internal/goarch"
 	"internal/goos"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 )
 
 // Caller reports file and line number information about function invocations on

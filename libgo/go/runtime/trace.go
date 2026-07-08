@@ -17,7 +17,7 @@ package runtime
 import (
 	"internal/goarch"
 	"internal/runtime/atomic"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -666,6 +666,7 @@ const (
 	traceBlockDebugCall       = traceEvGoBlock
 	traceBlockUntilGCEnds     = traceEvGoBlock
 	traceBlockSleep           = traceEvGoSleep
+	traceBlockSynctest        = traceEvGoBlock
 )
 
 // traceReaderAvailable returns true if the trace reader is not currently

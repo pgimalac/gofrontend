@@ -9,7 +9,7 @@ package runtime
 
 import (
 	"internal/bytealg"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 	"unsafe"
 )
 

@@ -1996,7 +1996,7 @@ func dumpGCProg(p *byte) {
 //
 //go:linkname reflect_gcbits reflect.gcbits
 func reflect_gcbits(x any) []byte {
-	ret := getgcmask(x)
+	ret := pointerMask(x)
 	typ := (*ptrtype)(unsafe.Pointer(efaceOf(&x)._type)).elem
 	nptr := typ.ptrdata / goarch.PtrSize
 	for uintptr(len(ret)) > nptr && ret[len(ret)-1] == 0 {

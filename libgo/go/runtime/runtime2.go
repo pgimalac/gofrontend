@@ -7,7 +7,6 @@ package runtime
 import (
 	"internal/chacha8rand"
 	"internal/goarch"
-	"internal/goexperiment"
 	"internal/runtime/atomic"
 	"unsafe"
 )

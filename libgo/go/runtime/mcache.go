@@ -20,7 +20,7 @@ import (
 type mcache struct {
 	// The following members are accessed on every malloc,
 	// so they are grouped here for better caching.
-	nextSample  int64   // trigger heap sample after allocating this many bytes
+	nextSample  uintptr // trigger heap sample after allocating this many bytes
 	memProfRate int     // cached mem profile rate, used to detect changes
 	scanAlloc   uintptr // bytes of scannable heap allocated
 

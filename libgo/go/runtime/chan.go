@@ -21,7 +21,6 @@ import (
 	"internal/abi"
 	"internal/runtime/atomic"
 	"internal/runtime/math"
-	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -169,7 +168,7 @@ func full(c *hchan) bool {
 //
 //go:nosplit
 func chansend1(c *hchan, elem unsafe.Pointer) {
-	chansend(c, elem, true, sys.GetCallerPC())
+	chansend(c, elem, true, getcallerpc())
 }
 
 /*
@@ -439,7 +438,7 @@ func closechan(c *hchan) {
 	}
 
 	if raceenabled {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		racewritepc(c.raceaddr(), callerpc, abi.FuncPCABIInternal(closechan))
 		racerelease(c.raceaddr())
 	}
@@ -800,7 +799,7 @@ func chanparkcommit(gp *g, chanLock unsafe.Pointer) bool {
 //		... bar
 //	}
 func selectnbsend(c *hchan, elem unsafe.Pointer) (selected bool) {
-	return chansend(c, elem, false, sys.GetCallerPC())
+	return chansend(c, elem, false, getcallerpc())
 }
 
 // compiler implements
@@ -825,7 +824,7 @@ func selectnbrecv(elem unsafe.Pointer, c *hchan) (selected, received bool) {
 
 //go:linkname reflect_chansend reflect.chansend
 func reflect_chansend(c *hchan, elem unsafe.Pointer, nb bool) (selected bool) {
-	return chansend(c, elem, !nb, sys.GetCallerPC())
+	return chansend(c, elem, !nb, getcallerpc())
 }
 
 //go:linkname reflect_chanrecv reflect.chanrecv

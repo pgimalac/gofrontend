@@ -2,21 +2,26 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !goexperiment.swissmap
-
 package runtime
 
 import (
 	"internal/abi"
 	"internal/goarch"
-	"internal/runtime/sys"
 	"unsafe"
 )
 
-func mapaccess1_fast32(t *maptype, h *hmap, key uint32) unsafe.Pointer {
+// For gccgo, use go:linkname to export compiler-called functions.
+//
+//go:linkname mapaccess1_fast64
+//go:linkname mapaccess2_fast64
+//go:linkname mapassign_fast64
+//go:linkname mapassign_fast64ptr
+//go:linkname mapdelete_fast64
+
+func mapaccess1_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
-		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess1_fast32))
+		callerpc := getcallerpc()
+		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess1_fast64))
 	}
 	if h == nil || h.count == 0 {
 		return unsafe.Pointer(&zeroVal[0])
@@ -29,31 +34,31 @@ func mapaccess1_fast32(t *maptype, h *hmap, key uint32) unsafe.Pointer {
 		// One-bucket table. No need to hash.
 		b = (*bmap)(h.buckets)
 	} else {
-		hash := t.Hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
+		hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 		m := bucketMask(h.B)
-		b = (*bmap)(add(h.buckets, (hash&m)*uintptr(t.BucketSize)))
+		b = (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
 		if c := h.oldbuckets; c != nil {
 			if !h.sameSizeGrow() {
 				// There used to be half as many buckets; mask down one more power of two.
 				m >>= 1
 			}
-			oldb := (*bmap)(add(c, (hash&m)*uintptr(t.BucketSize)))
+			oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
 			if !evacuated(oldb) {
 				b = oldb
 			}
 		}
 	}
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 4) {
-			if *(*uint32)(k) == key && !isEmpty(b.tophash[i]) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*4+i*uintptr(t.ValueSize))
+		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 8) {
+			if *(*uint64)(k) == key && !isEmpty(b.tophash[i]) {
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*8+i*uintptr(t.elemsize))
 			}
 		}
 	}
 	return unsafe.Pointer(&zeroVal[0])
 }
 
-// mapaccess2_fast32 should be an internal detail,
+// mapaccess2_fast64 should be an internal detail,
 // but widely used packages access it using linkname.
 // Notable members of the hall of shame include:
 //   - github.com/ugorji/go/codec
@@ -61,11 +66,11 @@ func mapaccess1_fast32(t *maptype, h *hmap, key uint32) unsafe.Pointer {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname mapaccess2_fast32
-func mapaccess2_fast32(t *maptype, h *hmap, key uint32) (unsafe.Pointer, bool) {
+//go:linkname mapaccess2_fast64
+func mapaccess2_fast64(t *maptype, h *hmap, key uint64) (unsafe.Pointer, bool) {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
-		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess2_fast32))
+		callerpc := getcallerpc()
+		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess2_fast64))
 	}
 	if h == nil || h.count == 0 {
 		return unsafe.Pointer(&zeroVal[0]), false
@@ -78,66 +83,67 @@ func mapaccess2_fast32(t *maptype, h *hmap, key uint32) (unsafe.Pointer, bool) {
 		// One-bucket table. No need to hash.
 		b = (*bmap)(h.buckets)
 	} else {
-		hash := t.Hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
+		hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 		m := bucketMask(h.B)
-		b = (*bmap)(add(h.buckets, (hash&m)*uintptr(t.BucketSize)))
+		b = (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
 		if c := h.oldbuckets; c != nil {
 			if !h.sameSizeGrow() {
 				// There used to be half as many buckets; mask down one more power of two.
 				m >>= 1
 			}
-			oldb := (*bmap)(add(c, (hash&m)*uintptr(t.BucketSize)))
+			oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
 			if !evacuated(oldb) {
 				b = oldb
 			}
 		}
 	}
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 4) {
-			if *(*uint32)(k) == key && !isEmpty(b.tophash[i]) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*4+i*uintptr(t.ValueSize)), true
+		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 8) {
+			if *(*uint64)(k) == key && !isEmpty(b.tophash[i]) {
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*8+i*uintptr(t.elemsize)), true
 			}
 		}
 	}
 	return unsafe.Pointer(&zeroVal[0]), false
 }
 
-// mapassign_fast32 should be an internal detail,
+// mapassign_fast64 should be an internal detail,
 // but widely used packages access it using linkname.
 // Notable members of the hall of shame include:
 //   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
 //   - github.com/ugorji/go/codec
 //
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname mapassign_fast32
-func mapassign_fast32(t *maptype, h *hmap, key uint32) unsafe.Pointer {
+//go:linkname mapassign_fast64
+func mapassign_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 	if h == nil {
 		panic(plainError("assignment to entry in nil map"))
 	}
 	if raceenabled {
-		callerpc := sys.GetCallerPC()
-		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapassign_fast32))
+		callerpc := getcallerpc()
+		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapassign_fast64))
 	}
 	if h.flags&hashWriting != 0 {
 		fatal("concurrent map writes")
 	}
-	hash := t.Hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapassign.
 	h.flags ^= hashWriting
 
 	if h.buckets == nil {
-		h.buckets = newobject(t.Bucket) // newarray(t.bucket, 1)
+		h.buckets = newobject(t.bucket) // newarray(t.bucket, 1)
 	}
 
 again:
 	bucket := hash & bucketMask(h.B)
 	if h.growing() {
-		growWork_fast32(t, h, bucket)
+		growWork_fast64(t, h, bucket)
 	}
-	b := (*bmap)(add(h.buckets, bucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
 
 	var insertb *bmap
 	var inserti uintptr
@@ -148,20 +154,20 @@ bucketloop:
 		for i := uintptr(0); i < abi.OldMapBucketCount; i++ {
 			if isEmpty(b.tophash[i]) {
 				if insertb == nil {
-					inserti = i
 					insertb = b
+					inserti = i
 				}
 				if b.tophash[i] == emptyRest {
 					break bucketloop
 				}
 				continue
 			}
-			k := *((*uint32)(add(unsafe.Pointer(b), dataOffset+i*4)))
+			k := *((*uint64)(add(unsafe.Pointer(b), dataOffset+i*8)))
 			if k != key {
 				continue
 			}
-			inserti = i
 			insertb = b
+			inserti = i
 			goto done
 		}
 		ovf := b.overflow(t)
@@ -187,14 +193,14 @@ bucketloop:
 	}
 	insertb.tophash[inserti&(abi.OldMapBucketCount-1)] = tophash(hash) // mask inserti to avoid bounds checks
 
-	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*4)
+	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*8)
 	// store new key at insert position
-	*(*uint32)(insertk) = key
+	*(*uint64)(insertk) = key
 
 	h.count++
 
 done:
-	elem := add(unsafe.Pointer(insertb), dataOffset+abi.OldMapBucketCount*4+inserti*uintptr(t.ValueSize))
+	elem := add(unsafe.Pointer(insertb), dataOffset+bucketCnt*8+inserti*uintptr(t.elemsize))
 	if h.flags&hashWriting == 0 {
 		fatal("concurrent map writes")
 	}
@@ -202,41 +208,43 @@ done:
 	return elem
 }
 
-// mapassign_fast32ptr should be an internal detail,
+// mapassign_fast64ptr should be an internal detail,
 // but widely used packages access it using linkname.
 // Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
 //   - github.com/ugorji/go/codec
 //
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname mapassign_fast32ptr
-func mapassign_fast32ptr(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
+//go:linkname mapassign_fast64ptr
+func mapassign_fast64ptr(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	if h == nil {
 		panic(plainError("assignment to entry in nil map"))
 	}
 	if raceenabled {
-		callerpc := sys.GetCallerPC()
-		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapassign_fast32))
+		callerpc := getcallerpc()
+		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapassign_fast64))
 	}
 	if h.flags&hashWriting != 0 {
 		fatal("concurrent map writes")
 	}
-	hash := t.Hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapassign.
 	h.flags ^= hashWriting
 
 	if h.buckets == nil {
-		h.buckets = newobject(t.Bucket) // newarray(t.bucket, 1)
+		h.buckets = newobject(t.bucket) // newarray(t.bucket, 1)
 	}
 
 again:
 	bucket := hash & bucketMask(h.B)
 	if h.growing() {
-		growWork_fast32(t, h, bucket)
+		growWork_fast64(t, h, bucket)
 	}
-	b := (*bmap)(add(h.buckets, bucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
 
 	var insertb *bmap
 	var inserti uintptr
@@ -247,20 +255,20 @@ bucketloop:
 		for i := uintptr(0); i < abi.OldMapBucketCount; i++ {
 			if isEmpty(b.tophash[i]) {
 				if insertb == nil {
-					inserti = i
 					insertb = b
+					inserti = i
 				}
 				if b.tophash[i] == emptyRest {
 					break bucketloop
 				}
 				continue
 			}
-			k := *((*unsafe.Pointer)(add(unsafe.Pointer(b), dataOffset+i*4)))
+			k := *((*unsafe.Pointer)(add(unsafe.Pointer(b), dataOffset+i*8)))
 			if k != key {
 				continue
 			}
-			inserti = i
 			insertb = b
+			inserti = i
 			goto done
 		}
 		ovf := b.overflow(t)
@@ -286,14 +294,14 @@ bucketloop:
 	}
 	insertb.tophash[inserti&(abi.OldMapBucketCount-1)] = tophash(hash) // mask inserti to avoid bounds checks
 
-	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*4)
+	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*8)
 	// store new key at insert position
 	*(*unsafe.Pointer)(insertk) = key
 
 	h.count++
 
 done:
-	elem := add(unsafe.Pointer(insertb), dataOffset+abi.OldMapBucketCount*4+inserti*uintptr(t.ValueSize))
+	elem := add(unsafe.Pointer(insertb), dataOffset+bucketCnt*8+inserti*uintptr(t.elemsize))
 	if h.flags&hashWriting == 0 {
 		fatal("concurrent map writes")
 	}
@@ -301,10 +309,10 @@ done:
 	return elem
 }
 
-func mapdelete_fast32(t *maptype, h *hmap, key uint32) {
+func mapdelete_fast64(t *maptype, h *hmap, key uint64) {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
-		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapdelete_fast32))
+		callerpc := getcallerpc()
+		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapdelete_fast64))
 	}
 	if h == nil || h.count == 0 {
 		return
@@ -313,36 +321,38 @@ func mapdelete_fast32(t *maptype, h *hmap, key uint32) {
 		fatal("concurrent map writes")
 	}
 
-	hash := t.Hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapdelete
 	h.flags ^= hashWriting
 
 	bucket := hash & bucketMask(h.B)
 	if h.growing() {
-		growWork_fast32(t, h, bucket)
+		growWork_fast64(t, h, bucket)
 	}
-	b := (*bmap)(add(h.buckets, bucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
 	bOrig := b
 search:
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 4) {
-			if key != *(*uint32)(k) || isEmpty(b.tophash[i]) {
+		for i, k := uintptr(0), b.keys(); i < abi.OldMapBucketCount; i, k = i+1, add(k, 8) {
+			if key != *(*uint64)(k) || isEmpty(b.tophash[i]) {
 				continue
 			}
 			// Only clear key if there are pointers in it.
-			// This can only happen if pointers are 32 bit
-			// wide as 64 bit pointers do not fit into a 32 bit key.
-			if goarch.PtrSize == 4 && t.Key.Pointers() {
-				// The key must be a pointer as we checked pointers are
-				// 32 bits wide and the key is 32 bits wide also.
-				*(*unsafe.Pointer)(k) = nil
+			if t.key.ptrdata != 0 {
+				if goarch.PtrSize == 8 {
+					*(*unsafe.Pointer)(k) = nil
+				} else {
+					// There are three ways to squeeze at one ore more 32 bit pointers into 64 bits.
+					// Just call memclrHasPointers instead of trying to handle all cases here.
+					memclrHasPointers(k, 8)
+				}
 			}
-			e := add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*4+i*uintptr(t.ValueSize))
-			if t.Elem.Pointers() {
-				memclrHasPointers(e, t.Elem.Size_)
+			e := add(unsafe.Pointer(b), dataOffset+bucketCnt*8+i*uintptr(t.elemsize))
+			if t.elem.ptrdata != 0 {
+				memclrHasPointers(e, t.elem.size)
 			} else {
-				memclrNoHeapPointers(e, t.Elem.Size_)
+				memclrNoHeapPointers(e, t.elem.size)
 			}
 			b.tophash[i] = emptyOne
 			// If the bucket now ends in a bunch of emptyOne states,
@@ -391,19 +401,19 @@ search:
 	h.flags &^= hashWriting
 }
 
-func growWork_fast32(t *maptype, h *hmap, bucket uintptr) {
+func growWork_fast64(t *maptype, h *hmap, bucket uintptr) {
 	// make sure we evacuate the oldbucket corresponding
 	// to the bucket we're about to use
-	evacuate_fast32(t, h, bucket&h.oldbucketmask())
+	evacuate_fast64(t, h, bucket&h.oldbucketmask())
 
 	// evacuate one more oldbucket to make progress on growing
 	if h.growing() {
-		evacuate_fast32(t, h, h.nevacuate)
+		evacuate_fast64(t, h, h.nevacuate)
 	}
 }
 
-func evacuate_fast32(t *maptype, h *hmap, oldbucket uintptr) {
-	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.BucketSize)))
+func evacuate_fast64(t *maptype, h *hmap, oldbucket uintptr) {
+	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
 	newbit := h.noldbuckets()
 	if !evacuated(b) {
 		// TODO: reuse overflow buckets instead of using new ones, if there
@@ -412,23 +422,23 @@ func evacuate_fast32(t *maptype, h *hmap, oldbucket uintptr) {
 		// xy contains the x and y (low and high) evacuation destinations.
 		var xy [2]evacDst
 		x := &xy[0]
-		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.BucketSize)))
+		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.bucketsize)))
 		x.k = add(unsafe.Pointer(x.b), dataOffset)
-		x.e = add(x.k, abi.OldMapBucketCount*4)
+		x.e = add(x.k, abi.OldMapBucketCount*8)
 
 		if !h.sameSizeGrow() {
 			// Only calculate y pointers if we're growing bigger.
 			// Otherwise GC can see bad pointers.
 			y := &xy[1]
-			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.BucketSize)))
+			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.bucketsize)))
 			y.k = add(unsafe.Pointer(y.b), dataOffset)
-			y.e = add(y.k, abi.OldMapBucketCount*4)
+			y.e = add(y.k, abi.OldMapBucketCount*8)
 		}
 
 		for ; b != nil; b = b.overflow(t) {
 			k := add(unsafe.Pointer(b), dataOffset)
-			e := add(k, abi.OldMapBucketCount*4)
-			for i := 0; i < abi.OldMapBucketCount; i, k, e = i+1, add(k, 4), add(e, uintptr(t.ValueSize)) {
+			e := add(k, bucketCnt*8)
+			for i := 0; i < bucketCnt; i, k, e = i+1, add(k, 8), add(e, uintptr(t.elemsize)) {
 				top := b.tophash[i]
 				if isEmpty(top) {
 					b.tophash[i] = evacuatedEmpty
@@ -441,7 +451,7 @@ func evacuate_fast32(t *maptype, h *hmap, oldbucket uintptr) {
 				if !h.sameSizeGrow() {
 					// Compute hash to make our evacuation decision (whether we need
 					// to send this key/elem to bucket x or bucket y).
-					hash := t.Hasher(k, uintptr(h.hash0))
+					hash := t.hasher(k, uintptr(h.hash0))
 					if hash&newbit != 0 {
 						useY = 1
 					}
@@ -454,35 +464,41 @@ func evacuate_fast32(t *maptype, h *hmap, oldbucket uintptr) {
 					dst.b = h.newoverflow(t, dst.b)
 					dst.i = 0
 					dst.k = add(unsafe.Pointer(dst.b), dataOffset)
-					dst.e = add(dst.k, abi.OldMapBucketCount*4)
+					dst.e = add(dst.k, abi.OldMapBucketCount*8)
 				}
 				dst.b.tophash[dst.i&(abi.OldMapBucketCount-1)] = top // mask dst.i as an optimization, to avoid a bounds check
 
 				// Copy key.
-				if goarch.PtrSize == 4 && t.Key.Pointers() && writeBarrier.enabled {
-					// Write with a write barrier.
-					*(*unsafe.Pointer)(dst.k) = *(*unsafe.Pointer)(k)
+				if t.key.ptrdata != 0 && writeBarrier.enabled {
+					if goarch.PtrSize == 8 {
+						// Write with a write barrier.
+						*(*unsafe.Pointer)(dst.k) = *(*unsafe.Pointer)(k)
+					} else {
+						// There are three ways to squeeze at least one 32 bit pointer into 64 bits.
+						// Give up and call typedmemmove.
+						typedmemmove(t.key, dst.k, k)
+					}
 				} else {
-					*(*uint32)(dst.k) = *(*uint32)(k)
+					*(*uint64)(dst.k) = *(*uint64)(k)
 				}
 
-				typedmemmove(t.Elem, dst.e, e)
+				typedmemmove(t.elem, dst.e, e)
 				dst.i++
 				// These updates might push these pointers past the end of the
 				// key or elem arrays.  That's ok, as we have the overflow pointer
 				// at the end of the bucket to protect against pointing past the
 				// end of the bucket.
-				dst.k = add(dst.k, 4)
-				dst.e = add(dst.e, uintptr(t.ValueSize))
+				dst.k = add(dst.k, 8)
+				dst.e = add(dst.e, uintptr(t.elemsize))
 			}
 		}
 		// Unlink the overflow buckets & clear key/elem to help GC.
-		if h.flags&oldIterator == 0 && t.Bucket.Pointers() {
-			b := add(h.oldbuckets, oldbucket*uintptr(t.BucketSize))
+		if h.flags&oldIterator == 0 && t.bucket.ptrdata != 0 {
+			b := add(h.oldbuckets, oldbucket*uintptr(t.bucketsize))
 			// Preserve b.tophash because the evacuation
 			// state is maintained there.
 			ptr := add(b, dataOffset)
-			n := uintptr(t.BucketSize) - dataOffset
+			n := uintptr(t.bucketsize) - dataOffset
 			memclrHasPointers(ptr, n)
 		}
 	}

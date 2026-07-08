@@ -12,7 +12,7 @@ import (
 	"internal/runtime/atomic"
 	"internal/runtime/exithook"
 	"internal/stringslite"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 	"unsafe"
 )
 

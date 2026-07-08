@@ -640,12 +640,12 @@ func releasem(mp *m) {
 	// }
 }
 
-//go:linkname fips_getIndicator crypto/internal/fips140.getIndicator
+//go:linkname fips_getIndicator crypto_1internal_1fips140.getIndicator
 func fips_getIndicator() uint8 {
 	return getg().fipsIndicator
 }
 
-//go:linkname fips_setIndicator crypto/internal/fips140.setIndicator
+//go:linkname fips_setIndicator crypto_1internal_1fips140.setIndicator
 func fips_setIndicator(indicator uint8) {
 	getg().fipsIndicator = indicator
 }

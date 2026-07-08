@@ -2,20 +2,24 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build !goexperiment.swissmap
-
 package runtime
 
 import (
 	"internal/abi"
 	"internal/goarch"
-	"internal/runtime/sys"
 	"unsafe"
 )
 
+// For gccgo, use go:linkname to export compiler-called functions.
+//
+//go:linkname mapaccess1_faststr
+//go:linkname mapaccess2_faststr
+//go:linkname mapassign_faststr
+//go:linkname mapdelete_faststr
+
 func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess1_faststr))
 	}
 	if h == nil || h.count == 0 {
@@ -39,7 +43,7 @@ func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 					continue
 				}
 				if k.str == key.str || memequal(k.str, key.str, uintptr(key.len)) {
-					return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize))
+					return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize))
 				}
 			}
 			return unsafe.Pointer(&zeroVal[0])
@@ -55,7 +59,7 @@ func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 				continue
 			}
 			if k.str == key.str {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize))
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize))
 			}
 			// check first 4 bytes
 			if *((*[4]byte)(key.str)) != *((*[4]byte)(k.str)) {
@@ -74,21 +78,21 @@ func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 		if keymaybe != abi.OldMapBucketCount {
 			k := (*stringStruct)(add(unsafe.Pointer(b), dataOffset+keymaybe*2*goarch.PtrSize))
 			if memequal(k.str, key.str, uintptr(key.len)) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+keymaybe*uintptr(t.ValueSize))
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+keymaybe*uintptr(t.elemsize))
 			}
 		}
 		return unsafe.Pointer(&zeroVal[0])
 	}
 dohash:
-	hash := t.Hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
 	m := bucketMask(h.B)
-	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
 	if c := h.oldbuckets; c != nil {
 		if !h.sameSizeGrow() {
 			// There used to be half as many buckets; mask down one more power of two.
 			m >>= 1
 		}
-		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.BucketSize)))
+		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
 		if !evacuated(oldb) {
 			b = oldb
 		}
@@ -101,7 +105,7 @@ dohash:
 				continue
 			}
 			if k.str == key.str || memequal(k.str, key.str, uintptr(key.len)) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize))
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize))
 			}
 		}
 	}
@@ -119,7 +123,7 @@ dohash:
 //go:linkname mapaccess2_faststr
 func mapaccess2_faststr(t *maptype, h *hmap, ky string) (unsafe.Pointer, bool) {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		racereadpc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapaccess2_faststr))
 	}
 	if h == nil || h.count == 0 {
@@ -143,7 +147,7 @@ func mapaccess2_faststr(t *maptype, h *hmap, ky string) (unsafe.Pointer, bool) {
 					continue
 				}
 				if k.str == key.str || memequal(k.str, key.str, uintptr(key.len)) {
-					return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize)), true
+					return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize)), true
 				}
 			}
 			return unsafe.Pointer(&zeroVal[0]), false
@@ -159,7 +163,7 @@ func mapaccess2_faststr(t *maptype, h *hmap, ky string) (unsafe.Pointer, bool) {
 				continue
 			}
 			if k.str == key.str {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize)), true
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize)), true
 			}
 			// check first 4 bytes
 			if *((*[4]byte)(key.str)) != *((*[4]byte)(k.str)) {
@@ -178,21 +182,21 @@ func mapaccess2_faststr(t *maptype, h *hmap, ky string) (unsafe.Pointer, bool) {
 		if keymaybe != abi.OldMapBucketCount {
 			k := (*stringStruct)(add(unsafe.Pointer(b), dataOffset+keymaybe*2*goarch.PtrSize))
 			if memequal(k.str, key.str, uintptr(key.len)) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+keymaybe*uintptr(t.ValueSize)), true
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+keymaybe*uintptr(t.elemsize)), true
 			}
 		}
 		return unsafe.Pointer(&zeroVal[0]), false
 	}
 dohash:
-	hash := t.Hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
 	m := bucketMask(h.B)
-	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
 	if c := h.oldbuckets; c != nil {
 		if !h.sameSizeGrow() {
 			// There used to be half as many buckets; mask down one more power of two.
 			m >>= 1
 		}
-		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.BucketSize)))
+		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
 		if !evacuated(oldb) {
 			b = oldb
 		}
@@ -205,7 +209,7 @@ dohash:
 				continue
 			}
 			if k.str == key.str || memequal(k.str, key.str, uintptr(key.len)) {
-				return add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize)), true
+				return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize)), true
 			}
 		}
 	}
@@ -216,6 +220,7 @@ dohash:
 // but widely used packages access it using linkname.
 // Notable members of the hall of shame include:
 //   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
 //   - github.com/ugorji/go/codec
 //
 // Do not remove or change the type signature.
@@ -227,20 +232,20 @@ func mapassign_faststr(t *maptype, h *hmap, s string) unsafe.Pointer {
 		panic(plainError("assignment to entry in nil map"))
 	}
 	if raceenabled {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapassign_faststr))
 	}
 	if h.flags&hashWriting != 0 {
 		fatal("concurrent map writes")
 	}
 	key := stringStructOf(&s)
-	hash := t.Hasher(noescape(unsafe.Pointer(&s)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&s)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapassign.
 	h.flags ^= hashWriting
 
 	if h.buckets == nil {
-		h.buckets = newobject(t.Bucket) // newarray(t.bucket, 1)
+		h.buckets = newobject(t.bucket) // newarray(t.bucket, 1)
 	}
 
 again:
@@ -248,7 +253,7 @@ again:
 	if h.growing() {
 		growWork_faststr(t, h, bucket)
 	}
-	b := (*bmap)(add(h.buckets, bucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
 	top := tophash(hash)
 
 	var insertb *bmap
@@ -312,7 +317,7 @@ bucketloop:
 	h.count++
 
 done:
-	elem := add(unsafe.Pointer(insertb), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+inserti*uintptr(t.ValueSize))
+	elem := add(unsafe.Pointer(insertb), dataOffset+bucketCnt*2*goarch.PtrSize+inserti*uintptr(t.elemsize))
 	if h.flags&hashWriting == 0 {
 		fatal("concurrent map writes")
 	}
@@ -322,7 +327,7 @@ done:
 
 func mapdelete_faststr(t *maptype, h *hmap, ky string) {
 	if raceenabled && h != nil {
-		callerpc := sys.GetCallerPC()
+		callerpc := getcallerpc()
 		racewritepc(unsafe.Pointer(h), callerpc, abi.FuncPCABIInternal(mapdelete_faststr))
 	}
 	if h == nil || h.count == 0 {
@@ -333,7 +338,7 @@ func mapdelete_faststr(t *maptype, h *hmap, ky string) {
 	}
 
 	key := stringStructOf(&ky)
-	hash := t.Hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
+	hash := t.hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapdelete
 	h.flags ^= hashWriting
@@ -342,7 +347,7 @@ func mapdelete_faststr(t *maptype, h *hmap, ky string) {
 	if h.growing() {
 		growWork_faststr(t, h, bucket)
 	}
-	b := (*bmap)(add(h.buckets, bucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
 	bOrig := b
 	top := tophash(hash)
 search:
@@ -357,11 +362,11 @@ search:
 			}
 			// Clear key's pointer.
 			k.str = nil
-			e := add(unsafe.Pointer(b), dataOffset+abi.OldMapBucketCount*2*goarch.PtrSize+i*uintptr(t.ValueSize))
-			if t.Elem.Pointers() {
-				memclrHasPointers(e, t.Elem.Size_)
+			e := add(unsafe.Pointer(b), dataOffset+bucketCnt*2*goarch.PtrSize+i*uintptr(t.elemsize))
+			if t.elem.ptrdata != 0 {
+				memclrHasPointers(e, t.elem.size)
 			} else {
-				memclrNoHeapPointers(e, t.Elem.Size_)
+				memclrNoHeapPointers(e, t.elem.size)
 			}
 			b.tophash[i] = emptyOne
 			// If the bucket now ends in a bunch of emptyOne states,
@@ -422,7 +427,7 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 }
 
 func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
-	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.BucketSize)))
+	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
 	newbit := h.noldbuckets()
 	if !evacuated(b) {
 		// TODO: reuse overflow buckets instead of using new ones, if there
@@ -431,7 +436,7 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 		// xy contains the x and y (low and high) evacuation destinations.
 		var xy [2]evacDst
 		x := &xy[0]
-		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.BucketSize)))
+		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.bucketsize)))
 		x.k = add(unsafe.Pointer(x.b), dataOffset)
 		x.e = add(x.k, abi.OldMapBucketCount*2*goarch.PtrSize)
 
@@ -439,15 +444,15 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 			// Only calculate y pointers if we're growing bigger.
 			// Otherwise GC can see bad pointers.
 			y := &xy[1]
-			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.BucketSize)))
+			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.bucketsize)))
 			y.k = add(unsafe.Pointer(y.b), dataOffset)
 			y.e = add(y.k, abi.OldMapBucketCount*2*goarch.PtrSize)
 		}
 
 		for ; b != nil; b = b.overflow(t) {
 			k := add(unsafe.Pointer(b), dataOffset)
-			e := add(k, abi.OldMapBucketCount*2*goarch.PtrSize)
-			for i := 0; i < abi.OldMapBucketCount; i, k, e = i+1, add(k, 2*goarch.PtrSize), add(e, uintptr(t.ValueSize)) {
+			e := add(k, bucketCnt*2*goarch.PtrSize)
+			for i := 0; i < bucketCnt; i, k, e = i+1, add(k, 2*goarch.PtrSize), add(e, uintptr(t.elemsize)) {
 				top := b.tophash[i]
 				if isEmpty(top) {
 					b.tophash[i] = evacuatedEmpty
@@ -460,7 +465,7 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 				if !h.sameSizeGrow() {
 					// Compute hash to make our evacuation decision (whether we need
 					// to send this key/elem to bucket x or bucket y).
-					hash := t.Hasher(k, uintptr(h.hash0))
+					hash := t.hasher(k, uintptr(h.hash0))
 					if hash&newbit != 0 {
 						useY = 1
 					}
@@ -480,23 +485,23 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 				// Copy key.
 				*(*string)(dst.k) = *(*string)(k)
 
-				typedmemmove(t.Elem, dst.e, e)
+				typedmemmove(t.elem, dst.e, e)
 				dst.i++
 				// These updates might push these pointers past the end of the
 				// key or elem arrays.  That's ok, as we have the overflow pointer
 				// at the end of the bucket to protect against pointing past the
 				// end of the bucket.
 				dst.k = add(dst.k, 2*goarch.PtrSize)
-				dst.e = add(dst.e, uintptr(t.ValueSize))
+				dst.e = add(dst.e, uintptr(t.elemsize))
 			}
 		}
 		// Unlink the overflow buckets & clear key/elem to help GC.
-		if h.flags&oldIterator == 0 && t.Bucket.Pointers() {
-			b := add(h.oldbuckets, oldbucket*uintptr(t.BucketSize))
+		if h.flags&oldIterator == 0 && t.bucket.ptrdata != 0 {
+			b := add(h.oldbuckets, oldbucket*uintptr(t.bucketsize))
 			// Preserve b.tophash because the evacuation
 			// state is maintained there.
 			ptr := add(b, dataOffset)
-			n := uintptr(t.BucketSize) - dataOffset
+			n := uintptr(t.bucketsize) - dataOffset
 			memclrHasPointers(ptr, n)
 		}
 	}
