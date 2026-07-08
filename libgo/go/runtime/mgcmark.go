@@ -9,7 +9,7 @@ package runtime
 import (
 	"internal/goarch"
 	"internal/runtime/atomic"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -346,6 +346,17 @@ func gcAssistAlloc(gp *g) {
 	}
 	if mp := getg().m; mp.locks > 0 || mp.preemptoff != "" {
 		return
+	}
+
+	if gp := getg(); gp.syncGroup != nil {
+		// Disassociate the G from its synctest bubble while allocating.
+		// This is less elegant than incrementing the group's active count,
+		// but avoids any contamination between GC assist and synctest.
+		sg := gp.syncGroup
+		gp.syncGroup = nil
+		defer func() {
+			gp.syncGroup = sg
+		}()
 	}
 
 	// This extremely verbose boolean indicates whether we've
@@ -1463,6 +1474,10 @@ func gcDumpObject(label string, obj, off uintptr) {
 func gcmarknewobject(span *mspan, obj, size, scanSize uintptr) {
 	if useCheckmark { // The world should be stopped so this should not happen.
 		throw("gcmarknewobject called while doing checkmark")
+	}
+	if gcphase == _GCmarktermination {
+		// Check this here instead of on the hot path.
+		throw("mallocgc called with gcphase == _GCmarktermination")
 	}
 
 	// Mark object.

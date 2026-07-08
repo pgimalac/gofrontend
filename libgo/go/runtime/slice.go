@@ -7,8 +7,8 @@ package runtime
 import (
 	"internal/abi"
 	"internal/goarch"
-	"runtime/internal/math"
-	"runtime/internal/sys"
+	"internal/runtime/math"
+	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -84,7 +84,7 @@ func makeslicecopy(et *_type, tolen int, fromlen int, from unsafe.Pointer) unsaf
 	}
 
 	if raceenabled {
-		callerpc := getcallerpc()
+		callerpc := sys.GetCallerPC()
 		pc := abi.FuncPCABIInternal(makeslicecopy)
 		racereadrangepc(from, copymem, callerpc, pc)
 	}
@@ -337,7 +337,7 @@ func slicecopy(toPtr unsafe.Pointer, toLen int, fromPtr unsafe.Pointer, fromLen 
 
 	size := uintptr(n) * width
 	if raceenabled {
-		callerpc := getcallerpc()
+		callerpc := sys.GetCallerPC()
 		pc := abi.FuncPCABIInternal(slicecopy)
 		racereadrangepc(fromPtr, size, callerpc, pc)
 		racewriterangepc(toPtr, size, callerpc, pc)

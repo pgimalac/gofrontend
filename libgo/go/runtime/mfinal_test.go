@@ -5,6 +5,7 @@
 package runtime_test
 
 import (
+	"internal/asan"
 	"runtime"
 	"testing"
 	"time"

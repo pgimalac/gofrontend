@@ -20,6 +20,7 @@ import (
 	"internal/bytealg"
 	"internal/godebug"
 	"internal/itoa"
+	"internal/stringslite"
 	"io"
 	"os"
 	"runtime"
@@ -489,9 +490,7 @@ func avoidDNS(name string) bool {
 	if name == "" {
 		return true
 	}
-	if name[len(name)-1] == '.' {
-		name = name[:len(name)-1]
-	}
+	name = stringslite.TrimSuffix(name, ".")
 	return stringsHasSuffixFold(name, ".onion")
 }
 

@@ -9,6 +9,7 @@ package pprof
 import (
 	"bytes"
 	"fmt"
+	"internal/asan"
 	"internal/profile"
 	"reflect"
 	"regexp"
@@ -63,6 +64,10 @@ func allocateReflect() {
 var memoryProfilerRun = 0
 
 func TestMemoryProfiler(t *testing.T) {
+	if asan.Enabled {
+		t.Skip("extra allocations with -asan throw off the test; see #70079")
+	}
+
 	// Disable sampling, otherwise it's difficult to assert anything.
 	oldRate := runtime.MemProfileRate
 	runtime.MemProfileRate = 1
@@ -147,7 +152,7 @@ func TestMemoryProfiler(t *testing.T) {
 		}
 		t.Logf("Profile = %v", p)
 
-		stks := stacks(p)
+		stks := profileStacks(p)
 		for _, test := range tests {
 			if !containsStack(stks, test.stk) {
 				t.Logf("stks:\n%v", stks)

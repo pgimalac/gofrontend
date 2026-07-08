@@ -7,6 +7,7 @@ package runtime
 import (
 	"internal/chacha8rand"
 	"internal/goarch"
+	"internal/goexperiment"
 	"internal/runtime/atomic"
 	"unsafe"
 )
@@ -168,33 +169,6 @@ const (
 type mutex struct {
 	// Empty struct if lock ranking is disabled, otherwise includes the lock rank
 	lockRankStruct
-	// Futex-based impl treats it as uint32 key,
-	// while sema-based impl as M* waitm.
-	// Used to be a union, but unions break precise GC.
-	key uintptr
-}
-
-// sleep and wakeup on one-time events.
-// before any calls to notesleep or notewakeup,
-// must call noteclear to initialize the Note.
-// then, exactly one thread can call notesleep
-// and exactly one thread can call notewakeup (once).
-// once notewakeup has been called, the notesleep
-// will return.  future notesleep will return immediately.
-// subsequent noteclear must be called only after
-// previous notesleep has returned, e.g. it's disallowed
-// to call noteclear straight after notewakeup.
-//
-// notetsleep is like notesleep but wakes up after
-// a given number of nanoseconds even if the event
-// has not yet happened.  if a goroutine uses notetsleep to
-// wake up early, it must wait to call noteclear until it
-// can be sure that no other goroutine is calling
-// notewakeup.
-//
-// notesleep/notetsleep are generally called on g0,
-// notetsleepg is similar to notetsleep but is called on user g.
-type note struct {
 	// Futex-based impl treats it as uint32 key,
 	// while sema-based impl as M* waitm.
 	// Used to be a union, but unions break precise GC.
@@ -507,7 +481,8 @@ type g struct {
 	// current in-progress goroutine profile
 	goroutineProfiled goroutineProfileStateHolder
 
-	coroarg *coro // argument during coroutine transfers
+	coroarg   *coro // argument during coroutine transfers
+	syncGroup *synctestGroup
 
 	// Per-G tracer state.
 	trace gTraceState
@@ -524,6 +499,8 @@ type g struct {
 	gcAssistBytes int64
 
 	// Remaining fields are specific to gccgo.
+
+	fipsIndicator uint8 // FIPS 140 service indicator (crypto/internal/fips140)
 
 	exception unsafe.Pointer // current exception being thrown
 	isforeign bool           // whether current exception is not from Go
@@ -1122,6 +1099,7 @@ const (
 	waitReasonSyncMutexLock                           // "sync.Mutex.Lock"
 	waitReasonSyncRWMutexRLock                        // "sync.RWMutex.RLock"
 	waitReasonSyncRWMutexLock                         // "sync.RWMutex.Lock"
+	waitReasonSyncWaitGroupWait                       // "sync.WaitGroup.Wait"
 	waitReasonTraceReaderBlocked                      // "trace reader (blocked)"
 	waitReasonWaitForGCCycle                          // "wait for GC cycle"
 	waitReasonGCWorkerIdle                            // "GC worker (idle)"
@@ -1135,6 +1113,12 @@ const (
 	waitReasonTraceProcStatus                         // "trace proc status"
 	waitReasonPageTraceFlush                          // "page trace flush"
 	waitReasonCoroutine                               // "coroutine"
+	waitReasonGCWeakToStrongWait                      // "GC weak to strong wait"
+	waitReasonSynctestRun                             // "synctest.Run"
+	waitReasonSynctestWait                            // "synctest.Wait"
+	waitReasonSynctestChanReceive                     // "chan receive (synctest)"
+	waitReasonSynctestChanSend                        // "chan send (synctest)"
+	waitReasonSynctestSelect                          // "select (synctest)"
 )
 
 var waitReasonStrings = [...]string{
@@ -1162,6 +1146,7 @@ var waitReasonStrings = [...]string{
 	waitReasonSyncMutexLock:         "sync.Mutex.Lock",
 	waitReasonSyncRWMutexRLock:      "sync.RWMutex.RLock",
 	waitReasonSyncRWMutexLock:       "sync.RWMutex.Lock",
+	waitReasonSyncWaitGroupWait:     "sync.WaitGroup.Wait",
 	waitReasonTraceReaderBlocked:    "trace reader (blocked)",
 	waitReasonWaitForGCCycle:        "wait for GC cycle",
 	waitReasonGCWorkerIdle:          "GC worker (idle)",
@@ -1175,6 +1160,12 @@ var waitReasonStrings = [...]string{
 	waitReasonTraceProcStatus:       "trace proc status",
 	waitReasonPageTraceFlush:        "page trace flush",
 	waitReasonCoroutine:             "coroutine",
+	waitReasonGCWeakToStrongWait:    "GC weak to strong wait",
+	waitReasonSynctestRun:           "synctest.Run",
+	waitReasonSynctestWait:          "synctest.Wait",
+	waitReasonSynctestChanReceive:   "chan receive (synctest)",
+	waitReasonSynctestChanSend:      "chan send (synctest)",
+	waitReasonSynctestSelect:        "select (synctest)",
 }
 
 func (w waitReason) String() string {
@@ -1211,6 +1202,26 @@ var isWaitingForGC = [len(waitReasonStrings)]bool{
 	waitReasonGCAssistMarking:       true,
 	waitReasonGCWorkerActive:        true,
 	waitReasonFlushProcCaches:       true,
+}
+
+func (w waitReason) isIdleInSynctest() bool {
+	return isIdleInSynctest[w]
+}
+
+// isIdleInSynctest indicates that a goroutine is considered idle by synctest.Wait.
+var isIdleInSynctest = [len(waitReasonStrings)]bool{
+	waitReasonChanReceiveNilChan:  true,
+	waitReasonChanSendNilChan:     true,
+	waitReasonSelectNoCases:       true,
+	waitReasonSleep:               true,
+	waitReasonSyncCondWait:        true,
+	waitReasonSyncWaitGroupWait:   true,
+	waitReasonCoroutine:           true,
+	waitReasonSynctestRun:         true,
+	waitReasonSynctestWait:        true,
+	waitReasonSynctestChanReceive: true,
+	waitReasonSynctestChanSend:    true,
+	waitReasonSynctestSelect:      true,
 }
 
 var (

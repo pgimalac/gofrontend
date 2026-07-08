@@ -190,6 +190,7 @@ func gcinit() {
 	work.markDoneSema = 1
 	lockInit(&work.sweepWaiters.lock, lockRankSweepWaiters)
 	lockInit(&work.assistQueue.lock, lockRankAssistQueue)
+	lockInit(&work.strongFromWeak.lock, lockRankStrongFromWeakQueue)
 	lockInit(&work.wbufSpans.lock, lockRankWbufSpans)
 }
 
@@ -338,11 +339,12 @@ type workType struct {
 
 	// bytesMarked is the number of bytes marked this cycle. This
 	// includes bytes blackened in scanned objects, noscan objects
-	// that go straight to black, and permagrey objects scanned by
-	// markroot during the concurrent scan phase. This is updated
-	// atomically during the cycle. Updates may be batched
-	// arbitrarily, since the value is only read at the end of the
-	// cycle.
+	// that go straight to black, objects allocated as black during
+	// the cycle, and permagrey objects scanned by markroot during
+	// the concurrent scan phase.
+	//
+	// This is updated atomically during the cycle. Updates may be batched
+	// arbitrarily, since the value is only read at the end of the cycle.
 	//
 	// Because of benign races during marking, this number may not
 	// be the exact number of marked bytes, but it should be very
@@ -417,6 +419,26 @@ type workType struct {
 	sweepWaiters struct {
 		lock mutex
 		list gList
+	}
+
+	// strongFromWeak controls how the GC interacts with weak->strong
+	// pointer conversions.
+	strongFromWeak struct {
+		// block is a flag set during mark termination that prevents
+		// new weak->strong conversions from executing by blocking the
+		// goroutine and enqueuing it onto q.
+		//
+		// Mutated only by one goroutine at a time in gcMarkDone,
+		// with globally-synchronizing events like forEachP and
+		// stopTheWorld.
+		block bool
+
+		// q is a queue of goroutines that attempted to perform a
+		// weak->strong conversion during mark termination.
+		//
+		// Protected by lock.
+		lock mutex
+		q    gQueue
 	}
 
 	// cycles is the number of completed GC cycles, where a GC
@@ -616,6 +638,17 @@ func gcStart(trigger gcTrigger) {
 	releasem(mp)
 	mp = nil
 
+	if gp := getg(); gp.syncGroup != nil {
+		// Disassociate the G from its synctest bubble while allocating.
+		// This is less elegant than incrementing the group's active count,
+		// but avoids any contamination between GC and synctest.
+		sg := gp.syncGroup
+		gp.syncGroup = nil
+		defer func() {
+			gp.syncGroup = sg
+		}()
+	}
+
 	// Pick up the remaining unswept/not being swept spans concurrently
 	//
 	// This shouldn't happen if we're being invoked in background
@@ -791,6 +824,19 @@ func gcStart(trigger gcTrigger) {
 // This is protected by markDoneSema.
 var gcMarkDoneFlushed uint32
 
+// gcDebugMarkDone contains fields used to debug/test mark termination.
+var gcDebugMarkDone struct {
+	// spinAfterRaggedBarrier forces gcMarkDone to spin after it executes
+	// the ragged barrier.
+	spinAfterRaggedBarrier atomic.Bool
+
+	// restartedDueTo27993 indicates that we restarted mark termination
+	// due to the bug described in issue #27993.
+	//
+	// Protected by worldsema.
+	restartedDueTo27993 bool
+}
+
 // gcMarkDone transitions the GC from mark to mark termination if all
 // reachable objects have been marked (that is, there are no grey
 // objects and can be no more in the future). Otherwise, it flushes
@@ -833,6 +879,10 @@ top:
 	// stop the world later, so acquire worldsema now.
 	semacquire(&worldsema)
 
+	// Prevent weak->strong conversions from generating additional
+	// GC work. forEachP will guarantee that it is observed globally.
+	work.strongFromWeak.block = true
+
 	// Flush all local buffers and collect flushedWork flags.
 	gcMarkDoneFlushed = 0
 	forEachP(waitReasonGCMarkTermination, func(pp *p) {
@@ -861,6 +911,10 @@ top:
 		// ragged barrier, so re-check it.
 		semrelease(&worldsema)
 		goto top
+	}
+
+	// For debugging/testing.
+	for gcDebugMarkDone.spinAfterRaggedBarrier.Load() {
 	}
 
 	// There was no global work, no local work, and no Ps
@@ -898,6 +952,8 @@ top:
 		}
 	})
 	if restart {
+		gcDebugMarkDone.restartedDueTo27993 = true
+
 		getg().m.preemptoff = ""
 		systemstack(func() {
 			now := startTheWorldWithSema(0, stw)
@@ -919,6 +975,11 @@ top:
 	// Wake all blocked assists. These will run when we
 	// start the world again.
 	gcWakeAllAssists()
+
+	// Wake all blocked weak->strong conversions. These will run
+	// when we start the world again.
+	work.strongFromWeak.block = false
+	gcWakeAllStrongFromWeak()
 
 	// Likewise, release the transition lock. Blocked
 	// workers and assists will run when we start the
@@ -1764,7 +1825,7 @@ func gcTestIsReachable(ptrs ...unsafe.Pointer) (mask uint64) {
 		s := (*specialReachable)(mheap_.specialReachableAlloc.alloc())
 		unlock(&mheap_.speciallock)
 		s.special.kind = _KindSpecialReachable
-		if !addspecial(p, &s.special) {
+		if !addspecial(p, &s.special, false) {
 			throw("already have a reachable special (duplicate pointer?)")
 		}
 		specials[i] = s

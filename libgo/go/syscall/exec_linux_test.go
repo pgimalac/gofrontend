@@ -320,12 +320,7 @@ func TestUnshareMountNameSpace(t *testing.T) {
 		os.Exit(0)
 	}
 
-	testenv.MustHaveExec(t)
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	exe := testenv.Executable(t)
 	d := t.TempDir()
 	t.Cleanup(func() {
 		// If the subprocess fails to unshare the parent directory, force-unmount it
@@ -439,12 +434,7 @@ func TestUnshareUidGidMapping(t *testing.T) {
 		t.Skip("test exercises unprivileged user namespace, fails with privileges")
 	}
 
-	testenv.MustHaveExec(t)
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	exe := testenv.Executable(t)
 	cmd := testenv.Command(t, exe, "-test.run=^TestUnshareUidGidMapping$")
 	cmd.Env = append(cmd.Environ(), "GO_WANT_HELPER_PROCESS=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -567,12 +557,7 @@ func testAmbientCaps(t *testing.T, userns bool) {
 		os.Remove(f.Name())
 	})
 
-	testenv.MustHaveExec(t)
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	exe := testenv.Executable(t)
 	e, err := os.Open(exe)
 	if err != nil {
 		t.Fatal(err)

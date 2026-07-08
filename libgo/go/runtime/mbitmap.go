@@ -48,7 +48,7 @@ package runtime
 import (
 	"internal/goarch"
 	"internal/runtime/atomic"
-	"runtime/internal/sys"
+	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -753,9 +753,6 @@ func bulkBarrierBitmap(dst, src, size, maskOffset uintptr, bits *uint8) {
 //
 // The type typ must correspond exactly to [src, src+size) and [dst, dst+size).
 // dst, src, and size must be pointer-aligned.
-// The type typ must have a plain bitmap, not a GC program.
-// The only use of this function is in channel sends, and the
-// 64 kB channel element limit takes care of this for us.
 //
 // Must not be preempted because it typically runs right before memmove,
 // and the GC must observe them as an atomic action.
@@ -1640,6 +1637,9 @@ func progToPointerMask(prog *byte, size uintptr) bitvector {
 //	0nnnnnnn: emit n bits copied from the next (n+7)/8 bytes
 //	10000000 n c: repeat the previous n bits c times; n, c are varints
 //	1nnnnnnn c: repeat the previous n bits c times; c is a varint
+//
+// Currently, gc programs are only used for describing data and bss
+// sections of the binary.
 
 // runGCProg executes the GC program prog, and then trailer if non-nil,
 // writing to dst with entries of the given size.
@@ -2008,7 +2008,7 @@ func reflect_gcbits(x any) []byte {
 // Returns GC type info for the pointer stored in ep for testing.
 // If ep points to the stack, only static live information will be returned
 // (i.e. not for objects which are only dynamically live stack objects).
-func getgcmask(ep any) (mask []byte) {
+func pointerMask(ep any) (mask []byte) {
 	e := *efaceOf(&ep)
 	p := e.data
 	t := e._type

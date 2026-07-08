@@ -6,8 +6,8 @@ package utf16_test
 
 import (
 	"internal/testenv"
-	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 	"unicode"
 	. "unicode/utf16"
@@ -59,7 +59,7 @@ var encodeTests = []encodeTest{
 func TestEncode(t *testing.T) {
 	for _, tt := range encodeTests {
 		out := Encode(tt.in)
-		if !reflect.DeepEqual(out, tt.out) {
+		if !slices.Equal(out, tt.out) {
 			t.Errorf("Encode(%x) = %x; want %x", tt.in, out, tt.out)
 		}
 	}
@@ -71,7 +71,7 @@ func TestAppendRune(t *testing.T) {
 		for _, u := range tt.in {
 			out = AppendRune(out, u)
 		}
-		if !reflect.DeepEqual(out, tt.out) {
+		if !slices.Equal(out, tt.out) {
 			t.Errorf("AppendRune(%x) = %x; want %x", tt.in, out, tt.out)
 		}
 	}
@@ -147,7 +147,7 @@ func TestAllocationsDecode(t *testing.T) {
 func TestDecode(t *testing.T) {
 	for _, tt := range decodeTests {
 		out := Decode(tt.in)
-		if !reflect.DeepEqual(out, tt.out) {
+		if !slices.Equal(out, tt.out) {
 			t.Errorf("Decode(%x) = %x; want %x", tt.in, out, tt.out)
 		}
 	}

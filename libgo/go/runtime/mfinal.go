@@ -35,6 +35,7 @@ var finc *finblock // cache of free blocks
 var finptrmask [_FinBlockSize / goarch.PtrSize / 8]byte
 var fingwait bool
 var fingwake bool
+
 var allfin *finblock // list of all blocks
 
 // NOTE: Layout known to queuefinalizer.
@@ -244,6 +245,9 @@ func blockUntilEmptyFinalizerQueue(timeout int64) bool {
 //
 // SetFinalizer(obj, nil) clears any finalizer associated with obj.
 //
+// New Go code should consider using [AddCleanup] instead, which is much
+// less error-prone than SetFinalizer.
+//
 // The argument obj must be a pointer to an object allocated by calling
 // new, by taking the address of a composite literal, or by taking the
 // address of a local variable.
@@ -312,11 +316,6 @@ func blockUntilEmptyFinalizerQueue(timeout int64) bool {
 // need to use appropriate synchronization, such as mutexes or atomic updates,
 // to avoid read-write races.
 func SetFinalizer(obj any, finalizer any) {
-	if debug.sbrk != 0 {
-		// debug.sbrk never frees memory, so no finalizers run
-		// (and we don't have the data structures to record them).
-		return
-	}
 	e := efaceOf(&obj)
 	etyp := e._type
 	if etyp == nil {

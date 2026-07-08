@@ -42,10 +42,10 @@ import (
 	"cmd/go/internal/imports"
 	"cmd/go/internal/modfetch"
 	"cmd/go/internal/modload"
-	"cmd/go/internal/par"
 	"cmd/go/internal/search"
 	"cmd/go/internal/toolchain"
 	"cmd/go/internal/work"
+	"cmd/internal/par"
 
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
@@ -54,7 +54,7 @@ import (
 var CmdGet = &base.Command{
 	// Note: flags below are listed explicitly because they're the most common.
 	// Do not send CLs removing them because they're covered by [get flags].
-	UsageLine: "go get [-t] [-u] [-v] [build flags] [packages]",
+	UsageLine: "go get [-t] [-u] [-tool] [build flags] [packages]",
 	Short:     "add dependencies to current module and install them",
 	Long: `
 Get resolves its command-line arguments to packages at specific module versions,
@@ -109,6 +109,9 @@ but changes the default to select patch releases.
 When the -t and -u flags are used together, get will update
 test dependencies as well.
 
+The -tool flag instructs go to add a matching tool line to go.mod for each
+listed package. If -tool is used with @none, the line will be removed.
+
 The -x flag prints commands as they are executed. This is useful for
 debugging version control commands when a module is downloaded directly
 from a repository.
@@ -121,11 +124,6 @@ For more about using 'go get' to update the minimum Go version and
 suggested Go toolchain, see https://go.dev/doc/toolchain.
 
 For more about specifying packages, see 'go help packages'.
-
-This text describes the behavior of get using modules to manage source
-code and dependencies. If instead the go command is running in GOPATH
-mode, the details of get's flags and effects change, as does 'go help get'.
-See 'go help gopath-get'.
 
 See also: go build, go install, go clean, go mod.
 	`,
@@ -217,8 +215,8 @@ var (
 	getM        = CmdGet.Flag.Bool("m", false, "")
 	getT        = CmdGet.Flag.Bool("t", false, "")
 	getU        upgradeFlag
+	getTool     = CmdGet.Flag.Bool("tool", false, "")
 	getInsecure = CmdGet.Flag.Bool("insecure", false, "")
-	// -v is cfg.BuildV
 )
 
 // upgradeFlag is a custom flag.Value for -u.
@@ -338,6 +336,7 @@ func runGet(ctx context.Context, cmd *base.Command, args []string) {
 	r := newResolver(ctx, queries)
 	r.performLocalQueries(ctx)
 	r.performPathQueries(ctx)
+	r.performToolQueries(ctx)
 
 	for {
 		r.performWildcardQueries(ctx)
@@ -402,6 +401,10 @@ func runGet(ctx context.Context, cmd *base.Command, args []string) {
 	}
 	r.checkPackageProblems(ctx, pkgPatterns)
 
+	if *getTool {
+		updateTools(ctx, queries, &opts)
+	}
+
 	// Everything succeeded. Update go.mod.
 	oldReqs := reqsFromGoMod(modload.ModFile())
 
@@ -421,6 +424,32 @@ func runGet(ctx context.Context, cmd *base.Command, args []string) {
 		wf, err := modload.ReadWorkFile(gowork)
 		if err == nil && modload.UpdateWorkGoVersion(wf, modload.MainModules.GoVersion()) {
 			modload.WriteWorkFile(gowork, wf)
+		}
+	}
+}
+
+func updateTools(ctx context.Context, queries []*query, opts *modload.WriteOpts) {
+	pkgOpts := modload.PackageOpts{
+		VendorModulesInGOROOTSrc: true,
+		LoadTests:                *getT,
+		ResolveMissingImports:    false,
+		AllowErrors:              true,
+		SilenceNoGoErrors:        true,
+	}
+	patterns := []string{}
+	for _, q := range queries {
+		if search.IsMetaPackage(q.pattern) || q.pattern == "toolchain" {
+			base.Fatalf("go: go get -tool does not work with \"%s\".", q.pattern)
+		}
+		patterns = append(patterns, q.pattern)
+	}
+
+	matches, _ := modload.LoadPackages(ctx, pkgOpts, patterns...)
+	for i, m := range matches {
+		if queries[i].version == "none" {
+			opts.DropTools = append(opts.DropTools, m.Pkgs...)
+		} else {
+			opts.AddTools = append(opts.DropTools, m.Pkgs...)
 		}
 	}
 }
@@ -481,6 +510,7 @@ type resolver struct {
 	pathQueries       []*query // package path literal queries in original order
 	wildcardQueries   []*query // path wildcard queries in original order
 	patternAllQueries []*query // queries with the pattern "all"
+	toolQueries       []*query // queries with the pattern "tool"
 
 	// Indexed "none" queries. These are also included in the slices above;
 	// they are indexed here to speed up noneForPath.
@@ -540,6 +570,8 @@ func newResolver(ctx context.Context, queries []*query) *resolver {
 	for _, q := range queries {
 		if q.pattern == "all" {
 			r.patternAllQueries = append(r.patternAllQueries, q)
+		} else if q.pattern == "tool" {
+			r.toolQueries = append(r.toolQueries, q)
 		} else if q.patternIsLocal {
 			r.localQueries = append(r.localQueries, q)
 		} else if q.isWildcard() {
@@ -725,8 +757,9 @@ func (r *resolver) performLocalQueries(ctx context.Context) {
 			pkgPattern, mainModule := modload.MainModules.DirImportPath(ctx, q.pattern)
 			if pkgPattern == "." {
 				modload.MustHaveModRoot()
-				var modRoots []string
-				for _, m := range modload.MainModules.Versions() {
+				versions := modload.MainModules.Versions()
+				modRoots := make([]string, 0, len(versions))
+				for _, m := range versions {
 					modRoots = append(modRoots, modload.MainModules.ModRoot(m))
 				}
 				var plural string
@@ -1014,6 +1047,19 @@ func (r *resolver) queryPath(ctx context.Context, q *query) {
 		}
 		return pathSet{pkgMods: pkgMods, mod: mod}
 	})
+}
+
+// performToolQueries populates the candidates for each query whose
+// pattern is "tool".
+func (r *resolver) performToolQueries(ctx context.Context) {
+	for _, q := range r.toolQueries {
+		for tool := range modload.MainModules.Tools() {
+			q.pathOnce(tool, func() pathSet {
+				pkgMods, err := r.queryPackages(ctx, tool, q.version, r.initialSelected)
+				return pathSet{pkgMods: pkgMods, err: err}
+			})
+		}
+	}
 }
 
 // performPatternAllQueries populates the candidates for each query whose

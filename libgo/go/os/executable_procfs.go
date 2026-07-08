@@ -19,8 +19,6 @@ func executable() (string, error) {
 		return "", errors.New("Executable not implemented for " + runtime.GOOS)
 	case "hurd", "linux", "android":
 		procfn = "/proc/self/exe"
-	case "netbsd":
-		procfn = "/proc/curproc/exe"
 	}
 	path, err := Readlink(procfn)
 

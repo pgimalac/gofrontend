@@ -9,7 +9,9 @@ import (
 	"unsafe"
 )
 
-type mOS struct{}
+type mOS struct {
+	waitsema uint32 // semaphore for parking on locks
+}
 
 //go:noescape
 //extern _umtx_op

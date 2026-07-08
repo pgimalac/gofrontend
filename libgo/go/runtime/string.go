@@ -8,6 +8,7 @@ import (
 	"internal/abi"
 	"internal/bytealg"
 	"internal/goarch"
+	"internal/runtime/sys"
 	"unsafe"
 )
 
@@ -66,8 +67,8 @@ func concatstrings(buf *tmpBuf, p *string, n int) string {
 	// }
 	s, b := rawstringtmp(buf, l)
 	for _, x := range a {
-		copy(b, x)
-		b = b[len(x):]
+		n := copy(b, x)
+		b = b[n:]
 	}
 	return s
 }
@@ -88,7 +89,7 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
 	if raceenabled {
 		racereadrangepc(unsafe.Pointer(ptr),
 			uintptr(n),
-			getcallerpc(),
+			sys.GetCallerPC(),
 			abi.FuncPCABIInternal(slicebytetostring))
 	}
 	if msanenabled {
@@ -149,7 +150,7 @@ func slicebytetostringtmp(ptr *byte, n int) (str string) {
 	if raceenabled && n > 0 {
 		racereadrangepc(unsafe.Pointer(ptr),
 			uintptr(n),
-			getcallerpc(),
+			sys.GetCallerPC(),
 			abi.FuncPCABIInternal(slicebytetostringtmp))
 	}
 	if msanenabled && n > 0 {
@@ -210,7 +211,7 @@ func slicerunetostring(buf *tmpBuf, a []rune) string {
 	if raceenabled && len(a) > 0 {
 		racereadrangepc(unsafe.Pointer(&a[0]),
 			uintptr(len(a))*unsafe.Sizeof(a[0]),
-			getcallerpc(),
+			sys.GetCallerPC(),
 			abi.FuncPCABIInternal(slicerunetostring))
 	}
 	if msanenabled && len(a) > 0 {

@@ -1756,7 +1756,7 @@ const (
 //go:notinheap
 type special struct {
 	next   *special // linked list in span
-	offset uint16   // span offset of object
+	offset uintptr  // span offset of object
 	kind   byte     // kind of special
 }
 
@@ -1776,13 +1776,13 @@ func spanHasNoSpecials(s *mspan) {
 	atomic.And8(&ha.pageSpecials[arenaPage/8], ^(uint8(1) << (arenaPage % 8)))
 }
 
-// Adds the special record s to the list of special records for
+// addspecial adds the special record s to the list of special records for
 // the object p. All fields of s should be filled in except for
 // offset & next, which this routine will fill in.
 // Returns true if the special was successfully added, false otherwise.
 // (The add will fail only if a record with the same p and s->kind
-// already exists.)
-func addspecial(p unsafe.Pointer, s *special) bool {
+// already exists unless force is set to true.)
+func addspecial(p unsafe.Pointer, s *special, force bool) bool {
 	span := spanOfHeap(uintptr(p))
 	if span == nil {
 		throw("addspecial on invalid pointer")
@@ -1801,9 +1801,9 @@ func addspecial(p unsafe.Pointer, s *special) bool {
 
 	// Find splice point, check for existing record.
 	iter, exists := span.specialFindSplicePoint(offset, kind)
-	if !exists {
+	if !exists || force {
 		// Splice in record, fill in offset.
-		s.offset = uint16(offset)
+		s.offset = offset
 		s.next = *iter
 		*iter = s
 		spanHasSpecials(span)
@@ -1811,7 +1811,10 @@ func addspecial(p unsafe.Pointer, s *special) bool {
 
 	unlock(&span.speciallock)
 	releasem(mp)
-	return !exists // already exists
+	// We're converting p to a uintptr and looking it up, and we
+	// don't want it to die and get swept while we're doing so.
+	KeepAlive(p)
+	return !exists || force // already exists or addition was forced
 }
 
 // Removes the Special record of the given kind for the object p.
@@ -1894,7 +1897,7 @@ func addfinalizer(p unsafe.Pointer, f *funcval, ft *functype, ot *ptrtype) bool 
 	s.fn = f
 	s.ft = ft
 	s.ot = ot
-	if addspecial(p, &s.special) {
+	if addspecial(p, &s.special, false) {
 		// This is responsible for maintaining the same
 		// GC-related invariants as markrootSpans in any
 		// situation where it's possible that markrootSpans
@@ -1933,7 +1936,6 @@ func removefinalizer(p unsafe.Pointer) {
 }
 
 // The described object is being heap profiled.
-//
 //go:notinheap
 type specialprofile struct {
 	special special
@@ -1947,7 +1949,7 @@ func setprofilebucket(p unsafe.Pointer, b *bucket) {
 	unlock(&mheap_.speciallock)
 	s.special.kind = _KindSpecialProfile
 	s.b = b
-	if !addspecial(p, &s.special) {
+	if !addspecial(p, &s.special, false) {
 		throw("setprofilebucket: profile already set")
 	}
 }

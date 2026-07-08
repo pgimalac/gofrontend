@@ -281,3 +281,8 @@ childerror:
 		raw_exit(253)
 	}
 }
+
+// forkAndExecFailureCleanup cleans up after an exec failure.
+func forkAndExecFailureCleanup(attr *ProcAttr, sys *SysProcAttr) {
+	// Nothing to do.
+}

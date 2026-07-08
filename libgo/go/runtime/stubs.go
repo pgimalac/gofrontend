@@ -110,7 +110,6 @@ func badsystemstack() {
 // Notable members of the hall of shame include:
 //   - github.com/bytedance/sonic
 //   - github.com/chenzhuoyu/iasm
-//   - github.com/cloudwego/frugal
 //   - github.com/dgraph-io/ristretto
 //   - github.com/outcaste-io/ristretto
 //
@@ -285,7 +284,7 @@ func reflectcall(fntype *functype, fn *funcval, isInterface, isMethod bool, para
 // Notable members of the hall of shame include:
 //   - github.com/sagernet/sing-tun
 //   - github.com/slackhq/nebula
-//   - github.com/tailscale/wireguard-go
+//   - golang.zx2c4.com/wireguard
 //
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
@@ -378,6 +377,8 @@ func alignDown(n, a uintptr) uintptr {
 }
 
 // divRoundUp returns ceil(n / a).
+//
+//go:nosplit
 func divRoundUp(n, a uintptr) uintptr {
 	// a is generally a power of two. This will get inlined and
 	// the compiler will optimize the division.

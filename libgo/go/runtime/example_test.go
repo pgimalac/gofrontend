@@ -40,7 +40,6 @@ func ExampleFrames() {
 			if !strings.Contains(frame.File, "runtime/") && !strings.Contains(frame.File, "/test/") {
 				break
 			}
-			fmt.Printf("- more:%v | %s\n", more, frame.Function)
 
 			// Check whether there are more frames to process after this one.
 			if !more {
