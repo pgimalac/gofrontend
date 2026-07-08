@@ -4310,7 +4310,9 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   if (extra_pkg_aliases != NULL)
     merged_aliases.insert(extra_pkg_aliases->begin(), extra_pkg_aliases->end());
 
-  // Build a mangled key from the type arguments and check the cache.
+  // Build a mangled key from the type arguments and check the cache.  Key by
+  // resolved pkgpath (via merged_aliases) so same-spelling/different-package
+  // type arguments do not collide on one cache entry.
   std::string key = this->instance_key(type_args);
   Named_object* cached = info->find_instance(key);
   if (cached != NULL)
@@ -5781,21 +5783,43 @@ Parse::note_token_package_usage(const std::vector<Token>& toks,
       std::string packed =
 	this->gogo_->pack_hidden_name(toks[i].identifier(),
 				      toks[i].is_identifier_exported());
-      // Resolve via the current package's OWN import bindings, never the
-      // ambiguous by-name reparse fallback -- otherwise the recorded
-      // alias->pkgpath binding could point at the wrong same-named package
-      // (e.g. one of the many "internal" packages), which then poisons the
-      // instance re-parse.
-      Named_object* no = this->gogo_->lookup_pkg_binding(packed);
-      if (no != NULL && no->is_package())
+      const std::string& alias = toks[i].identifier();
+      // Resolve the qualifier to a pkgpath.  Order matters:
+      //  (1) If we are re-parsing an instance, the current replay alias map is
+      //      authoritative -- it carries the caller's binding for this alias,
+      //      threaded down from the enclosing instantiation.  The file-scope
+      //      imports have been cleared by clear_file_scope() by the time
+      //      instantiation runs, so they are gone from package_->bindings().
+      //  (2) Otherwise use the current package's OWN import bindings (never the
+      //      ambiguous by-name reparse fallback, which could pick the wrong
+      //      same-named package -- e.g. one of the many "internal" packages).
+      std::string pkgpath;
+      if (this->replay_pkg_aliases_ != NULL)
 	{
-	  no->package_value()->note_usage(toks[i].identifier());
-	  this->gogo_->add_generic_imported_package(no->package_value());
+	  std::map<std::string, std::string>::const_iterator a =
+	    this->replay_pkg_aliases_->find(alias);
+	  if (a != this->replay_pkg_aliases_->end())
+	    pkgpath = a->second;
+	}
+      Named_object* no = NULL;
+      if (pkgpath.empty())
+	{
+	  no = this->gogo_->lookup_pkg_binding(packed);
+	  if (no != NULL && no->is_package())
+	    pkgpath = no->package_value()->pkgpath();
+	}
+      if (!pkgpath.empty())
+	{
+	  if (no != NULL)
+	    {
+	      no->package_value()->note_usage(alias);
+	      this->gogo_->add_generic_imported_package(no->package_value());
+	    }
 	  // Record this alias's pkgpath so an instance re-parse resolves the
 	  // qualifier to the right package even when another imported package
 	  // shares the same name.
 	  if (aliases != NULL)
-	    (*aliases)[toks[i].identifier()] = no->package_value()->pkgpath();
+	    (*aliases)[alias] = pkgpath;
 	}
     }
 }
@@ -6798,11 +6822,9 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
   // The replay resolves package qualifiers through the template's own
-  // alias->pkgpath map.  Layer in the type arguments' package bindings (from
-  // the caller) so that a cross-package type argument whose package name is
-  // not one the template imports -- or is ambiguous by name -- still resolves
-  // to the exact package it came from.  Template aliases take precedence on a
-  // name collision (insert does not overwrite).
+  // alias->pkgpath map, layered with the caller's type-argument bindings, so a
+  // cross-package type argument whose package name the template does not import
+  // (or is ambiguous by name) still resolves to the exact package it came from.
   std::map<std::string, std::string> merged_aliases;
   if (extra_pkg_aliases != NULL && !extra_pkg_aliases->empty())
     {
