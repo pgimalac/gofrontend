@@ -78,7 +78,8 @@ class Parse
 						   Location,
 						   const std::vector<std::vector<Token> >* partial = NULL,
 						   bool call_is_spread = false,
-						   bool quiet = false);
+						   bool quiet = false,
+						   const std::map<std::string, std::string>* extra_pkg_aliases = NULL);
 
   // Instantiate a generic function used as a value, inferring its type
   // arguments from the context function type it is assigned to.  Returns the
@@ -99,6 +100,13 @@ class Parse
   // to seed type inference.  Static because it consults file-scoped state.
   static const std::vector<std::vector<Token> >*
   partial_type_args_for(const Expression*);
+
+  // Generics: the package-qualifier alias->pkgpath bindings captured (at
+  // parse time) for a partial instantiation's explicit type arguments, or
+  // NULL.  Used to resolve those arguments' qualifiers when they are
+  // re-parsed during determine_types, after file-scope imports are cleared.
+  static const std::map<std::string, std::string>*
+  partial_type_arg_aliases_for(const Expression*);
 
   // Generics: for an ambiguous "name[expr](args)" forward reference, return
   // the ordinary index interpretation ("(name[expr])") recorded as a

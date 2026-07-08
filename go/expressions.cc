@@ -13863,10 +13863,14 @@ Call_expression::do_determine_type(Gogo* gogo, const Type_context* context)
 	// parameters) seeds inference with the explicit arguments.
 	const std::vector<std::vector<Token> >* partial =
 	  Parse::partial_type_args_for(this->fn_);
+	const std::map<std::string, std::string>* partial_aliases =
+	  Parse::partial_type_arg_aliases_for(this->fn_);
 	Named_object* inst =
 	  parse.instantiate_generic_with_inference(gi, this->args_,
 						   this->location(), partial,
-						   this->is_varargs_);
+						   this->is_varargs_,
+						   /*quiet=*/false,
+						   partial_aliases);
 	if (inst == NULL)
 	  {
 	    this->set_is_error();
@@ -20677,6 +20681,26 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
     gogo->interface_method_table_name(this->itype_, this->type_,
 				      this->is_pointer_);
 
+  // A generic instance is monomorphized in every package, so a local instance
+  // and an imported instance of the same generic (unified by canonical id)
+  // can both request the same method table within one compilation unit -- they
+  // are distinct type objects but share the canonical mangled name.  Emitting
+  // the definition twice would produce a duplicate symbol; reuse the first
+  // one's variable.
+  {
+    Named_type* gnt = this->type_->named_type();
+    if (gnt != NULL && !gnt->generic_canonical_id().empty())
+      {
+	Bvariable* existing = gogo->interface_method_table_var(mangled_name);
+	if (existing != NULL)
+	  {
+	    this->bvar_ = existing;
+	    return gogo->backend()->var_expression(this->bvar_,
+						   this->location());
+	  }
+      }
+  }
+
   // Set is_public if we are converting a named type to an interface
   // type with hidden (unexported) methods.  A hidden-method interface
   // can only be implemented either by a type in the interface's own
@@ -20805,6 +20829,10 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
 						  btype, loc);
   gogo->backend()->immutable_struct_set_init(this->bvar_, mangled_name, flags,
 					     btype, loc, ctor);
+  // Record a generic instance's method table so a second (unified) instance
+  // in this compilation reuses it rather than defining a duplicate symbol.
+  if (tnt != NULL && !tnt->generic_canonical_id().empty())
+    gogo->add_interface_method_table_var(mangled_name, this->bvar_);
   return gogo->backend()->var_expression(this->bvar_, loc);
 }
 

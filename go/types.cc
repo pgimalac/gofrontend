@@ -11407,6 +11407,17 @@ Named_type::do_hash_for_method(Gogo* gogo, int) const
   // Aliases are handled in Type::hash_for_method.
   go_assert(!this->is_alias_);
 
+  // A generic instance is identified by its package-independent canonical id
+  // (see Type::are_identical), so two instances of the same generic with the
+  // same type arguments -- possibly created in different packages, with
+  // different mangled instance names ("Base$type0" vs "Base$type1") -- are the
+  // same type.  Hash by the canonical id so such instances hash equal too;
+  // otherwise a hash table keyed by type identity (e.g. the exporter's
+  // type_refs, whose equality is are_identical) puts them in different buckets
+  // and records both, tripping the "equal types" assertion in Sort_types.
+  if (!this->generic_canonical_id_.empty())
+    return Gogo::hash_string(this->generic_canonical_id_, 0);
+
   const std::string& name(this->named_object()->name());
   unsigned int ret = Gogo::hash_string(name, 0);
 

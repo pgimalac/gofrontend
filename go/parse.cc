@@ -4008,6 +4008,27 @@ Parse::partial_type_args_for(const Expression* expr)
   return &p->second;
 }
 
+// Generics: the package-qualifier alias->pkgpath bindings for a partial
+// instantiation's explicit type arguments, captured at parse time (while the
+// file's imports are still in scope).  The explicit arguments are re-parsed
+// later, during determine_types, when the file-scope imports have been
+// cleared; without these bindings a qualifier like "tpm2" in an explicit
+// argument "tpm2.TPMTPublic" would not resolve.  Keyed like
+// partial_generic_type_args.
+static std::map<const Expression*, std::map<std::string, std::string> >
+  partial_generic_type_arg_aliases;
+
+const std::map<std::string, std::string>*
+Parse::partial_type_arg_aliases_for(const Expression* expr)
+{
+  std::map<const Expression*,
+	   std::map<std::string, std::string> >::const_iterator
+    p = partial_generic_type_arg_aliases.find(expr);
+  if (p == partial_generic_type_arg_aliases.end())
+    return NULL;
+  return &p->second;
+}
+
 // Generics: for an ambiguous "name[expr](args)" on a forward (unknown)
 // reference, "[expr]" may be a generic type-argument list (a generic call
 // "F[T](args)") or an ordinary index of a value followed by a call
@@ -4390,7 +4411,18 @@ Parse::generic_instance_canonical_id(Generic_function_info* info,
 		aliases.find(arg[j].identifier());
 	      if (a != aliases.end())
 		{
+		  // Emit "<pkgpath>.<Name>" with a LITERAL dot, matching the
+		  // bare-local-name branch below (which appends pkgpath + "." +
+		  // name).  Otherwise a qualified "pkg.T" argument would encode
+		  // the "." via token_key_string ("o39") while a bare "T" uses a
+		  // literal ".", giving two different canonical ids for the same
+		  // type -- e.g. an inferred cross-package arg ("lib.Pub", from
+		  // type_to_tokens) vs the same instance spelled with a bare
+		  // "Pub" in its own package (a type alias's arguments).  Skip
+		  // the following "." token.
 		  id += a->second;   // pkgpath, not the (ambiguous) alias
+		  id += ".";
+		  ++j;               // skip the "." (emitted as a literal above)
 		  continue;
 		}
 	    }
@@ -6613,7 +6645,9 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 					  Location location,
 					  const std::vector<std::vector<Token> >* partial,
 					  bool call_is_spread,
-					  bool quiet)
+					  bool quiet,
+					  const std::map<std::string, std::string>*
+					    extra_pkg_aliases)
 {
   size_t nparams = info->type_param_names().size();
 
@@ -6782,7 +6816,12 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
     for (size_t i = 0; i < nparams && i < partial->size(); ++i)
       if (solved[i] == NULL)
 	{
-	  Type* pt = this->parse_type_from_tokens((*partial)[i]);
+	  // Resolve the explicit argument's package qualifiers via the
+	  // bindings captured at parse time: the file-scope imports are gone
+	  // by now, so a qualifier like "tpm2" in "tpm2.TPMTPublic" would
+	  // otherwise fail to resolve.
+	  Type* pt = this->parse_type_from_tokens((*partial)[i],
+						  extra_pkg_aliases);
 	  if (pt != NULL && !pt->is_error_type())
 	    solved[i] = pt;
 	}
@@ -6796,6 +6835,20 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   // another.
   {
     std::vector<std::vector<Token> >& cons = info->constraints();
+    // A constraint captured from an IMPORTED template refers to the defining
+    // package's types by bare name (e.g. the embedded "Unmarshallable" in
+    // go-tpm's "P interface{ *T; Unmarshallable }").  Enter that package's
+    // context so constraint_core_type_with_markers can resolve such a name to
+    // its interface type and correctly skip it (leaving "*T" as the core type
+    // that determines P), rather than treating it as a second structural term
+    // and giving up on inference.
+    bool cons_ctx = false;
+    if (info->defining_package() != NULL)
+      {
+	this->gogo_->push_instantiation_context();
+	this->gogo_->push_instantiation_package(info->defining_package());
+	cons_ctx = true;
+      }
     bool progress = true;
     while (progress)
       {
@@ -6844,6 +6897,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	      }
 	  }
       }
+    if (cons_ctx)
+      {
+	this->gogo_->pop_instantiation_package();
+	this->gogo_->pop_instantiation_context();
+      }
   }
 
   // Convert each solved type to tokens to use as a type argument.  Type
@@ -6855,6 +6913,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
   // exact package it came from even when another same-named package is in
   // scope.
   std::map<std::string, std::string> pkg_bindings;
+  // The partial arguments' qualifier bindings were captured at parse time
+  // (before file-scope imports were cleared); make them available to the
+  // instance re-parse so a qualifier like "tpm2" still resolves.
+  if (extra_pkg_aliases != NULL)
+    pkg_bindings.insert(extra_pkg_aliases->begin(), extra_pkg_aliases->end());
   for (size_t i = 0; i < nparams; ++i)
     {
       if (partial != NULL && i < partial->size())
@@ -8304,6 +8367,17 @@ Parse::generic_instantiation(Generic_function_info* info, Expression* fn,
 	    return Expression::make_func_reference(ino, NULL, location);
 	}
       partial_generic_type_args[fn] = type_args;
+      // Capture the type arguments' package-qualifier bindings now, while the
+      // file's imports are in scope, so a qualifier in an explicit argument
+      // (e.g. "tpm2" in "tpm2.TPMTPublic") still resolves when the argument is
+      // re-parsed during determine_types, after file-scope imports are cleared.
+      {
+	std::map<std::string, std::string> aliases;
+	for (size_t i = 0; i < type_args.size(); ++i)
+	  this->note_token_package_usage(type_args[i], &aliases);
+	if (!aliases.empty())
+	  partial_generic_type_arg_aliases[fn] = aliases;
+      }
       return fn;
     }
 

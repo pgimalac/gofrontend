@@ -1348,6 +1348,23 @@ class Gogo
   std::string
   interface_method_table_name(Interface_type*, Type*, bool is_pointer);
 
+  // Look up an already-emitted interface method table by its mangled symbol
+  // name, or NULL if none.  Used to avoid emitting a second definition of the
+  // same method table within one compilation (two generic-instance objects
+  // unified by canonical id can both request it).
+  Bvariable*
+  interface_method_table_var(const std::string& name)
+  {
+    Unordered_map(std::string, Bvariable*)::const_iterator p =
+      this->interface_method_tables_.find(name);
+    return p == this->interface_method_tables_.end() ? NULL : p->second;
+  }
+
+  // Record an emitted interface method table variable under its mangled name.
+  void
+  add_interface_method_table_var(const std::string& name, Bvariable* var)
+  { this->interface_method_tables_[name] = var; }
+
   // If NAME is a special name used as a Go identifier, return the
   // position within the string where the special part of the name
   // occurs.
@@ -1601,6 +1618,12 @@ class Gogo
   std::vector<Specific_type_function*> specific_type_functions_;
   // Whether we are done writing out specific type functions.
   bool specific_type_functions_are_written_;
+  // Interface method tables already emitted in this compilation, keyed by
+  // their mangled symbol name.  A generic instance is monomorphized in every
+  // package, so a local instance and an imported instance of the same generic
+  // (unified by canonical id) can both request the same method table within
+  // one compilation unit; emit it once and share the variable.
+  Unordered_map(std::string, Bvariable*) interface_method_tables_;
   // Whether named types have been converted.
   bool named_types_are_converted_;
   // A list containing groups of possibly mutually recursive functions to be
