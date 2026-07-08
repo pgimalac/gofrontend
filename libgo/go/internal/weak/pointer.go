@@ -76,8 +76,8 @@ func (p Pointer[T]) Strong() *T {
 
 // Implemented in runtime.
 
-//go:linkname runtime_registerWeakPointer
+//go:linkname runtime_registerWeakPointer runtime.registerWeakPointer
 func runtime_registerWeakPointer(unsafe.Pointer) unsafe.Pointer
 
-//go:linkname runtime_makeStrongFromWeak
+//go:linkname runtime_makeStrongFromWeak runtime.makeStrongFromWeak
 func runtime_makeStrongFromWeak(unsafe.Pointer) unsafe.Pointer

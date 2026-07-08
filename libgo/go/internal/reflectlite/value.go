@@ -103,50 +103,52 @@ func (v Value) pointer() unsafe.Pointer {
 func packEface(v Value) any {
 	t := v.typ
 	var i any
-	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
+	e := (*emptyInterface)(unsafe.Pointer(&i))
 	// First, fill in the data portion of the interface.
 	switch {
-	case t.IfaceIndir():
+	case ifaceIndir(t):
 		if v.flag&flagIndir == 0 {
 			panic("bad indir")
 		}
 		// Value is indirect, and so is the interface we're making.
 		ptr := v.ptr
 		if v.flag&flagAddr != 0 {
+			// TODO: pass safe boolean from valueInterface so
+			// we don't need to copy if safe==true?
 			c := unsafe_New(t)
 			typedmemmove(t, c, ptr)
 			ptr = c
 		}
-		e.Data = ptr
+		e.word = ptr
 	case v.flag&flagIndir != 0:
 		// Value is indirect, but interface is direct. We need
 		// to load the data at v.ptr into the interface data word.
-		e.Data = *(*unsafe.Pointer)(v.ptr)
+		e.word = *(*unsafe.Pointer)(v.ptr)
 	default:
 		// Value is direct, and so is the interface.
-		e.Data = v.ptr
+		e.word = v.ptr
 	}
 	// Now, fill in the type portion. We're very careful here not
 	// to have any operation between the e.word and e.typ assignments
 	// that would let the garbage collector observe the partially-built
 	// interface value.
-	e.Type = t
+	e.typ = t
 	return i
 }
 
 // unpackEface converts the empty interface i to a Value.
 func unpackEface(i any) Value {
-	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
+	e := (*emptyInterface)(unsafe.Pointer(&i))
 	// NOTE: don't read e.word until we know whether it is really a pointer or not.
-	t := e.Type
+	t := e.typ
 	if t == nil {
 		return Value{}
 	}
 	f := flag(t.Kind())
-	if t.IfaceIndir() {
+	if ifaceIndir(t) {
 		f |= flagIndir
 	}
-	return Value{t, e.Data, f}
+	return Value{t, e.word, f}
 }
 
 // A ValueError occurs when a Value method is invoked on
@@ -273,6 +275,7 @@ func valueInterface(v Value) any {
 		})(v.ptr)
 	}
 
+	// TODO: pass safe to packEface so we don't need to copy if safe==true?
 	return packEface(v)
 }
 

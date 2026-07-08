@@ -167,7 +167,6 @@ internal/goos
 internal/goroot
 internal/gover
 internal/goversion
-internal/intern
 internal/itoa
 internal/lazyregexp
 internal/lazytemplate
@@ -184,7 +183,6 @@ internal/race
 internal/reflectlite
 internal/runtime/atomic
 internal/runtime/exithook
-internal/safefilepath
 internal/saferio
 internal/singleflight
 internal/stringslite
@@ -196,12 +194,6 @@ internal/testlog
 internal/testpty
 internal/trace
 internal/trace/traceviewer/format
-internal/trace/v2
-internal/trace/v2/event
-internal/trace/v2/event/go122
-internal/trace/v2/raw
-internal/trace/v2/testtrace
-internal/trace/v2/version
 internal/txtar
 internal/types/errors
 internal/unsafeheader

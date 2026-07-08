@@ -7318,7 +7318,13 @@ atomic_wrapper_c_type(const Type* t)
   const Named_object* no = nt->named_object();
   if (no->package() == NULL || t->struct_type() == NULL)
     return "";
-  if (no->package()->pkgpath() != "runtime/internal/atomic")
+  // The sync/atomic wrapper types live in "runtime/internal/atomic" up to
+  // Go 1.22 and in "internal/runtime/atomic" from Go 1.23 (the package was
+  // renamed); accept both so an array of e.g. atomic.Uint64 emits a scalar
+  // C element type rather than a nested opaque byte array.
+  const std::string& pkgpath = no->package()->pkgpath();
+  if (pkgpath != "runtime/internal/atomic"
+      && pkgpath != "internal/runtime/atomic")
     return "";
   const std::string& n = no->name();
   if (n == "Int32")
