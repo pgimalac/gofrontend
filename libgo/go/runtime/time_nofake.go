@@ -44,7 +44,6 @@ func nanotime() int64 {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname overrideWrite
 var overrideWrite func(fd uintptr, p unsafe.Pointer, n int32) int32
 
 // write must be nosplit on Windows (see write1)

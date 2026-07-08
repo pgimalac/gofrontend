@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build goexperiment.exectracer2
+
 // Trace buffer management.
 
 package runtime
@@ -59,7 +61,7 @@ func (w traceWriter) end() {
 func (w traceWriter) ensure(maxSize int) (traceWriter, bool) {
 	refill := w.traceBuf == nil || !w.available(maxSize)
 	if refill {
-		w = w.refill(traceNoExperiment)
+		w = w.refill()
 	}
 	return w, refill
 }
@@ -78,9 +80,7 @@ func (w traceWriter) flush() traceWriter {
 }
 
 // refill puts w.traceBuf on the queue of full buffers and refresh's w's buffer.
-//
-// exp indicates whether the refilled batch should be EvExperimentalBatch.
-func (w traceWriter) refill(exp traceExperiment) traceWriter {
+func (w traceWriter) refill() traceWriter {
 	systemstack(func() {
 		lock(&trace.lock)
 		if w.traceBuf != nil {
@@ -114,12 +114,7 @@ func (w traceWriter) refill(exp traceExperiment) traceWriter {
 	}
 
 	// Write the buffer's header.
-	if exp == traceNoExperiment {
-		w.byte(byte(traceEvEventBatch))
-	} else {
-		w.byte(byte(traceEvExperimentalBatch))
-		w.byte(byte(exp))
-	}
+	w.byte(byte(traceEvEventBatch))
 	w.varint(uint64(w.gen))
 	w.varint(uint64(mID))
 	w.varint(uint64(ts))

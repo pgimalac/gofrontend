@@ -159,16 +159,6 @@ import (
 // TODO: Perfect for go:nosplitrec since we can't have a safe point
 // anywhere in the bulk barrier or memmove.
 //
-// typedmemmove should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/RomiChan/protobuf
-//   - github.com/segmentio/encoding
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
-//go:linkname typedmemmove
 //go:nosplit
 func typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 	if dst == src {
@@ -210,18 +200,6 @@ func wbMove(typ *_type, dst, src unsafe.Pointer) {
 	bulkBarrierPreWrite(uintptr(dst), uintptr(src), typ.ptrdata)
 }
 
-// reflect_typedmemmove is meant for package reflect,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - gitee.com/quant1x/gox
-//   - github.com/goccy/json
-//   - github.com/modern-go/reflect2
-//   - github.com/ugorji/go/codec
-//   - github.com/v2pro/plz
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
 //go:linkname reflect_typedmemmove reflect.typedmemmove
 func reflect_typedmemmove(typ *_type, dst, src unsafe.Pointer) {
 	if raceenabled {
@@ -267,15 +245,6 @@ func reflect_typedmemmovepartial(typ *_type, dst, src unsafe.Pointer, off, size 
 	}
 }
 
-// typedslicecopy should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/segmentio/encoding
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
-//go:linkname typedslicecopy
 //go:nosplit
 func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe.Pointer, srcLen int) int {
 	n := dstLen
@@ -328,18 +297,6 @@ func typedslicecopy(typ *_type, dstPtr unsafe.Pointer, dstLen int, srcPtr unsafe
 	return n
 }
 
-// reflect_typedslicecopy is meant for package reflect,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - gitee.com/quant1x/gox
-//   - github.com/modern-go/reflect2
-//   - github.com/RomiChan/protobuf
-//   - github.com/segmentio/encoding
-//   - github.com/v2pro/plz
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
 //go:linkname reflect_typedslicecopy reflect.typedslicecopy
 func reflect_typedslicecopy(elemType *_type, dst, src slice) int {
 	if elemType.ptrdata == 0 {
@@ -366,14 +323,6 @@ func typedmemclr(typ *_type, ptr unsafe.Pointer) {
 	memclrNoHeapPointers(ptr, typ.size)
 }
 
-// reflect_typedslicecopy is meant for package reflect,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/ugorji/go/codec
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
 //go:linkname reflect_typedmemclr reflect.typedmemclr
 func reflect_typedmemclr(typ *_type, ptr unsafe.Pointer) {
 	typedmemclr(typ, ptr)
@@ -401,15 +350,6 @@ func reflect_typedarrayclear(typ *_type, ptr unsafe.Pointer, len int) {
 // pointers, usually by checking typ.ptrdata. However, ptr
 // does not have to point to the start of the allocation.
 //
-// memclrHasPointers should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/bytedance/sonic
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
-//go:linkname memclrHasPointers
 //go:nosplit
 func memclrHasPointers(ptr unsafe.Pointer, n uintptr) {
 	bulkBarrierPreWrite(uintptr(ptr), 0, n)

@@ -8,7 +8,6 @@
 package runtime
 
 import (
-	"internal/abi"
 	"internal/goarch"
 	"unsafe"
 )
@@ -294,7 +293,7 @@ func cgoCheckUsingType(typ *_type, src unsafe.Pointer, off, size uintptr) {
 	switch typ.kind & kindMask {
 	default:
 		throw("can't happen")
-	case abi.Array:
+	case kindArray:
 		at := (*arraytype)(unsafe.Pointer(typ))
 		for i := uintptr(0); i < at.len; i++ {
 			if off < at.elem.size {
@@ -312,7 +311,7 @@ func cgoCheckUsingType(typ *_type, src unsafe.Pointer, off, size uintptr) {
 			}
 			size -= checked
 		}
-	case abi.Struct:
+	case kindStruct:
 		st := (*structtype)(unsafe.Pointer(typ))
 		for _, f := range st.fields {
 			if off < f.typ.size {

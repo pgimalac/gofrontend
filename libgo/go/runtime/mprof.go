@@ -15,6 +15,13 @@ import (
 	"unsafe"
 )
 
+// logicalStackSentinel is a sentinel value at pcBuf[0] signifying that
+// pcBuf[1:] holds a logical stack requiring no further processing. In the
+// gc runtime this is defined by the execution tracer (trace2stack.go),
+// which gccgo does not build; define it here so the mutex-profile code
+// compiles.
+const logicalStackSentinel = ^uintptr(0)
+
 // For gofrontend, use go:linkname for blockevent so that
 // runtime/pprof/pprof_test can call it.
 //go:linkname blockevent
@@ -1434,6 +1441,12 @@ func ThreadCreateProfile(p []StackRecord) (n int, ok bool) {
 	})
 }
 
+// threadCreateStackScratch is a scratch buffer used by
+// threadCreateProfileInternal to flatten an m's createstack into a slice of
+// PCs without allocating (and without letting a stack-local array escape).
+// It is only used while walking allm in threadCreateProfileInternal.
+var threadCreateStackScratch [32]uintptr // must match m.createstack length
+
 // threadCreateProfileInternal returns the number of records n in the profile.
 // If there are less than size records, copyFn is invoked for each record, and
 // ok returns true.
@@ -1446,18 +1459,22 @@ func threadCreateProfileInternal(size int, copyFn func(profilerecord.StackRecord
 		ok = true
 		for mp := first; mp != nil; mp = mp.alllink {
 			// gccgo stores createstack as []location; flatten to the PCs
-			// that profilerecord.StackRecord expects.
-			var stk [len(mp.createstack)]uintptr
+			// that profilerecord.StackRecord expects. Use a package-level
+			// scratch buffer rather than a stack-local array: slicing a
+			// stack-local array into the record and passing it to copyFn
+			// would make the array escape, which is not allowed in the
+			// runtime. copyFn copies the stack out before the next
+			// iteration reuses the buffer.
 			nstk := 0
 			for j := range mp.createstack {
 				pc := mp.createstack[j].pc
 				if pc == 0 {
 					break
 				}
-				stk[j] = pc
+				threadCreateStackScratch[j] = pc
 				nstk++
 			}
-			r := profilerecord.StackRecord{Stack: stk[:nstk]}
+			r := profilerecord.StackRecord{Stack: threadCreateStackScratch[:nstk]}
 			copyFn(r)
 		}
 	}

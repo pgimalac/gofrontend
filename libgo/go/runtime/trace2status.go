@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build goexperiment.exectracer2
+
 // Trace goroutine and P status management.
 
 package runtime
@@ -46,7 +48,7 @@ const (
 )
 
 // writeGoStatus emits a GoStatus event as well as any active ranges on the goroutine.
-func (w traceWriter) writeGoStatus(goid uint64, mid int64, status traceGoStatus, markAssist bool, stackID uint64) traceWriter {
+func (w traceWriter) writeGoStatus(goid uint64, mid int64, status traceGoStatus, markAssist bool) traceWriter {
 	// The status should never be bad. Some invariant must have been violated.
 	if status == traceGoBad {
 		print("runtime: goid=", goid, "\n")
@@ -54,11 +56,7 @@ func (w traceWriter) writeGoStatus(goid uint64, mid int64, status traceGoStatus,
 	}
 
 	// Trace the status.
-	if stackID == 0 {
-		w = w.event(traceEvGoStatus, traceArg(goid), traceArg(uint64(mid)), traceArg(status))
-	} else {
-		w = w.event(traceEvGoStatusStack, traceArg(goid), traceArg(uint64(mid)), traceArg(status), traceArg(stackID))
-	}
+	w = w.event(traceEvGoStatus, traceArg(goid), traceArg(uint64(mid)), traceArg(status))
 
 	// Trace any special ranges that are in-progress.
 	if markAssist {
@@ -144,7 +142,13 @@ func goStatusToTraceGoStatus(status uint32, wr waitReason) traceGoStatus {
 		// emit an event, and we want these goroutines to appear in
 		// the final trace as if they're running, not blocked.
 		tgs = traceGoWaiting
-		if status == _Gwaiting && wr.isWaitingForGC() {
+		if status == _Gwaiting &&
+			wr == waitReasonStoppingTheWorld ||
+			wr == waitReasonGCMarkTermination ||
+			wr == waitReasonGarbageCollection ||
+			wr == waitReasonTraceProcStatus ||
+			wr == waitReasonPageTraceFlush ||
+			wr == waitReasonGCWorkerActive {
 			tgs = traceGoRunning
 		}
 	case _Gdead:

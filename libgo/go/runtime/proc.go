@@ -333,7 +333,7 @@ func os_beforeExit(exitCode int) {
 
 func init() {
 	exithook.Gosched = Gosched
-	exithook.Goid = func() uint64 { return getg().goid }
+	exithook.Goid = func() uint64 { return uint64(getg().goid) }
 	exithook.Throw = throw
 }
 
@@ -4718,7 +4718,7 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 	_p_.goidcache++
 	newg.trace.reset()
 	if trace.ok() {
-		trace.GoCreate(newg, newg.startpc, parked)
+		trace.GoCreate(newg, newg.startpc)
 		traceRelease(trace)
 	}
 

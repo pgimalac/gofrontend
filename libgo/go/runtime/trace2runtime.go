@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build goexperiment.exectracer2
+
 // Runtime -> tracer API.
 
 package runtime
@@ -54,13 +56,11 @@ func traceLockInit() {
 	// Sharing a lock rank here is fine because they should never be accessed
 	// together. If they are, we want to find out immediately.
 	lockInit(&trace.stringTab[0].lock, lockRankTraceStrings)
-	lockInit(&trace.stringTab[0].tab.mem.lock, lockRankTraceStrings)
+	lockInit(&trace.stringTab[0].tab.lock, lockRankTraceStrings)
 	lockInit(&trace.stringTab[1].lock, lockRankTraceStrings)
-	lockInit(&trace.stringTab[1].tab.mem.lock, lockRankTraceStrings)
-	lockInit(&trace.stackTab[0].tab.mem.lock, lockRankTraceStackTab)
-	lockInit(&trace.stackTab[1].tab.mem.lock, lockRankTraceStackTab)
-	lockInit(&trace.typeTab[0].tab.mem.lock, lockRankTraceTypeTab)
-	lockInit(&trace.typeTab[1].tab.mem.lock, lockRankTraceTypeTab)
+	lockInit(&trace.stringTab[1].tab.lock, lockRankTraceStrings)
+	lockInit(&trace.stackTab[0].tab.lock, lockRankTraceStackTab)
+	lockInit(&trace.stackTab[1].tab.lock, lockRankTraceStackTab)
 	lockInit(&trace.lock, lockRankTrace)
 }
 
@@ -141,15 +141,7 @@ var traceGoStopReasonStrings = [...]string{
 //
 //go:nosplit
 func traceEnabled() bool {
-	return trace.enabled
-}
-
-// traceAllocFreeEnabled returns true if the trace is currently enabled
-// and alloc/free events are also enabled.
-//
-//go:nosplit
-func traceAllocFreeEnabled() bool {
-	return trace.enabledWithAllocFree
+	return trace.gen.Load() != 0
 }
 
 // traceShuttingDown returns true if the trace is currently shutting down.
@@ -182,22 +174,6 @@ func traceAcquire() traceLocker {
 		return traceLocker{}
 	}
 	return traceAcquireEnabled()
-}
-
-// traceTryAcquire is like traceAcquire, but may return an invalid traceLocker even
-// if tracing is enabled. For example, it will return !ok if traceAcquire is being
-// called with an active traceAcquire on the M (reentrant locking). This exists for
-// optimistically emitting events in the few contexts where tracing is now allowed.
-//
-// nosplit for alignment with traceTryAcquire, so it can be used in the
-// same contexts.
-//
-//go:nosplit
-func traceTryAcquire() traceLocker {
-	if !traceEnabled() {
-		return traceLocker{}
-	}
-	return traceTryAcquireEnabled()
 }
 
 // traceAcquireEnabled is the traceEnabled path for traceAcquire. It's explicitly
@@ -242,26 +218,6 @@ func traceAcquireEnabled() traceLocker {
 		return traceLocker{}
 	}
 	return traceLocker{mp, gen}
-}
-
-// traceTryAcquireEnabled is like traceAcquireEnabled but may return an invalid
-// traceLocker under some conditions. See traceTryAcquire for more details.
-//
-// nosplit for alignment with traceAcquireEnabled, so it can be used in the
-// same contexts.
-//
-//go:nosplit
-func traceTryAcquireEnabled() traceLocker {
-	// Any time we acquire a traceLocker, we may flush a trace buffer. But
-	// buffer flushes are rare. Record the lock edge even if it doesn't happen
-	// this time.
-	lockRankMayTraceFlush()
-
-	// Check if we're already locked. If so, return an invalid traceLocker.
-	if getg().m.trace.seqlock.Load()%2 == 1 {
-		return traceLocker{}
-	}
-	return traceAcquireEnabled()
 }
 
 // ok returns true if the traceLocker is valid (i.e. tracing is enabled).
@@ -433,13 +389,9 @@ func (tl traceLocker) GCMarkAssistDone() {
 }
 
 // GoCreate emits a GoCreate event.
-func (tl traceLocker) GoCreate(newg *g, pc uintptr, blocked bool) {
+func (tl traceLocker) GoCreate(newg *g, pc uintptr) {
 	newg.trace.setStatusTraced(tl.gen)
-	ev := traceEvGoCreate
-	if blocked {
-		ev = traceEvGoCreateBlocked
-	}
-	tl.eventWriter(traceGoRunning, traceProcRunning).commit(ev, traceArg(newg.goid), tl.startPC(pc), tl.stack(2))
+	tl.eventWriter(traceGoRunning, traceProcRunning).commit(traceEvGoCreate, traceArg(newg.goid), tl.startPC(pc), tl.stack(2))
 }
 
 // GoStart emits a GoStart event.
@@ -490,47 +442,37 @@ func (tl traceLocker) GoPark(reason traceBlockReason, skip int) {
 func (tl traceLocker) GoUnpark(gp *g, skip int) {
 	// Emit a GoWaiting status if necessary for the unblocked goroutine.
 	w := tl.eventWriter(traceGoRunning, traceProcRunning)
-	// Careful: don't use the event writer. We never want status or in-progress events
-	// to trigger more in-progress events.
-	w.w = emitUnblockStatus(w.w, gp, tl.gen)
+	if !gp.trace.statusWasTraced(tl.gen) && gp.trace.acquireStatus(tl.gen) {
+		// Careful: don't use the event writer. We never want status or in-progress events
+		// to trigger more in-progress events.
+		w.w = w.w.writeGoStatus(gp.goid, -1, traceGoWaiting, gp.inMarkAssist)
+	}
 	w.commit(traceEvGoUnblock, traceArg(gp.goid), gp.trace.nextSeq(tl.gen), tl.stack(skip))
-}
-
-// GoCoroswitch emits a GoSwitch event. If destroy is true, the calling goroutine
-// is simultaneously being destroyed.
-func (tl traceLocker) GoSwitch(nextg *g, destroy bool) {
-	// Emit a GoWaiting status if necessary for the unblocked goroutine.
-	w := tl.eventWriter(traceGoRunning, traceProcRunning)
-	// Careful: don't use the event writer. We never want status or in-progress events
-	// to trigger more in-progress events.
-	w.w = emitUnblockStatus(w.w, nextg, tl.gen)
-	ev := traceEvGoSwitch
-	if destroy {
-		ev = traceEvGoSwitchDestroy
-	}
-	w.commit(ev, traceArg(nextg.goid), nextg.trace.nextSeq(tl.gen))
-}
-
-// emitUnblockStatus emits a GoStatus GoWaiting event for a goroutine about to be
-// unblocked to the trace writer.
-func emitUnblockStatus(w traceWriter, gp *g, gen uintptr) traceWriter {
-	if !gp.trace.statusWasTraced(gen) && gp.trace.acquireStatus(gen) {
-		// TODO(go.dev/issue/65634): Although it would be nice to add a stack trace here of gp,
-		// we cannot safely do so. gp is in _Gwaiting and so we don't have ownership of its stack.
-		// We can fix this by acquiring the goroutine's scan bit.
-		w = w.writeGoStatus(gp.goid, -1, traceGoWaiting, gp.inMarkAssist, 0)
-	}
-	return w
 }
 
 // GoSysCall emits a GoSyscallBegin event.
 //
 // Must be called with a valid P.
 func (tl traceLocker) GoSysCall() {
+	var skip int
+	switch {
+	case tracefpunwindoff():
+		// Unwind by skipping 1 frame relative to gp.syscallsp which is captured 3
+		// results by hard coding the number of frames in between our caller and the
+		// actual syscall, see cases below.
+		// TODO(felixge): Implement gp.syscallbp to avoid this workaround?
+		skip = 1
+	case GOOS == "solaris" || GOOS == "illumos":
+		// These platforms don't use a libc_read_trampoline.
+		skip = 3
+	default:
+		// Skip the extra trampoline frame used on most systems.
+		skip = 4
+	}
 	// Scribble down the M that the P is currently attached to.
 	pp := tl.mp.p.ptr()
 	pp.trace.mSyscallID = int64(tl.mp.procid)
-	tl.eventWriter(traceGoRunning, traceProcRunning).commit(traceEvGoSyscallBegin, pp.trace.nextSeq(tl.gen), tl.stack(1))
+	tl.eventWriter(traceGoRunning, traceProcRunning).commit(traceEvGoSyscallBegin, pp.trace.nextSeq(tl.gen), tl.stack(skip))
 }
 
 // GoSysExit emits a GoSyscallEnd event, possibly along with a GoSyscallBlocked event
@@ -591,6 +533,10 @@ func (tl traceLocker) ProcSteal(pp *p, inSyscall bool) {
 	w.commit(traceEvProcSteal, traceArg(pp.id), pp.trace.nextSeq(tl.gen), traceArg(mStolenFrom))
 }
 
+// GoSysBlock is a no-op in the new tracer.
+func (tl traceLocker) GoSysBlock(pp *p) {
+}
+
 // HeapAlloc emits a HeapAlloc event.
 func (tl traceLocker) HeapAlloc(live uint64) {
 	tl.eventWriter(traceGoRunning, traceProcRunning).commit(traceEvHeapAlloc, traceArg(live))
@@ -604,6 +550,11 @@ func (tl traceLocker) HeapGoal() {
 		heapGoal = 0
 	}
 	tl.eventWriter(traceGoRunning, traceProcRunning).commit(traceEvHeapGoal, traceArg(heapGoal))
+}
+
+// OneNewExtraM is a no-op in the new tracer. This is worth keeping around though because
+// it's a good place to insert a thread-level event about the new extra M.
+func (tl traceLocker) OneNewExtraM(_ *g) {
 }
 
 // GoCreateSyscall indicates that a goroutine has transitioned from dead to GoSyscall.
@@ -698,6 +649,14 @@ func trace_userLog(id uint64, category, message string) {
 	traceRelease(tl)
 }
 
+// traceProcFree is called when a P is destroyed.
+//
+// This must run on the system stack to match the old tracer.
+//
+//go:systemstack
+func traceProcFree(_ *p) {
+}
+
 // traceThreadDestroy is called when a thread is removed from
 // sched.freem.
 //
@@ -735,4 +694,11 @@ func traceThreadDestroy(mp *m) {
 		print("runtime: seq1=", seq1, "\n")
 		throw("bad use of trace.seqlock")
 	}
+}
+
+// Not used in the new tracer; solely for compatibility with the old tracer.
+// nosplit because it's called from exitsyscall without a P.
+//
+//go:nosplit
+func (_ traceLocker) RecordSyscallExitedTime(_ *g, _ *p) {
 }

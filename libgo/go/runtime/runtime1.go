@@ -346,9 +346,10 @@ var debug struct {
 	// debug.malloc is used as a combined debug check
 	// in the malloc function and should be set
 	// if any of the below debug options is != 0.
-	malloc    bool
-	inittrace int32
-	sbrk      int32
+	malloc         bool
+	allocfreetrace int32
+	inittrace      int32
+	sbrk           int32
 	// traceallocfree controls whether execution traces contain
 	// detailed trace data about memory allocation. This value
 	// affects debug.malloc only if it is != 0 and the execution
@@ -374,6 +375,7 @@ var debug struct {
 
 var dbgvars = []*dbgVar{
 	{name: "adaptivestackstart", value: &debug.adaptivestackstart},
+	{name: "allocfreetrace", value: &debug.allocfreetrace},
 	{name: "asyncpreemptoff", value: &debug.asyncpreemptoff},
 	{name: "asynctimerchan", atomic: &debug.asynctimerchan},
 	{name: "cgocheck", value: &debug.cgocheck},
@@ -452,7 +454,7 @@ func parsedebugvars() {
 	// apply environment settings
 	parsegodebug(godebug, nil)
 
-	debug.malloc = (debug.inittrace | debug.sbrk) != 0
+	debug.malloc = (debug.allocfreetrace | debug.inittrace | debug.sbrk) != 0
 	debug.profstackdepth = min(debug.profstackdepth, maxProfStackDepth)
 
 	setTraceback(gogetenv("GOTRACEBACK"))

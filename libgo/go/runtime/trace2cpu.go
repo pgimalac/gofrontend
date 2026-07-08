@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build goexperiment.exectracer2
+
 // CPU profile -> trace
 
 package runtime
@@ -110,9 +112,6 @@ func traceStopReadCPU() {
 //
 // No more than one goroutine may be in traceReadCPU for the same
 // profBuf at a time.
-//
-// Must not run on the system stack because profBuf.read performs race
-// operations.
 func traceReadCPU(gen uintptr) bool {
 	var pcBuf [traceStackSize]uintptr
 
@@ -193,15 +192,21 @@ func traceReadCPU(gen uintptr) bool {
 
 // traceCPUFlush flushes trace.cpuBuf[gen%2]. The caller must be certain that gen
 // has completed and that there are no more writers to it.
+//
+// Must run on the systemstack because it flushes buffers and acquires trace.lock
+// to do so.
+//
+//go:systemstack
 func traceCPUFlush(gen uintptr) {
+	// Read everything out of the last gen's CPU profile buffer.
+	traceReadCPU(gen)
+
 	// Flush any remaining trace buffers containing CPU samples.
 	if buf := trace.cpuBuf[gen%2]; buf != nil {
-		systemstack(func() {
-			lock(&trace.lock)
-			traceBufFlush(buf, gen)
-			unlock(&trace.lock)
-			trace.cpuBuf[gen%2] = nil
-		})
+		lock(&trace.lock)
+		traceBufFlush(buf, gen)
+		unlock(&trace.lock)
+		trace.cpuBuf[gen%2] = nil
 	}
 }
 
@@ -256,7 +261,9 @@ func traceCPUSample(gp *g, mp *m, pp *p, stk []uintptr) {
 	if gp != nil {
 		hdr[1] = gp.goid
 	}
-	hdr[2] = uint64(mp.procid)
+	if mp != nil {
+		hdr[2] = uint64(mp.procid)
+	}
 
 	// Allow only one writer at a time
 	for !trace.signalLock.CompareAndSwap(0, 1) {

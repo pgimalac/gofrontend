@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build goexperiment.exectracer2
+
 // Trace time and clock.
 
 package runtime
 
-import (
-	"internal/goarch"
-	_ "unsafe"
-)
+import "internal/goarch"
 
 // Timestamps in trace are produced through either nanotime or cputicks
 // and divided by traceTimeDiv. nanotime is used everywhere except on
@@ -49,9 +48,6 @@ type traceTime uint64
 //
 // nosplit because it's called from exitsyscall, which is nosplit.
 //
-// traceClockNow is called by golang.org/x/exp/trace using linkname.
-//
-//go:linkname traceClockNow
 //go:nosplit
 func traceClockNow() traceTime {
 	if osHasLowResClock {
@@ -65,7 +61,7 @@ func traceClockNow() traceTime {
 func traceClockUnitsPerSecond() uint64 {
 	if osHasLowResClock {
 		// We're using cputicks as our clock, so we need a real estimate.
-		return uint64(ticksPerSecond() / traceTimeDiv)
+		return uint64(ticksPerSecond())
 	}
 	// Our clock is nanotime, so it's just the constant time division.
 	// (trace clock units / nanoseconds) * (1e9 nanoseconds / 1 second)

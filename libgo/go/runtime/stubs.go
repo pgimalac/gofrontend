@@ -20,7 +20,6 @@ import (
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname add
 //go:nosplit
 func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(p) + x)
@@ -118,7 +117,6 @@ func badsystemstack() {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname memclrNoHeapPointers
 //go:noescape
 func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)
 
@@ -242,7 +240,6 @@ func os_fastrand() uint32 { return fastrand() }
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname memequal
 //go:noescape
 func memequal(a, b unsafe.Pointer, size uintptr) bool
 
@@ -264,7 +261,6 @@ func memequal(a, b unsafe.Pointer, size uintptr) bool
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname noescape
 //go:nosplit
 func noescape(p unsafe.Pointer) unsafe.Pointer {
 	x := uintptr(p)
@@ -294,7 +290,6 @@ func reflectcall(fntype *functype, fn *funcval, isInterface, isMethod bool, para
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname procyield
 func procyield(cycles uint32)
 
 type neverCallThisFunction struct{}

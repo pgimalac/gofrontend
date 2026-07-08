@@ -267,13 +267,6 @@ func markrootSpans(gcw *gcWork, shard int) {
 	// 2) Finalizer specials (which are not in the garbage
 	// collected heap) are roots. In practice, this means the fn
 	// field must be scanned.
-	//
-	// Objects with weak handles have only one invariant related
-	// to this function: weak handle specials (which are not in the
-	// garbage collected heap) are roots. In practice, this means
-	// the handle field must be scanned. Note that the value the
-	// handle pointer referenced does *not* need to be scanned. See
-	// the definition of specialWeakHandle for details.
 	sg := mheap_.sweepgen
 
 	// Find the arena and page index into that arena for this shard.
@@ -358,9 +351,15 @@ func gcAssistAlloc(gp *g) {
 	// This extremely verbose boolean indicates whether we've
 	// entered mark assist from the perspective of the tracer.
 	//
-	// In the tracer, this is just before we call gcAssistAlloc1
+	// In the old tracer, this is just before we call gcAssistAlloc1
+	// *and* tracing is enabled. Because the old tracer doesn't
+	// do any extra tracking, we need to be careful to not emit an
+	// "end" event if there was no corresponding "begin" for the
+	// mark assist.
+	//
+	// In the new tracer, this is just before we call gcAssistAlloc1
 	// *regardless* of whether tracing is enabled. This is because
-	// the tracer allows for tracing to begin (and advance
+	// the new tracer allows for tracing to begin (and advance
 	// generations) in the middle of a GC mark phase, so we need to
 	// record some state so that the tracer can pick it up to ensure
 	// a consistent trace result.
@@ -456,6 +455,18 @@ retry:
 	if !enteredMarkAssistForTracing {
 		trace := traceAcquire()
 		if trace.ok() {
+			if true {
+				// In the old tracer, enter mark assist tracing only
+				// if we actually traced an event. Otherwise a goroutine
+				// waking up from mark assist post-GC might end up
+				// writing a stray "end" event.
+				//
+				// This means inMarkAssist will not be meaningful
+				// in the old tracer; that's OK, it's unused.
+				//
+				// See the comment on enteredMarkAssistForTracing.
+				enteredMarkAssistForTracing = true
+			}
 			trace.GCMarkAssistStart()
 			// Set this *after* we trace the start, otherwise we may
 			// emit an in-progress event for an assist we're about to start.
@@ -464,12 +475,14 @@ retry:
 		} else {
 			gp.inMarkAssist = true
 		}
-		// In the new tracer, set enter mark assist tracing if we
-		// ever pass this point, because we must manage inMarkAssist
-		// correctly.
-		//
-		// See the comment on enteredMarkAssistForTracing.
-		enteredMarkAssistForTracing = true
+		if false {
+			// In the new tracer, set enter mark assist tracing if we
+			// ever pass this point, because we must manage inMarkAssist
+			// correctly.
+			//
+			// See the comment on enteredMarkAssistForTracing.
+			enteredMarkAssistForTracing = true
+		}
 	}
 
 	// Perform assist work

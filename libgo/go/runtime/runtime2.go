@@ -495,11 +495,12 @@ type g struct {
 	gopc           uintptr         // pc of go statement that created this goroutine
 	ancestors      *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
 	startpc        uintptr         // pc of goroutine function
-	// Not for gccgo: racectx        uintptr
+	racectx        uintptr
 	waiting *sudog // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
 	// Not for gccgo: cgoCtxt        []uintptr      // cgo traceback context
 	labels     unsafe.Pointer // profiler labels
 	timer      *timer         // cached timer for time.Sleep
+	sleepWhen  int64          // when to sleep until
 	selectDone atomic.Uint32  // are we participating in a select and did someone win the race?
 
 	// goroutineProfiled indicates the status of this goroutine's stack for the
@@ -805,23 +806,8 @@ type p struct {
 	// writing any stats. Its value is even when not, odd when it is.
 	statsSeq atomic.Uint32
 
-	// Lock for timers. We normally access the timers while running
-	// on this P, but the scheduler can also do it from a different P.
-	timersLock mutex
-
-	// Actions to take at some time. This is used to implement the
-	// standard library's time package.
-	// Must hold timersLock to access.
-	timers []*timer
-
-	// Number of timers in P's heap.
-	numTimers atomic.Uint32
-
-	// Number of timerDeleted timers in P's heap.
-	deletedTimers atomic.Uint32
-
-	// Race context used while executing timer functions.
-	// Not for gccgo: timerRaceCtx uintptr
+	// Timer heap.
+	timers timers
 
 	// maxStackScanDelta accumulates the amount of stack space held by
 	// live goroutines (i.e. those eligible for stack scanning).
@@ -1285,10 +1271,6 @@ var (
 	// e.g., updating the mask when stealing a timer.
 	timerpMask pMask
 )
-
-// goarmsoftfp is used by runtime/cgo assembly.
-//
-//go:linkname goarmsoftfp
 
 var (
 	// Pool of GC parked background workers. Entries are type

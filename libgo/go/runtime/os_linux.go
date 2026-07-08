@@ -413,9 +413,3 @@ func setThreadCPUProfiler(hz int32) {
 	mp.profileTimer = timerid
 	atomic.Store(&mp.profileTimerValid, 1)
 }
-
-//go:nosplit
-func mprotect(addr unsafe.Pointer, n uintptr, prot int32) (ret int32, errno int32) {
-	r, _, err := syscall.Syscall6(syscall.SYS_MPROTECT, uintptr(addr), n, uintptr(prot), 0, 0, 0)
-	return int32(r), int32(err)
-}
