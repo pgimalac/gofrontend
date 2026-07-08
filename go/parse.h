@@ -26,6 +26,7 @@ class Select_clauses;
 class Statement;
 class Label;
 class Generic_function_info;
+struct Constraint_obligation;
 class Export;
 class Import;
 class Package;
@@ -128,6 +129,9 @@ class Parse
   // Check recorded generic instantiations against their type parameter
   // constraints.  Called from go.cc after determine_types.
   void check_generic_constraints();
+
+  // Check a single recorded constraint obligation.
+  void check_one_constraint(Constraint_obligation*);
 
  private:
   // Precedence values.

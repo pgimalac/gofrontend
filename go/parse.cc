@@ -90,6 +90,13 @@ struct Constraint_obligation
   // argument resolves to the exact package it came from even when a
   // same-named package is imported elsewhere.
   std::map<std::string, std::string> pkg_aliases;
+  // The package that defined the generic being instantiated, if imported;
+  // NULL for a locally-declared generic.  A constraint captured from an
+  // imported template refers to that package's types by their bare names
+  // (e.g. "Marshallable" or a named type-set "Contents"); resolving the
+  // constraint during the deferred check must enter this package's context
+  // so those bare names resolve to it rather than being reported undefined.
+  Package* defining_package;
   Location location;
 };
 
@@ -5126,9 +5133,23 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 		{
 		  Type* pt = this->parse_type_from_tokens(p, NULL,
 							  /*issue_error=*/false);
-		  if (pt != NULL
-		      && pt->forwarded()->interface_type() != NULL)
-		    continue;
+		  // Only classify as an embedded interface if the name actually
+		  // resolved to a defined type.  A bare name from an imported
+		  // template's constraint (e.g. "Marshallable", or a named
+		  // type-set "Contents") may be an unresolved forward declaration
+		  // here; calling interface_type() on it would force
+		  // real_type()->warn() to emit a spurious "use of undefined type"
+		  // error despite the quiet parse.  Leave such an element as a term
+		  // rather than treating it as an embedded interface.
+		  if (pt != NULL)
+		    {
+		      Forward_declaration_type* fdt =
+			pt->forwarded()->forward_declaration_type();
+		      if (fdt != NULL && !fdt->is_defined())
+			;
+		      else if (pt->forwarded()->interface_type() != NULL)
+			continue;
+		    }
 		}
 	    }
 	}
@@ -5497,7 +5518,30 @@ Parse::check_generic_constraints()
   for (size_t oi = 0; oi < obs.size(); ++oi)
     {
       Constraint_obligation* o = obs[oi];
+      // A constraint captured from an IMPORTED template names the defining
+      // package's types by their bare names; enter that package's context so
+      // they resolve (and are not reported as undefined types) while the
+      // obligation's constraint tokens are re-parsed here, after parsing.
+      bool ctx_pushed = false;
+      if (o->defining_package != NULL)
+	{
+	  this->gogo_->push_instantiation_context();
+	  this->gogo_->push_instantiation_package(o->defining_package);
+	  ctx_pushed = true;
+	}
+      this->check_one_constraint(o);
+      if (ctx_pushed)
+	{
+	  this->gogo_->pop_instantiation_package();
+	  this->gogo_->pop_instantiation_context();
+	}
+    }
+}
 
+void
+Parse::check_one_constraint(Constraint_obligation* o)
+{
+  {
       // A constraint that mentions one of the generic's own type
       // parameters (e.g. "lesser[T]" in "[T lesser[T]]") depends on them
       // and cannot be resolved to a concrete type here; resolving it would
@@ -5517,11 +5561,11 @@ Parse::check_generic_constraints()
 	      }
 	}
       if (depends_on_tparam)
-	continue;
+	return;
 
       Type* argType = this->resolve_constraint_type(o->arg, &o->pkg_aliases);
       if (argType == NULL || argType->is_error_type())
-	continue;
+	return;
 
       // Pure type-set constraint (inline like "int | ~float64", or a
       // named constraint, possibly embedding other type-set constraints).
@@ -5531,7 +5575,7 @@ Parse::check_generic_constraints()
 	{
 	  Type* argBase = argType->base();
 	  if (argBase == NULL || argBase->is_error_type())
-	    continue;
+	    return;
 
 	  // Resolve every term to a concrete type.  If any term is an
 	  // interface (a method-set embedding) or fails to resolve, do not
@@ -5551,7 +5595,7 @@ Parse::check_generic_constraints()
 	      resolved.push_back(std::make_pair(terms[t].first, tt));
 	    }
 	  if (!enforceable)
-	    continue;
+	    return;
 
 	  bool ok = false;
 	  for (size_t t = 0; t < resolved.size() && !ok; ++t)
@@ -5577,7 +5621,7 @@ Parse::check_generic_constraints()
 	    go_error_at(o->location,
 			"type argument does not satisfy constraint of %qs",
 			o->what.c_str());
-	  continue;
+	  return;
 	}
 
       // The "comparable" constraint: the argument type must be comparable.
@@ -5589,7 +5633,7 @@ Parse::check_generic_constraints()
 	    go_error_at(o->location,
 			"type argument does not satisfy constraint of %qs",
 			o->what.c_str());
-	  continue;
+	  return;
 	}
 
       // A method-set (interface) constraint: the argument must implement
@@ -7025,6 +7069,7 @@ record_constraint_obligations(Gogo* gogo, Generic_function_info* info,
       o->what = what;
       o->tparams = info->type_param_names();
       o->pkg_aliases = aliases;
+      o->defining_package = info->defining_package();
       o->location = location;
       gogo->add_constraint_obligation(o);
     }
