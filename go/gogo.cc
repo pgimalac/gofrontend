@@ -2500,12 +2500,17 @@ Gogo::add_generic_type(const std::string& name, Generic_function_info* info)
 Generic_function_info*
 Gogo::lookup_generic_type(const std::string& name)
 {
-  Unordered_map(std::string, Generic_function_info*)::iterator p =
-    this->generic_types_.find(name);
-  if (p != this->generic_types_.end())
-    return p->second;
+  Unordered_map(std::string, Generic_function_info*)::iterator p;
   // While re-parsing an imported template, a bare reference to a sibling
-  // generic type of the defining package resolves via that pkgpath.
+  // generic type of the defining package resolves via that pkgpath.  This
+  // MUST take priority over the bare-name lookup below: an exported generic
+  // type is registered under its bare name, so if the package being compiled
+  // happens to declare a generic type of the same name (e.g. both
+  // exporterhelper's queuebatch and queue packages define "Settings[T]"),
+  // a bare "Settings" inside the imported queue.NewQueue template would
+  // otherwise resolve to the local queuebatch.Settings.  Qualifying with the
+  // instantiation package's pkgpath first keeps the imported template body
+  // referring to its own package's types.
   Package* ip = this->current_instantiation_package();
   if (ip != NULL)
     {
@@ -2513,6 +2518,9 @@ Gogo::lookup_generic_type(const std::string& name)
       if (p != this->generic_types_.end())
 	return p->second;
     }
+  p = this->generic_types_.find(name);
+  if (p != this->generic_types_.end())
+    return p->second;
   // A generic type made visible by "import . \"pkg\"" is referenced by its
   // bare name; find it under each dot-imported package's pkgpath.
   std::string bare = Gogo::unpack_hidden_name(name);
