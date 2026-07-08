@@ -7,7 +7,7 @@ package runtime
 import (
 	"internal/chacha8rand"
 	"internal/goarch"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"unsafe"
 )
 

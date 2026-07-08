@@ -836,7 +836,7 @@ libgo_go_objs = \
 	$(golangorg_x_net_route_lo) \
 	log/syslog/syslog_c.lo \
 	$(os_lib_inotify_lo) \
-	runtime/internal/atomic_c.lo \
+	internal/runtime/atomic_c.lo \
 	sync/atomic_c.lo \
 	internal/cpu/cpu_gccgo.lo \
 	$(golangorg_x_sys_cpu_gccgo_x86_lo)
@@ -1174,9 +1174,9 @@ reflect/makefunc_ffi_c.lo: go/reflect/makefunc_ffi_c.c runtime.inc
 	$(LTCOMPILE) -c -o $@ $(srcdir)/go/reflect/makefunc_ffi_c.c
 
 # The atomic functions are written in C.
-runtime/internal/atomic_c.lo: go/runtime/internal/atomic/atomic.c runtime.inc
-	@$(MKDIR_P) runtime/internal
-	$(LTCOMPILE) -c -o $@ $(srcdir)/go/runtime/internal/atomic/atomic.c
+internal/runtime/atomic_c.lo: go/internal/runtime/atomic/atomic.c runtime.inc
+	@$(MKDIR_P) internal/runtime
+	$(LTCOMPILE) -c -o $@ $(srcdir)/go/internal/runtime/atomic/atomic.c
 sync/atomic_c.lo: go/sync/atomic/atomic.c runtime.inc
 	@$(MKDIR_P) sync
 	$(LTCOMPILE) -c -o $@ $(srcdir)/go/sync/atomic/atomic.c

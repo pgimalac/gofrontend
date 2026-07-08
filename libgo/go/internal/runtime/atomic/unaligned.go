@@ -4,6 +4,11 @@
 
 package atomic
 
+import _ "unsafe" // for go:linkname
+
+// Let the C code call this function.
+//go:linkname panicUnaligned
+
 func panicUnaligned() {
 	panic("unaligned 64-bit atomic operation")
 }

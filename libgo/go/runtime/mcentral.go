@@ -12,7 +12,7 @@
 
 package runtime
 
-import "runtime/internal/atomic"
+import "internal/runtime/atomic"
 
 // Central list of free objects of a given size.
 //

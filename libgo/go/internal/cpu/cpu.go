@@ -124,12 +124,9 @@ var S390X struct {
 }
 
 // CPU feature variables are accessed by assembly code in various packages.
-//go:linkname X86
-//go:linkname ARM
-//go:linkname ARM64
-//go:linkname MIPS64X
-//go:linkname PPC64
-//go:linkname S390X
+// (gccgo: gc's //go:linkname directives exposing these vars to assembly are
+// omitted -- gccgo does not support //go:linkname on variables and these
+// exported vars are accessed directly.)
 
 // Initialize examines the processor and sets the relevant variables above.
 // This is called by the runtime package early in program initialization,

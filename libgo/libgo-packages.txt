@@ -30,6 +30,8 @@ crypto/internal/boring/bbig
 crypto/internal/boring/sig
 crypto/internal/edwards25519
 crypto/internal/edwards25519/field
+crypto/internal/hpke
+crypto/internal/mlkem768
 crypto/internal/nistec
 crypto/internal/nistec/fiat
 crypto/internal/randutil
@@ -128,13 +130,17 @@ image/jpeg
 image/png
 index/suffixarray
 internal/abi
+internal/asan
 internal/bisect
 internal/buildcfg
 internal/bytealg
+internal/byteorder
 internal/cfg
 internal/chacha8rand
+internal/concurrent
 internal/coverage
 internal/coverage/calloc
+internal/coverage/cfile
 internal/coverage/cformat
 internal/coverage/cmerge
 internal/coverage/decodecounter
@@ -150,6 +156,7 @@ internal/coverage/uleb128
 internal/cpu
 internal/dag
 internal/diff
+internal/filepathlite
 internal/fmtsort
 internal/fuzz
 internal/goarch
@@ -164,6 +171,7 @@ internal/intern
 internal/itoa
 internal/lazyregexp
 internal/lazytemplate
+internal/msan
 internal/nettrace
 internal/obscuretestdata
 internal/oserror
@@ -171,11 +179,15 @@ internal/pkgbits
 internal/platform
 internal/poll
 internal/profile
+internal/profilerecord
 internal/race
 internal/reflectlite
+internal/runtime/atomic
+internal/runtime/exithook
 internal/safefilepath
 internal/saferio
 internal/singleflight
+internal/stringslite
 internal/syscall/execenv
 internal/syscall/unix
 internal/sysinfo
@@ -193,11 +205,13 @@ internal/trace/v2/version
 internal/txtar
 internal/types/errors
 internal/unsafeheader
+internal/weak
 internal/xcoff
 internal/zstd
 io
 io/fs
 io/ioutil
+iter
 log
 log/internal
 log/slog
@@ -251,7 +265,6 @@ runtime
 runtime/cgo
 runtime/coverage
 runtime/debug
-runtime/internal/atomic
 runtime/internal/math
 runtime/internal/sys
 runtime/internal/syscall
@@ -262,6 +275,7 @@ slices
 sort
 strconv
 strings
+structs
 sync
 sync/atomic
 syscall
@@ -280,3 +294,4 @@ time/tzdata
 unicode
 unicode/utf16
 unicode/utf8
+unique
