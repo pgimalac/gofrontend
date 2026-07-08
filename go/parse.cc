@@ -6195,6 +6195,13 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
       return;
     }
 
+  // If the two types are the very same object, there is no marker to solve by
+  // descending (any marker in PT is the same marker in AT).  Stop: descending
+  // anyway would needlessly walk -- and, for a self-referential interface
+  // method graph, exponentially explode -- a structure with nothing to unify.
+  if (pt == at)
+    return;
+
   // Two instances of the same generic type (e.g. getter[T] and getter[int],
   // including generic interface and other non-struct instances): unify their
   // corresponding type arguments.  This covers forms that structural
