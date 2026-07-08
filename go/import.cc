@@ -547,6 +547,8 @@ Import::import(Gogo* gogo, const std::string& local_name,
 	    this->import_func(this->package_);
 	  else if (stream->match_c_string("generics "))
 	    go_import_generics(this, this->gogo_, this->package_);
+	  else if (stream->match_c_string("geninsts "))
+	    go_import_generic_instances(this, this->gogo_);
 	  else if (stream->match_c_string("checksum "))
 	    break;
 	  else

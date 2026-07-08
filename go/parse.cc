@@ -833,6 +833,38 @@ go_import_generics(Import* imp, Gogo* gogo, Package* package)
     }
 }
 
+// Generics: read the "geninsts" section written by Export::write_generic_
+// instances and register each imported generic instance under its canonical
+// id, so a locally-created instance of the same generic (same canonical id)
+// reuses the imported object and the two are the same nominal type.
+
+void
+go_import_generic_instances(Import* imp, Gogo* gogo)
+{
+  imp->require_c_string("geninsts ");
+  int n = gen_read_int(imp);
+  gen_skip_newline(imp);
+  for (int i = 0; i < n; ++i)
+    {
+      std::string id = gen_read_lenstr(imp);
+      if (imp->peek_char() == ' ')
+	imp->get_char();
+      Type* type = imp->read_type();
+      gen_skip_newline(imp);
+      if (type == NULL)
+	continue;
+      Named_type* nt = type->named_type();
+      if (nt != NULL && nt->named_object() != NULL && !id.empty())
+	{
+	  nt->set_generic_canonical_id(id);
+	  // First registration wins; a locally-created instance created later
+	  // with the same id will find and reuse this imported object.
+	  if (gogo->lookup_canonical_generic_instance(id) == NULL)
+	    gogo->add_canonical_generic_instance(id, nt->named_object());
+	}
+    }
+}
+
 // Struct Parse::Enclosing_var_comparison.
 
 // Return true if v1 should be considered to be less than v2.
@@ -4298,6 +4330,25 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
 				info);
 }
 
+// Generics: is NAME a predeclared/universal type name?  Such a name denotes the
+// same type in every package, so it needs no pkgpath qualification in a generic
+// instance's canonical id (unlike a package-local type name).
+
+static bool
+is_predeclared_generic_arg_name(const std::string& name)
+{
+  static const char* const names[] = {
+    "bool", "byte", "rune", "string", "error", "any", "comparable",
+    "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+    "float32", "float64", "complex64", "complex128"
+  };
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+    if (name == names[i])
+      return true;
+  return false;
+}
+
 // Generics: see the declaration in parse.h.
 
 std::string
@@ -4336,6 +4387,26 @@ Parse::generic_instance_canonical_id(Generic_function_info* info,
 		  id += a->second;   // pkgpath, not the (ambiguous) alias
 		  continue;
 		}
+	    }
+	  // A bare (unqualified) identifier that names a package-local type must
+	  // be qualified with the compiling package's pkgpath: two packages that
+	  // each instantiate the same imported generic with a same-spelled local
+	  // type (e.g. both define "errArrayElem" and instantiate
+	  // "pool.Pool[*errArrayElem]") are DIFFERENT instances and must not
+	  // collide on one canonical id.  A predeclared/universal name (int,
+	  // string, error, ...) is the same type everywhere and is left as-is;
+	  // so is the "Name" half of a "pkg.Name" qualifier (preceded by a dot)
+	  // and any transient "$..."-marker identifier.
+	  if (arg[j].is_identifier()
+	      && (j == 0 || !arg[j - 1].is_op(OPERATOR_DOT))
+	      && !(j + 1 < arg.size() && arg[j + 1].is_op(OPERATOR_DOT))
+	      && arg[j].identifier()[0] != '$'
+	      && !is_predeclared_generic_arg_name(arg[j].identifier()))
+	    {
+	      id += this->gogo_->pkgpath();
+	      id += ".";
+	      id += arg[j].identifier();
+	      continue;
 	    }
 	  id += token_key_string(arg[j]);
 	}
@@ -6156,6 +6227,33 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
     {
       unify_marker(gogo, pct->element_type(), act->element_type(), solved,
 		   depth + 1, from_untyped, solved_untyped);
+      return;
+    }
+
+  // Two interface types (e.g. two instantiations of a generic interface such
+  // as Sender[T] vs Sender[Request]): unify corresponding methods by name.
+  // interface_type() sees through a named type, so this also covers a generic
+  // interface instance imported from another package (whose recorded
+  // generic_type_args()/generic_base_name() are absent, so the instance branch
+  // above does not fire) unified against a locally built marker instance.
+  Interface_type* pit = pt->interface_type();
+  Interface_type* ait = at->interface_type();
+  if (pit != NULL && ait != NULL)
+    {
+      const Typed_identifier_list* pm = pit->methods();
+      const Typed_identifier_list* am = ait->methods();
+      if (pm != NULL && am != NULL)
+	{
+	  for (Typed_identifier_list::const_iterator i1 = pm->begin();
+	       i1 != pm->end();
+	       ++i1)
+	    {
+	      const Typed_identifier* m2 = ait->find_method(i1->name());
+	      if (m2 != NULL)
+		unify_marker(gogo, i1->type(), m2->type(), solved, depth + 1,
+			     from_untyped, solved_untyped);
+	    }
+	}
       return;
     }
 

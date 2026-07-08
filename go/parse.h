@@ -41,6 +41,12 @@ go_export_generics(Export*, Gogo*);
 extern void
 go_import_generics(Import*, Gogo*, Package*);
 
+// Generics: read the "geninsts" section (canonical ids of exported generic
+// instance types) and register each imported instance in GOGO's global
+// canonical-instance map, so a locally-created instance unifies with it.
+extern void
+go_import_generic_instances(Import*, Gogo*);
+
 // Generics: add to EXPORTS any package-scope symbols (in particular
 // unexported helpers) referenced by the bodies of exported generic
 // templates, so that importing packages can resolve and link them when

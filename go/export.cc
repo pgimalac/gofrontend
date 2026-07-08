@@ -1000,6 +1000,9 @@ Export::export_globals(const std::string& package_name,
   if (this->gogo_ != NULL)
     go_export_generics(this, this->gogo_);
 
+  // Generics: write the canonical ids of exported generic instance types.
+  this->write_generic_instances();
+
   std::string checksum = this->stream_->checksum();
   std::string s = "checksum ";
   for (std::string::const_iterator p = checksum.begin();
@@ -1546,6 +1549,43 @@ Export::write_type_definition(const Type* type, int index)
   // otherwise.
   if (nt == NULL)
     this->write_c_string("\n");
+}
+
+// Generics: write the "geninsts" section.  Each line is
+// "<len> <canonical-id> <type ref>" for a generic instance type, letting an
+// importer register the instance under its package-independent canonical id
+// and so unify it with a locally-created instance of the same generic.
+
+void
+Export::write_generic_instances()
+{
+  std::vector<std::pair<std::string, const Type*> > insts;
+  for (Type_refs::const_iterator p = this->impl_->type_refs.begin();
+       p != this->impl_->type_refs.end();
+       ++p)
+    {
+      if (p->second < 0)
+	continue;
+      const Named_type* nt = p->first->named_type();
+      if (nt != NULL && !nt->generic_canonical_id().empty())
+	insts.push_back(std::make_pair(nt->generic_canonical_id(), p->first));
+    }
+  if (insts.empty())
+    return;
+  std::sort(insts.begin(), insts.end());
+
+  this->write_c_string("geninsts ");
+  this->write_unsigned(static_cast<unsigned>(insts.size()));
+  this->write_c_string("\n");
+  for (size_t i = 0; i < insts.size(); ++i)
+    {
+      this->write_unsigned(static_cast<unsigned>(insts[i].first.size()));
+      this->write_c_string(" ");
+      this->write_string(insts[i].first);
+      this->write_c_string(" ");
+      this->write_type(insts[i].second);
+      this->write_c_string("\n");
+    }
 }
 
 // Write a name to the export stream.

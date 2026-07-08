@@ -269,6 +269,12 @@ class Export : public String_dump
   void
   write_type_definition(const Type* type, int index);
 
+  // Generics: write the "geninsts" section mapping each exported generic
+  // instance type to its package-independent canonical id, so importers can
+  // unify it with their own instantiation of the same generic.
+  void
+  write_generic_instances();
+
   // Register one builtin type.
   void
   register_builtin_type(Gogo*, const char* name, Builtin_code);
