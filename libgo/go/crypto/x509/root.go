@@ -18,7 +18,7 @@ import (
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname systemRoots
+// Note: gccgo does not support //go:linkname on variables; pull linkname omitted.
 var (
 	once           sync.Once
 	systemRootsMu  sync.RWMutex

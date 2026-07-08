@@ -383,7 +383,12 @@ func (p *Profile) WriteTo(w io.Writer, debug int) error {
 	p.mu.Unlock()
 
 	// Map order is non-deterministic; make output deterministic.
-	slices.SortFunc(all, slices.Compare)
+	// Note: gccgo's generics support cannot infer the type arguments of
+	// slices.Compare when it is passed as a bare function value, so wrap it
+	// in an explicitly-typed closure.
+	slices.SortFunc(all, func(a, b []uintptr) int {
+		return slices.Compare(a, b)
+	})
 
 	return printCountProfile(w, debug, p.name, stackProfile(all))
 }
@@ -435,7 +440,7 @@ func printCountCycleProfile(w io.Writer, countName, cycleName string, records []
 	b.pbValueType(tagProfile_SampleType, countName, "count")
 	b.pbValueType(tagProfile_SampleType, cycleName, "nanoseconds")
 
-	cpuGHz := float64(pprof_cyclesPerSecond()) / 1e9
+	cpuGHz := float64(runtime_cyclesPerSecond()) / 1e9
 
 	values := []int64{0, 0}
 	var locs []uint64
@@ -960,7 +965,7 @@ func writeProfileInternal(w io.Writer, debug int, name string, runtimeProfile fu
 	w = tw
 
 	fmt.Fprintf(w, "--- %v:\n", name)
-	fmt.Fprintf(w, "cycles/second=%v\n", pprof_cyclesPerSecond())
+	fmt.Fprintf(w, "cycles/second=%v\n", runtime_cyclesPerSecond())
 	if name == "mutex" {
 		fmt.Fprintf(w, "sampling period=%d\n", runtime.SetMutexProfileFraction(-1))
 	}
@@ -988,8 +993,13 @@ func writeProfileInternal(w io.Writer, debug int, name string, runtimeProfile fu
 //go:linkname pprof_goroutineProfileWithLabels runtime.pprof_goroutineProfileWithLabels
 func pprof_goroutineProfileWithLabels(p []profilerecord.StackRecord, labels []unsafe.Pointer) (n int, ok bool)
 
-//go:linkname pprof_cyclesPerSecond runtime/pprof.runtime_cyclesPerSecond
-func pprof_cyclesPerSecond() int64
+// Note: gccgo's runtime pushes this symbol into this package via a
+// //go:linkname targeting runtime_1pprof.runtime__cyclesPerSecond (see
+// runtime/cpuprof.go), which corresponds to a bare, un-linknamed
+// runtime_cyclesPerSecond declaration here.  A gc-style push linkname with a
+// slash in the target ("runtime/pprof.runtime_cyclesPerSecond") produces an
+// unmangled assembler symbol and fails to assemble, so it is omitted.
+func runtime_cyclesPerSecond() int64
 
 //go:linkname pprof_memProfileInternal runtime.pprof_memProfileInternal
 func pprof_memProfileInternal(p []profilerecord.MemProfileRecord, inuseZero bool) (n int, ok bool)

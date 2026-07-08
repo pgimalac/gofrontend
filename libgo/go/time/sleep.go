@@ -68,13 +68,13 @@ func when(d Duration) int64 {
 // so we use a pointer here too. This keeps some tools that aggressively
 // compare linknamed symbol definitions happier.
 //
-//go:linkname newTimer
+//go:linkname newTimer runtime.newTimer
 func newTimer(when, period int64, f func(any, uintptr, int64), arg any, cp unsafe.Pointer) *Timer
 
-//go:linkname stopTimer
+//go:linkname stopTimer runtime.stopTimer
 func stopTimer(*Timer) bool
 
-//go:linkname resetTimer
+//go:linkname resetTimer runtime.resetTimer
 func resetTimer(t *Timer, when, period int64) bool
 
 // Note: The runtime knows the layout of struct Timer, since newTimer allocates it.

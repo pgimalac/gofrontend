@@ -28,7 +28,8 @@ func clen(n []byte) int {
 
 func (f *File) readdir(n int, mode readdirMode) (names []string, dirents []DirEntry, infos []FileInfo, err error) {
 	// If this file has no dirinfo, create one.
-	if f.dirinfo == nil {
+	d := f.dirinfo.Load()
+	if d == nil {
 		fd, call, err := poll.DupCloseOnExec(int(f.pfd.Sysfd))
 		if err != nil {
 			return nil, nil, nil, NewSyscallError(call, err)
@@ -42,9 +43,10 @@ func (f *File) readdir(n int, mode readdirMode) (names []string, dirents []DirEn
 			return nil, nil, nil, &PathError{"fdopendir", f.name, errno}
 		}
 
-		f.dirinfo = &dirInfo{r}
+		d = &dirInfo{r}
+		f.dirinfo.Store(d)
 	}
-	dir := f.dirinfo.dir
+	dir := d.dir
 
 	// Change the meaning of n for the implementation below.
 	//

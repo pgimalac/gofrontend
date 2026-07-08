@@ -43,7 +43,9 @@ var driversMu sync.RWMutex
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname drivers
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname that gc uses here (to placate the "hall of shame" packages that
+// access this via linkname) is omitted.
 var drivers = make(map[string]driver.Driver)
 
 // nowFunc returns the current time; it's overridden in tests.

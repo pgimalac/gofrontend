@@ -16,7 +16,6 @@ import (
 	"internal/godebug"
 	"io"
 	"log"
-	"maps"
 	"math/rand"
 	"net"
 	"net/textproto"
@@ -2730,7 +2729,15 @@ func (mux *ServeMux) matchingMethods(host, path string) []string {
 	if !strings.HasSuffix(path, "/") {
 		mux.tree.matchingMethods(host, path+"/", ms)
 	}
-	return slices.Sorted(maps.Keys(ms))
+	// Note: gccgo does not support range-over-func, so the iterator-based
+	// slices.Sorted(maps.Keys(ms)) form cannot be instantiated.  Collect and
+	// sort the keys explicitly instead.
+	methods := make([]string, 0, len(ms))
+	for m := range ms {
+		methods = append(methods, m)
+	}
+	slices.Sort(methods)
+	return methods
 }
 
 // ServeHTTP dispatches the request to the handler whose

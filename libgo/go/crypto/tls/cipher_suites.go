@@ -207,7 +207,7 @@ type cipherSuiteTLS13 struct {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname cipherSuitesTLS13
+// Note: gccgo does not support //go:linkname on variables; pull linkname omitted.
 var cipherSuitesTLS13 = []*cipherSuiteTLS13{ // TODO: replace with a map.
 	{TLS_AES_128_GCM_SHA256, 16, aeadAESGCMTLS13, crypto.SHA256},
 	{TLS_CHACHA20_POLY1305_SHA256, 32, aeadChaCha20Poly1305, crypto.SHA256},

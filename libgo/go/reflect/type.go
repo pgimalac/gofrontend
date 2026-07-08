@@ -479,6 +479,12 @@ func (m Method) IsExported() bool {
 	return m.PkgPath == ""
 }
 
+const (
+	kindDirectIface = 1 << 5
+	kindGCProg      = 1 << 6 // Type.gc points to GC program
+	kindMask        = (1 << 5) - 1
+)
+
 // String returns the name of k.
 func (k Kind) String() string {
 	if uint(k) < uint(len(kindNames)) {
@@ -858,27 +864,27 @@ func (t *rtype) CanSeq() bool {
 	case Int8, Int16, Int32, Int64, Int, Uint8, Uint16, Uint32, Uint64, Uint, Uintptr, Array, Slice, Chan, String, Map:
 		return true
 	case Func:
-		return canRangeFunc(&t.t)
+		return canRangeFunc(t)
 	case Pointer:
 		return t.Elem().Kind() == Array
 	}
 	return false
 }
 
-func canRangeFunc(t *abi.Type) bool {
-	if t.Kind() != abi.Func {
+func canRangeFunc(t *rtype) bool {
+	if t.Kind() != Func {
 		return false
 	}
-	f := t.FuncType()
-	if f.InCount != 1 || f.OutCount != 0 {
+	f := (*funcType)(unsafe.Pointer(t))
+	if len(f.in) != 1 || len(f.out) != 0 {
 		return false
 	}
-	y := f.In(0)
-	if y.Kind() != abi.Func {
+	y := f.in[0]
+	if y.Kind() != Func {
 		return false
 	}
-	yield := y.FuncType()
-	return yield.InCount == 1 && yield.OutCount == 1 && yield.Out(0).Kind() == abi.Bool
+	yield := (*funcType)(unsafe.Pointer(y))
+	return len(yield.in) == 1 && len(yield.out) == 1 && yield.out[0].Kind() == Bool
 }
 
 func (t *rtype) CanSeq2() bool {
@@ -886,27 +892,27 @@ func (t *rtype) CanSeq2() bool {
 	case Array, Slice, String, Map:
 		return true
 	case Func:
-		return canRangeFunc2(&t.t)
+		return canRangeFunc2(t)
 	case Pointer:
 		return t.Elem().Kind() == Array
 	}
 	return false
 }
 
-func canRangeFunc2(t *abi.Type) bool {
-	if t.Kind() != abi.Func {
+func canRangeFunc2(t *rtype) bool {
+	if t.Kind() != Func {
 		return false
 	}
-	f := t.FuncType()
-	if f.InCount != 1 || f.OutCount != 0 {
+	f := (*funcType)(unsafe.Pointer(t))
+	if len(f.in) != 1 || len(f.out) != 0 {
 		return false
 	}
-	y := f.In(0)
-	if y.Kind() != abi.Func {
+	y := f.in[0]
+	if y.Kind() != Func {
 		return false
 	}
-	yield := y.FuncType()
-	return yield.InCount == 2 && yield.OutCount == 1 && yield.Out(0).Kind() == abi.Bool
+	yield := (*funcType)(unsafe.Pointer(y))
+	return len(yield.in) == 2 && len(yield.out) == 1 && yield.out[0].Kind() == Bool
 }
 
 // add returns p+x.
@@ -2555,6 +2561,9 @@ func typeptrdata(t *rtype) uintptr {
 	}
 }
 
+// See cmd/compile/internal/reflectdata/reflect.go for derivation of constant.
+const maxPtrmaskBytes = 2048
+
 // ArrayOf returns the array type with the given length and element type.
 // For example, if t represents int, ArrayOf(5, t) represents [5]int.
 //
@@ -2687,7 +2696,7 @@ func ArrayOf(length int, elem Type) Type {
 	}
 
 	switch {
-	case length == 1 && !typ.IfaceIndir():
+	case length == 1 && !ifaceIndir(typ):
 		// array of 1 direct iface type can be direct
 		array.kind |= kindDirectIface
 	default:

@@ -18,7 +18,7 @@ import (
 // there are never any registered counter blobs; return an empty list.
 // This keeps the runtime/coverage package linkable.
 //
-//go:linkname runtime_coverage_getCovCounterList runtime_1coverage.getCovCounterList
+//go:linkname runtime_coverage_getCovCounterList runtime.getCovCounterList
 func runtime_coverage_getCovCounterList() []rtcov.CovCounterBlob {
 	return []rtcov.CovCounterBlob{}
 }

@@ -5,13 +5,28 @@
 package unique
 
 import (
-	"internal/abi"
-	"internal/concurrent"
-	"internal/weak"
-	"runtime"
 	"sync"
-	_ "unsafe"
 )
+
+// This is a gccgo-specific implementation of the unique package.
+//
+// The upstream implementation of unique.Make is a very deeply nested generic
+// function: it instantiates uniqueMap[T] (which embeds the generic type
+// concurrent.HashTrieMap[T, weak.Pointer[T]] -- a generic type parameterized
+// by *another* generic type), and calls weak.Make[T], clone[T] and friends.
+// gccgo's generics support cannot re-parse/instantiate that particular nest of
+// mutually-referential cross-package generic types and functions, so this file
+// provides a functionally-equivalent but much simpler implementation.
+//
+// Values are interned in a single global sync.Map keyed by the value boxed in
+// an interface.  Because the constraint is comparable, the boxed value is a
+// valid, hashable map key, and interface equality already distinguishes values
+// of different dynamic types, so a single map suffices.  As with gccgo's weak
+// package (see runtime/weak_gccgo.go), there is no weak-pointer support and
+// therefore no reclamation of interned values; this matches the weak==strong
+// tradeoff already made elsewhere in gccgo's runtime.  The observable semantics
+// of Make and Handle are unchanged: two handles are equal exactly when the
+// values used to create them are equal.
 
 // Handle is a globally unique identity for some value of type T.
 //
@@ -27,148 +42,19 @@ func (h Handle[T]) Value() T {
 	return *h.value
 }
 
+// uniqueMap interns values of every type in a single map, keyed by the value
+// boxed in an interface.  The stored element is the canonical *T for that
+// value (also boxed in an interface).
+var uniqueMap sync.Map // any(value) -> any(*T)
+
 // Make returns a globally unique handle for a value of type T. Handles
 // are equal if and only if the values used to produce them are equal.
 func Make[T comparable](value T) Handle[T] {
-	// Find the map for type T.
-	typ := abi.TypeOf(value)
-	ma, ok := uniqueMaps.Load(typ)
-	if !ok {
-		// This is a good time to initialize cleanup, since we must go through
-		// this path on the first use of Make, and it's not on the hot path.
-		setupMake.Do(registerCleanup)
-		ma = addUniqueMap[T](typ)
+	if p, ok := uniqueMap.Load(any(value)); ok {
+		return Handle[T]{p.(*T)}
 	}
-	m := ma.(*uniqueMap[T])
-
-	// Keep around any values we allocate for insertion. There
-	// are a few different ways we can race with other threads
-	// and create values that we might discard. By keeping
-	// the first one we make around, we can avoid generating
-	// more than one per racing thread.
-	var (
-		toInsert     *T // Keep this around to keep it alive.
-		toInsertWeak weak.Pointer[T]
-	)
-	newValue := func() weak.Pointer[T] {
-		if toInsert == nil {
-			toInsert = new(T)
-			*toInsert = clone(value, &m.cloneSeq)
-			toInsertWeak = weak.Make(toInsert)
-		}
-		return toInsertWeak
-	}
-	var ptr *T
-	for {
-		// Check the map.
-		wp, ok := m.Load(value)
-		if !ok {
-			// Try to insert a new value into the map.
-			wp, _ = m.LoadOrStore(value, newValue())
-		}
-		// Now that we're sure there's a value in the map, let's
-		// try to get the pointer we need out of it.
-		ptr = wp.Strong()
-		if ptr != nil {
-			break
-		}
-		// The weak pointer is nil, so the old value is truly dead.
-		// Try to remove it and start over.
-		m.CompareAndDelete(value, wp)
-	}
-	runtime.KeepAlive(toInsert)
-	return Handle[T]{ptr}
+	p := new(T)
+	*p = value
+	actual, _ := uniqueMap.LoadOrStore(any(value), p)
+	return Handle[T]{actual.(*T)}
 }
-
-var (
-	// uniqueMaps is an index of type-specific concurrent maps used for unique.Make.
-	//
-	// The two-level map might seem odd at first since the HashTrieMap could have "any"
-	// as its key type, but the issue is escape analysis. We do not want to force lookups
-	// to escape the argument, and using a type-specific map allows us to avoid that where
-	// possible (for example, for strings and plain-ol'-data structs). We also get the
-	// benefit of not cramming every different type into a single map, but that's certainly
-	// not enough to outweigh the cost of two map lookups. What is worth it though, is saving
-	// on those allocations.
-	uniqueMaps = concurrent.NewHashTrieMap[*abi.Type, any]() // any is always a *uniqueMap[T].
-
-	// cleanupFuncs are functions that clean up dead weak pointers in type-specific
-	// maps in uniqueMaps. We express cleanup this way because there's no way to iterate
-	// over the sync.Map and call functions on the type-specific data structures otherwise.
-	// These cleanup funcs each close over one of these type-specific maps.
-	//
-	// cleanupMu protects cleanupNotify and is held across the entire cleanup. Used for testing.
-	// cleanupNotify is a test-only mechanism that allow tests to wait for the cleanup to run.
-	cleanupMu      sync.Mutex
-	cleanupFuncsMu sync.Mutex
-	cleanupFuncs   []func()
-	cleanupNotify  []func() // One-time notifications when cleanups finish.
-)
-
-type uniqueMap[T comparable] struct {
-	*concurrent.HashTrieMap[T, weak.Pointer[T]]
-	cloneSeq
-}
-
-func addUniqueMap[T comparable](typ *abi.Type) *uniqueMap[T] {
-	// Create a map for T and try to register it. We could
-	// race with someone else, but that's fine; it's one
-	// small, stray allocation. The number of allocations
-	// this can create is bounded by a small constant.
-	m := &uniqueMap[T]{
-		HashTrieMap: concurrent.NewHashTrieMap[T, weak.Pointer[T]](),
-		cloneSeq:    makeCloneSeq(typ),
-	}
-	a, loaded := uniqueMaps.LoadOrStore(typ, m)
-	if !loaded {
-		// Add a cleanup function for the new map.
-		cleanupFuncsMu.Lock()
-		cleanupFuncs = append(cleanupFuncs, func() {
-			// Delete all the entries whose weak references are nil and clean up
-			// deleted entries.
-			m.All()(func(key T, wp weak.Pointer[T]) bool {
-				if wp.Strong() == nil {
-					m.CompareAndDelete(key, wp)
-				}
-				return true
-			})
-		})
-		cleanupFuncsMu.Unlock()
-	}
-	return a.(*uniqueMap[T])
-}
-
-// setupMake is used to perform initial setup for unique.Make.
-var setupMake sync.Once
-
-// startBackgroundCleanup sets up a background goroutine to occasionally call cleanupFuncs.
-func registerCleanup() {
-	runtime_registerUniqueMapCleanup(func() {
-		// Lock for cleanup.
-		cleanupMu.Lock()
-
-		// Grab funcs to run.
-		cleanupFuncsMu.Lock()
-		cf := cleanupFuncs
-		cleanupFuncsMu.Unlock()
-
-		// Run cleanup.
-		for _, f := range cf {
-			f()
-		}
-
-		// Run cleanup notifications.
-		for _, f := range cleanupNotify {
-			f()
-		}
-		cleanupNotify = nil
-
-		// Finished.
-		cleanupMu.Unlock()
-	})
-}
-
-// Implemented in runtime.
-
-//go:linkname runtime_registerUniqueMapCleanup
-func runtime_registerUniqueMapCleanup(cleanup func())

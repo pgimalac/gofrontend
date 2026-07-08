@@ -23,7 +23,8 @@ import (
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname defaultNS
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname gc uses here (for the "hall of shame" packages) is omitted.
 var defaultNS = []string{"127.0.0.1:53", "[::1]:53"}
 
 var getHostname = os.Hostname // variable for testing

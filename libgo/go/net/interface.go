@@ -26,7 +26,8 @@ import (
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname errNoSuchInterface
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname gc uses here (for the "hall of shame" packages) is omitted.
 
 var (
 	errInvalidInterface         = errors.New("invalid network interface")

@@ -1185,7 +1185,7 @@ func (c *Config) mutualVersion(isClient bool, peerVersions []uint16) (uint16, bo
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname errNoCertificates
+// Note: gccgo does not support //go:linkname on variables; pull linkname omitted.
 var errNoCertificates = errors.New("tls: no certificates configured")
 
 // getCertificate returns the best certificate for the given ClientHelloInfo,

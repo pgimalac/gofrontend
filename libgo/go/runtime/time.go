@@ -306,7 +306,7 @@ type timeTimer struct {
 // newTimer allocates and returns a new time.Timer or time.Ticker (same layout)
 // with the given parameters.
 //
-//go:linkname newTimer time.newTimer
+//go:linkname newTimer runtime.newTimer
 func newTimer(when, period int64, f func(arg any, seq uintptr, delay int64), arg any, c *hchan) *timeTimer {
 	t := new(timeTimer)
 	t.timer.init(nil, nil)
@@ -330,7 +330,7 @@ func newTimer(when, period int64, f func(arg any, seq uintptr, delay int64), arg
 // stopTimer stops a timer.
 // It reports whether t was stopped before being run.
 //
-//go:linkname stopTimer time.stopTimer
+//go:linkname stopTimer runtime.stopTimer
 func stopTimer(t *timeTimer) bool {
 	return t.stop()
 }
@@ -339,7 +339,7 @@ func stopTimer(t *timeTimer) bool {
 //
 // Reports whether the timer was modified before it was run.
 //
-//go:linkname resetTimer time.resetTimer
+//go:linkname resetTimer runtime.resetTimer
 func resetTimer(t *timeTimer, when, period int64) bool {
 	if raceenabled {
 		racerelease(unsafe.Pointer(&t.timer))

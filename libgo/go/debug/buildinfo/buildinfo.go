@@ -49,7 +49,8 @@ var errUnrecognizedFormat = errors.New("unrecognized file format")
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname errNotGoExe
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname gc uses here (for the "hall of shame" packages) is omitted.
 var errNotGoExe = errors.New("not a Go executable")
 
 // The build info blob left by the linker is identified by

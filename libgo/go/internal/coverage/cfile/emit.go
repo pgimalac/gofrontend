@@ -33,7 +33,7 @@ import (
 // for the currently executing instrumented program. It is defined in the
 // runtime.
 //
-//go:linkname getCovCounterList
+//go:linkname getCovCounterList runtime.getCovCounterList
 func getCovCounterList() []rtcov.CovCounterBlob
 
 // emitState holds useful state information during the emit process.

@@ -67,7 +67,7 @@ func defaultCipherSuites() []uint16 {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname defaultCipherSuitesTLS13
+// Note: gccgo does not support //go:linkname on variables; pull linkname omitted.
 var defaultCipherSuitesTLS13 = []uint16{
 	TLS_AES_128_GCM_SHA256,
 	TLS_AES_256_GCM_SHA384,
@@ -83,7 +83,7 @@ var defaultCipherSuitesTLS13 = []uint16{
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname defaultCipherSuitesTLS13NoAES
+// Note: gccgo does not support //go:linkname on variables; pull linkname omitted.
 var defaultCipherSuitesTLS13NoAES = []uint16{
 	TLS_CHACHA20_POLY1305_SHA256,
 	TLS_AES_128_GCM_SHA256,

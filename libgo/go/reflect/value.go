@@ -109,7 +109,7 @@ func (v Value) pointer() unsafe.Pointer {
 func packEface(v Value) any {
 	t := v.typ
 	var i any
-	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
+	e := (*emptyInterface)(unsafe.Pointer(&i))
 	// First, fill in the data portion of the interface.
 	switch {
 	case ifaceIndir(t):
@@ -123,28 +123,28 @@ func packEface(v Value) any {
 			typedmemmove(t, c, ptr)
 			ptr = c
 		}
-		e.Data = ptr
+		e.word = ptr
 	case v.flag&flagIndir != 0:
 		// Value is indirect, but interface is direct. We need
 		// to load the data at v.ptr into the interface data word.
-		e.Data = *(*unsafe.Pointer)(v.ptr)
+		e.word = *(*unsafe.Pointer)(v.ptr)
 	default:
 		// Value is direct, and so is the interface.
-		e.Data = v.ptr
+		e.word = v.ptr
 	}
 	// Now, fill in the type portion. We're very careful here not
 	// to have any operation between the e.word and e.typ assignments
 	// that would let the garbage collector observe the partially-built
 	// interface value.
-	e.Type = t
+	e.typ = t
 	return i
 }
 
 // unpackEface converts the empty interface i to a Value.
 func unpackEface(i any) Value {
-	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
+	e := (*emptyInterface)(unsafe.Pointer(&i))
 	// NOTE: don't read e.word until we know whether it is really a pointer or not.
-	t := e.Type
+	t := e.typ
 	if t == nil {
 		return Value{}
 	}
@@ -152,7 +152,7 @@ func unpackEface(i any) Value {
 	if ifaceIndir(t) {
 		f |= flagIndir
 	}
-	return Value{t, e.Data, f}
+	return Value{t, e.word, f}
 }
 
 // A ValueError occurs when a Value method is invoked on
@@ -578,7 +578,7 @@ func storeRcvr(v Value, p unsafe.Pointer) {
 		// the interface data word becomes the receiver word
 		iface := (*nonEmptyInterface)(v.ptr)
 		*(*unsafe.Pointer)(p) = iface.word
-	} else if v.flag&flagIndir != 0 && !t.IfaceIndir() {
+	} else if v.flag&flagIndir != 0 && !ifaceIndir(t) {
 		*(*unsafe.Pointer)(p) = *(*unsafe.Pointer)(v.ptr)
 	} else {
 		*(*unsafe.Pointer)(p) = v.ptr
@@ -1174,7 +1174,7 @@ func (v Value) SetZero() {
 	case Slice:
 		*(*unsafeheader.Slice)(v.ptr) = unsafeheader.Slice{}
 	case Interface:
-		*(*abi.EmptyInterface)(v.ptr) = abi.EmptyInterface{}
+		*(*emptyInterface)(v.ptr) = emptyInterface{}
 	case Chan, Func, Map, Pointer, UnsafePointer:
 		*(*unsafe.Pointer)(v.ptr) = nil
 	case Array, Struct:
@@ -1694,7 +1694,7 @@ func (v Value) recv(nb bool) (val Value, ok bool) {
 	t := tt.elem
 	val = Value{t, nil, flag(t.Kind())}
 	var p unsafe.Pointer
-	if t.IfaceIndir() {
+	if ifaceIndir(t) {
 		p = unsafe_New(t)
 		val.ptr = p
 		val.flag |= flagIndir
@@ -3363,7 +3363,7 @@ func verifyNotInHeapPtr(p uintptr) bool
 func growslice(t *rtype, old unsafeheader.Slice, num int) unsafeheader.Slice
 
 //go:noescape
-func unsafeslice(t *abi.Type, ptr unsafe.Pointer, len int)
+func unsafeslice(t *rtype, ptr unsafe.Pointer, len int)
 
 // Dummy annotation marking that the value x escapes,
 // for use in cases where the reflect code is so clever that

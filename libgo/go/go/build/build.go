@@ -314,7 +314,8 @@ func defaultGOPATH() string {
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname defaultToolTags
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname gc uses here (for the "hall of shame" packages) is omitted.
 var defaultToolTags []string
 
 // defaultReleaseTags should be an internal detail,
@@ -325,7 +326,8 @@ var defaultToolTags []string
 // Do not remove or change the type signature.
 // See go.dev/issue/67401.
 //
-//go:linkname defaultReleaseTags
+// Note: gccgo does not support //go:linkname on variables, so the pull
+// linkname gc uses here (for the "hall of shame" packages) is omitted.
 var defaultReleaseTags []string
 
 func defaultContext() Context {
