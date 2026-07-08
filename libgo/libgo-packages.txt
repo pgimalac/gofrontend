@@ -28,6 +28,7 @@ crypto/internal/bigmod
 crypto/internal/boring
 crypto/internal/boring/bbig
 crypto/internal/boring/sig
+crypto/internal/cryptotest
 crypto/internal/edwards25519
 crypto/internal/edwards25519/field
 crypto/internal/hpke
