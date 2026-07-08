@@ -11775,6 +11775,24 @@ append_generic_arg_name(const Type* type, Gogo* gogo, std::string* ret)
   ret->append(type->reflection(gogo));
 }
 
+// Generics: append a package-independent canonical name for this type used as
+// a generic type argument.  A generic instance uses its recorded canonical id
+// (origin-based, so it agrees across packages); otherwise fall back to the
+// pkgpath-qualified name.
+
+void
+Type::append_canonical_generic_name(Gogo* gogo, std::string* ret) const
+{
+  const Type* t = this->unalias();
+  const Named_type* nt = t->named_type();
+  if (nt != NULL && !nt->generic_canonical_id().empty())
+    {
+      ret->append(nt->generic_canonical_id());
+      return;
+    }
+  append_generic_arg_name(t, gogo, ret);
+}
+
 // Add to the reflection string.  This is used mostly for the name of
 // the type used in a type descriptor, not for actual reflection
 // strings.

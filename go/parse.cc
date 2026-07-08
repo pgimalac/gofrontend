@@ -53,8 +53,15 @@ struct Pending_generic_type
 {
   // The placeholder type declaration returned at the use site.
   Named_object* placeholder;
-  // The (packed) name of the generic type being referenced.
+  // The (packed) name of the generic type being referenced.  Used when INFO
+  // is NULL (a forward reference to a not-yet-declared generic type).
   std::string generic_name;
+  // The generic template, when it is already known but a TYPE ARGUMENT is a
+  // forward reference that cannot be canonicalized yet (e.g. a package-level
+  // type alias declared in another file).  When non-NULL, resolution re-uses
+  // this template directly and re-canonicalizes the arguments.  NULL for the
+  // generic_name path above.
+  Generic_function_info* info;
   // The type arguments, each a captured token sequence.
   std::vector<std::vector<Token> > type_args;
   Location location;
@@ -4291,6 +4298,52 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
 				info);
 }
 
+// Generics: see the declaration in parse.h.
+
+std::string
+Parse::generic_instance_canonical_id(Generic_function_info* info,
+			      const std::vector<std::vector<Token> >& type_args,
+			      const std::map<std::string, std::string>& aliases)
+{
+  // Build the id purely from the (already alias-canonicalized) argument
+  // tokens -- no type resolution, so this neither pollutes bindings nor
+  // depends on predeclared names being connected yet.  A package qualifier
+  // "alias . Name" is rewritten to "<pkgpath> . Name" via ALIASES so the id
+  // is package-independent; other tokens are kept verbatim.  A bare
+  // (unqualified) argument keeps its spelling: such an argument is either a
+  // predeclared type (universal) or a package-local type (an instance only
+  // meaningful within one package), so this does not cause cross-package
+  // mismatches for the qualified arguments that need unifying.
+  std::string origin = (info->defining_package() != NULL
+			? info->defining_package()->pkgpath()
+			: this->gogo_->pkgpath());
+  std::string id = origin + "." + Gogo::unpack_hidden_name(info->name()) + "[";
+  for (size_t i = 0; i < type_args.size(); ++i)
+    {
+      if (i > 0)
+	id += ",";
+      const std::vector<Token>& arg = type_args[i];
+      for (size_t j = 0; j < arg.size(); ++j)
+	{
+	  if (arg[j].is_identifier()
+	      && j + 1 < arg.size()
+	      && arg[j + 1].is_op(OPERATOR_DOT))
+	    {
+	      std::map<std::string, std::string>::const_iterator a =
+		aliases.find(arg[j].identifier());
+	      if (a != aliases.end())
+		{
+		  id += a->second;   // pkgpath, not the (ambiguous) alias
+		  continue;
+		}
+	    }
+	  id += token_key_string(arg[j]);
+	}
+    }
+  id += "]";
+  return id;
+}
+
 // Generics: instantiate a generic type template with the given type
 // arguments.  Returns the instance type (possibly a forward
 // declaration during recursive instantiation).
@@ -4353,10 +4406,38 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   if (imported)
     this->gogo_->push_instantiation_package(info->defining_package());
 
+  // Compute the package-independent canonical id (inside the instantiation
+  // context so predeclared/defining-package names resolve) and consult the
+  // global canonical-instance registry, so a locally-created instance and one
+  // imported by reference (or created while importing another package) unify
+  // to a single nominal type object across packages.
+  std::string canon_id = this->generic_instance_canonical_id(info, type_args,
+							     merged_aliases);
+  if (!canon_id.empty())
+    {
+      Named_object* cno =
+	this->gogo_->lookup_canonical_generic_instance(canon_id);
+      if (cno != NULL)
+	{
+	  if (imported)
+	    this->gogo_->pop_instantiation_package();
+	  this->gogo_->pop_instantiation_context();
+	  // Share under this template's local token key too (fast path).
+	  info->add_instance(key, cno, type_args);
+	  if (cno->is_type_declaration())
+	    return Type::make_forward_declaration(cno);
+	  return cno->type_value();
+	}
+    }
+
   // Declare the instance type first so that recursive references to the
   // same instantiation resolve to it.
   Named_object* no = this->gogo_->declare_type(packed, location);
   info->add_instance(key, no, type_args);
+  // Register under the canonical id so any other package's instantiation of
+  // the same generic with the same argument identities reuses THIS object.
+  if (!canon_id.empty())
+    this->gogo_->add_canonical_generic_instance(canon_id, no);
 
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
@@ -4364,6 +4445,10 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Type* underlying = ip.type();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
+  // Record the canonical id on the instance so it exports and so nested
+  // instances referencing it as an argument reuse its origin-based identity.
+  if (!canon_id.empty())
+    nt->set_generic_canonical_id(canon_id);
   // Record the generic's source name so an embedded field of this instance
   // is named for the generic (e.g. "Box"), not the instance ("Box$type0").
   std::string base_name = Gogo::unpack_hidden_name(info->name());
@@ -4550,8 +4635,75 @@ Parse::generic_type_instantiation(Generic_function_info* info,
   for (size_t i = 0; i < type_args.size(); ++i)
     this->note_token_package_usage(type_args[i], &pkg_bindings);
 
+  // Canonicalize type-alias arguments so the instance identity is stable.  If
+  // any argument is a still-unresolved forward reference (e.g. a package-level
+  // alias declared in another file, not yet seen during this parse), its
+  // canonical identity cannot be computed yet: defer the instantiation to the
+  // post-parse pending-resolution pass rather than create a final instance
+  // under a non-canonical spelling (which would not unify with the canonical
+  // one and would break cross-package instance identity).
+  bool all_resolved = this->canonicalize_type_args(type_args, pkg_bindings,
+						   location);
+  if (!all_resolved && !this->gogo_->parsing_complete())
+    {
+      static unsigned int count;
+      char buf[64];
+      snprintf(buf, sizeof buf, "$pendinginst%u", count);
+      ++count;
+      std::string phname =
+	this->gogo_->pack_hidden_name(std::string(buf), false);
+      Named_object* placeholder = this->gogo_->declare_type(phname, location);
+      Pending_generic_type* p = new Pending_generic_type;
+      p->placeholder = placeholder;
+      p->info = info;
+      p->type_args = type_args;
+      p->location = location;
+      this->gogo_->add_pending_generic_type(p);
+      return Type::make_forward_declaration(placeholder);
+    }
+
   return this->instantiate_generic_type(info, type_args, location,
 					&pkg_bindings);
+}
+
+// Generics: see the declaration in parse.h.
+
+bool
+Parse::canonicalize_type_args(std::vector<std::vector<Token> >& type_args,
+			      std::map<std::string, std::string>& pkg_bindings,
+			      Location location)
+{
+  bool all_resolved = true;
+  for (size_t i = 0; i < type_args.size(); ++i)
+    {
+      Type* t = this->parse_type_from_tokens(type_args[i], &pkg_bindings,
+					     /*issue_error=*/false);
+      if (t == NULL || t->forwarded()->forward_declaration_type() != NULL)
+	{
+	  // An unresolved forward reference: identity cannot be finalized yet.
+	  all_resolved = false;
+	  continue;
+	}
+      Type* fwd = t->forwarded();
+      // Rewrite a TYPE ALIAS argument to its underlying type's canonical
+      // spelling, so "Factory[Request]" (type Request = pkg.Request) keys and
+      // spells identically to "Factory[pkg.Request]".  gccgo compares generic
+      // instances nominally and unifies cross-package instances by matching
+      // their type-argument spelling; without this an alias and its underlying
+      // name produce two distinct, non-identical instances of one generic.
+      if (fwd->named_type() != NULL && fwd->named_type()->is_alias())
+	{
+	  std::vector<Token> canon;
+	  std::map<std::string, std::string> canon_bindings;
+	  if (type_to_tokens(fwd->unalias(), canon, location, &canon_bindings)
+	      && !canon.empty())
+	    {
+	      type_args[i] = canon;
+	      pkg_bindings.insert(canon_bindings.begin(), canon_bindings.end());
+	    }
+	}
+    }
+  return all_resolved;
 }
 
 // Generics: a use of a generic type before its declaration.  Parse the
@@ -4642,6 +4794,7 @@ Parse::make_pending_generic_type(const std::string& name,
   Pending_generic_type* p = new Pending_generic_type;
   p->placeholder = placeholder;
   p->generic_name = gname;
+  p->info = NULL;
   p->type_args = type_args;
   p->location = location;
   this->gogo_->add_pending_generic_type(p);
@@ -4660,6 +4813,32 @@ Parse::resolve_pending_generic_types()
   for (size_t i = 0; i < pend.size(); ++i)
     {
       Pending_generic_type* p = pend[i];
+
+      // Deferred because a TYPE ARGUMENT was a forward reference at parse time
+      // (the template itself was known).  The argument should resolve now, so
+      // re-canonicalize the arguments and instantiate via the known template,
+      // then redirect the placeholder to the canonical instance.
+      if (p->info != NULL)
+	{
+	  std::vector<std::vector<Token> > targs = p->type_args;
+	  std::map<std::string, std::string> bindings;
+	  for (size_t k = 0; k < targs.size(); ++k)
+	    this->note_token_package_usage(targs[k], &bindings);
+	  this->canonicalize_type_args(targs, bindings, p->location);
+	  Type* inst = this->instantiate_generic_type(p->info, targs,
+						      p->location, &bindings);
+	  Named_type* alias = Type::make_named_type(p->placeholder, inst,
+						    p->location);
+	  alias->set_is_alias();
+	  std::string base_name = Gogo::unpack_hidden_name(p->info->name());
+	  alias->set_generic_base_name(base_name);
+	  if (!Lex::is_exported_name(base_name))
+	    alias->set_generic_embedded_field_name(
+	      this->gogo_->pack_hidden_name_for_field(base_name, false));
+	  this->gogo_->define_type(p->placeholder, alias);
+	  continue;
+	}
+
       Generic_function_info* info =
 	this->gogo_->lookup_generic_type(p->generic_name);
       if (info == NULL)

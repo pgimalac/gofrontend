@@ -1017,6 +1017,12 @@ class Type
   std::string
   reflection(Gogo*) const;
 
+  // Generics: append a package-independent canonical name for this type when
+  // it appears as a generic type argument (a generic instance uses its
+  // recorded canonical id; other types use their pkgpath-qualified name).
+  void
+  append_canonical_generic_name(Gogo*, std::string*) const;
+
   // Add the backend name for the type to BNAME.  This will add one or
   // two name components.  Identical types should have the same
   // backend name.
@@ -3552,6 +3558,20 @@ class Named_type : public Type
   set_generic_type_args(const std::vector<Type*>& args)
   { this->generic_type_args_ = args; }
 
+  // Generics: the package-independent canonical identity of a generic
+  // instance ("<origin-pkgpath>.Base[<arg>,...]").  Set for a generic
+  // instance (computed locally, or read from export data for an imported
+  // one) and used to unify the same instance across packages -- a locally
+  // created instance and one imported by reference resolve to one object.
+  // Empty for an ordinary named type.
+  const std::string&
+  generic_canonical_id() const
+  { return this->generic_canonical_id_; }
+
+  void
+  set_generic_canonical_id(const std::string& id)
+  { this->generic_canonical_id_ = id; }
+
   // Return the underlying type.
   Type*
   real_type()
@@ -3816,6 +3836,9 @@ class Named_type : public Type
   // For a generic type instance, the resolved type arguments; see
   // generic_type_args().
   std::vector<Type*> generic_type_args_;
+  // For a generic type instance, its package-independent canonical id; see
+  // generic_canonical_id().
+  std::string generic_canonical_id_;
 };
 
 // A forward declaration.  This handles a type which has been declared

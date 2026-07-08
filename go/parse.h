@@ -387,6 +387,21 @@ class Parse
   // arguments, canonicalized by resolved type identity where possible so
   // that different spellings of the same type map to one instance.
   std::string instance_key(const std::vector<std::vector<Token> >&);
+  // Canonicalize type-argument tokens for stable instance identity: rewrite a
+  // type-alias argument to its underlying type's canonical spelling (so e.g.
+  // "Factory[Request]" and "Factory[pkg.Request]" key identically).  Returns
+  // false if any argument is a still-unresolved forward reference (its
+  // identity cannot be finalized yet); in that case the caller must defer the
+  // instantiation rather than cache it under a non-canonical spelling.
+  bool canonicalize_type_args(std::vector<std::vector<Token> >& type_args,
+			      std::map<std::string, std::string>& pkg_bindings,
+			      Location location);
+  // Compute the package-independent canonical id of a generic instance,
+  // "<origin-pkgpath>.Base[<canonical arg>,...]".  Returns the empty string if
+  // any type argument is not yet fully resolvable (so it must not be cached).
+  std::string generic_instance_canonical_id(Generic_function_info* info,
+			      const std::vector<std::vector<Token> >& type_args,
+			      const std::map<std::string, std::string>& aliases);
   // Mark as used any imported package referenced (as "pkg.X") in a
   // captured generic template's tokens, so it is not reported as an
   // unused import even though the body is compiled only on instantiation.

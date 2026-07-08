@@ -689,6 +689,22 @@ class Gogo
   generic_imported_packages() const
   { return this->generic_imported_packages_; }
 
+  // Generics: the compilation-global registry of generic instances keyed by
+  // their package-independent canonical id ("<origin-pkgpath>.Base[arg,...]").
+  // This makes a locally-created instance and one imported by reference
+  // resolve to a single nominal type object across packages.
+  Named_object*
+  lookup_canonical_generic_instance(const std::string& id) const
+  {
+    Unordered_map(std::string, Named_object*)::const_iterator p =
+      this->canonical_generic_instances_.find(id);
+    return p == this->canonical_generic_instances_.end() ? NULL : p->second;
+  }
+
+  void
+  add_canonical_generic_instance(const std::string& id, Named_object* no)
+  { this->canonical_generic_instances_[id] = no; }
+
   // The registries of generic templates, used by the export code.
   const Unordered_map(std::string, Generic_function_info*)&
   generic_functions() const
@@ -1471,6 +1487,9 @@ class Gogo
   // references in instantiated template bodies (whose file-scoped imports
   // are no longer in scope by the time of instantiation).
   mutable Unordered_map(std::string, Named_object*) instantiation_package_cache_;
+  // Generics: compilation-global registry of generic instances by canonical
+  // id; see lookup_canonical_generic_instance.
+  Unordered_map(std::string, Named_object*) canonical_generic_instances_;
   // The backend generator.
   Backend* backend_;
   // The object used to keep track of file names and line numbers.
