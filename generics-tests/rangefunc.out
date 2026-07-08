@@ -1,0 +1,16 @@
+basic: 0 1 2
+pairs: 1a 2b
+break: 0
+continue: 0 2
+return: 20
+sum: 3
+nested: 0 0 1 0 2 0
+iter.Seq: 6
+maps.Keys: [a b c]
+slices.Values: 60
+slices.All: 0 10
+slices.All: 1 20
+slices.All: 2 30
+switch: 0 2
+goto: 0 2
+counts: 3 3

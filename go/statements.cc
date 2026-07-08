@@ -3663,6 +3663,11 @@ class Bc_statement : public Statement
   is_break() const
   { return this->is_break_; }
 
+  // The label this break/continue branches to.
+  Unnamed_label*
+  label() const
+  { return this->label_; }
+
  protected:
   int
   do_traverse(Traverse*)
@@ -4698,6 +4703,11 @@ class Constant_switch_statement : public Statement
     : Statement(STATEMENT_CONSTANT_SWITCH, location),
       val_(val), clauses_(clauses), break_label_(break_label)
   { }
+
+  // The break label, if any.
+  Unnamed_label*
+  break_label() const
+  { return this->break_label_; }
 
  protected:
   int
@@ -7066,6 +7076,59 @@ For_range_statement::do_check_types(Gogo*)
 	  return;
 	}
     }
+  else if (range_type->function_type() != NULL)
+    {
+      // range over func(yield func(K) bool) / func(yield func(K, V) bool).
+      Function_type* ft = range_type->function_type();
+      Type* yield_type = NULL;
+      const Typed_identifier_list* params = ft->parameters();
+      if (ft->results() == NULL
+	  && params != NULL
+	  && params->size() == 1)
+	yield_type = params->begin()->type();
+      Function_type* yield_ft =
+	(yield_type == NULL ? NULL : yield_type->function_type());
+      if (yield_ft == NULL
+	  || yield_ft->receiver() != NULL
+	  || yield_ft->results() == NULL
+	  || yield_ft->results()->size() != 1
+	  || !yield_ft->results()->begin()->type()->is_boolean_type())
+	{
+	  this->report_error(_("range over func must have type "
+			       "func(func(...) bool)"));
+	  this->set_is_error();
+	  return;
+	}
+      const Typed_identifier_list* yp = yield_ft->parameters();
+      size_t nparams = (yp == NULL ? 0 : yp->size());
+      if (nparams > 2)
+	{
+	  this->report_error(_("range over func yield function may take "
+			       "at most two parameters"));
+	  this->set_is_error();
+	  return;
+	}
+      index_type = (nparams >= 1 ? yp->begin()->type() : NULL);
+      value_type = NULL;
+      if (nparams >= 2)
+	{
+	  Typed_identifier_list::const_iterator pi = yp->begin();
+	  ++pi;
+	  value_type = pi->type();
+	}
+      if (index_type == NULL && this->index_var_ != NULL)
+	{
+	  this->report_error(_("too many variables for range clause"));
+	  this->set_is_error();
+	  return;
+	}
+      if (value_type == NULL && this->value_var_ != NULL)
+	{
+	  this->report_error(_("too many variables for range clause"));
+	  this->set_is_error();
+	  return;
+	}
+    }
   else
     {
       this->report_error(_("range clause must have "
@@ -7090,8 +7153,8 @@ For_range_statement::do_check_types(Gogo*)
 // statements.
 
 Statement*
-For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
-			      Statement_inserter*)
+For_range_statement::do_lower(Gogo* gogo, Named_object* function,
+			      Block* enclosing, Statement_inserter*)
 {
   if (this->classification() == STATEMENT_ERROR)
     return Statement::make_error_statement(this->location());
@@ -7136,6 +7199,26 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
       if (index_type->is_abstract())
 	index_type = Type::lookup_integer_type("int");
       go_assert(this->value_var_ == NULL);
+    }
+  else if (range_type->function_type() != NULL)
+    {
+      // range over func: derive K, V from the yield function type.
+      Function_type* ft = range_type->function_type();
+      Type* yield_type = ft->parameters()->begin()->type();
+      const Typed_identifier_list* yp =
+	yield_type->function_type()->parameters();
+      size_t nparams = (yp == NULL ? 0 : yp->size());
+      index_type = (nparams >= 1 ? yp->begin()->type() : NULL);
+      value_type = NULL;
+      if (nparams >= 2)
+	{
+	  Typed_identifier_list::const_iterator pi = yp->begin();
+	  ++pi;
+	  value_type = pi->type();
+	}
+      return this->lower_range_func(gogo, function, enclosing, range_type,
+				    NULL, NULL, index_type, value_type,
+				    this->location());
     }
   else
     go_unreachable();
@@ -7334,6 +7417,752 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
   temp_block->add_statement(loop);
 
   return Statement::make_block_statement(temp_block, loc);
+}
+
+// Helper traversal for range-over-func lowering.  It collects the
+// variables (and result variables) that are declared in an enclosing
+// function and referenced by the body of the range loop, so that they
+// can be captured by the generated yield closure.  It also rewrites
+// return statements in the body into an assignment to the saved return
+// value variables plus a jump out of the yield function.
+
+// First traversal: collect the Named_objects that are *declared* inside
+// the range body.  These are local to the yield function and must not
+// be captured.
+
+class Rangefunc_locals_collect : public Traverse
+{
+ public:
+  Rangefunc_locals_collect(Unordered_set(Named_object*)* locals)
+    : Traverse(traverse_variables | traverse_constants),
+      locals_(locals)
+  { }
+
+  int
+  variable(Named_object* no)
+  {
+    this->locals_->insert(no);
+    return TRAVERSE_CONTINUE;
+  }
+
+ private:
+  Unordered_set(Named_object*)* locals_;
+};
+
+// Second traversal: collect the variables referenced by the body that
+// belong to an enclosing function (and so must be captured).
+
+class Rangefunc_body_rewrite : public Traverse
+{
+ public:
+  Rangefunc_body_rewrite(const Unordered_set(Named_object*)& locals)
+    : Traverse(traverse_expressions),
+      locals_(locals), captured_(), captured_set_()
+  { }
+
+  // The ordered list of captured variables.
+  const std::vector<Named_object*>&
+  captured() const
+  { return this->captured_; }
+
+  // Record a variable as captured, if it belongs to an enclosing
+  // function and has not already been recorded.
+  void
+  maybe_capture(Named_object* no);
+
+  int
+  expression(Expression**);
+
+ private:
+  // Variables declared inside the body (not to be captured).
+  const Unordered_set(Named_object*)& locals_;
+  // The captured variables, in order of first appearance.
+  std::vector<Named_object*> captured_;
+  // The set of captured variables, for deduplication.
+  Unordered_set(Named_object*) captured_set_;
+};
+
+void
+Rangefunc_body_rewrite::maybe_capture(Named_object* no)
+{
+  if (no == NULL)
+    return;
+  if (!no->is_variable() && !no->is_result_variable())
+    return;
+  if (no->is_variable() && no->var_value()->is_global())
+    return;
+  if (this->locals_.find(no) != this->locals_.end())
+    return;
+  if (this->captured_set_.find(no) != this->captured_set_.end())
+    return;
+  this->captured_set_.insert(no);
+  this->captured_.push_back(no);
+}
+
+// Detect control-flow transfers in a range-over-func body that would
+// escape the generated yield function to a target in an enclosing
+// construct (a labeled break/continue to an outer loop, or a goto to a
+// label outside the body).  These are not yet supported and would
+// otherwise produce invalid cross-function jumps.  We do this in two
+// passes: first collect the "safe" targets (this loop's break/continue
+// labels, the break/continue labels of loops/switches/selects nested
+// inside the body, and named labels defined inside the body); then flag
+// any break/continue/goto whose target is not in that set.
+
+class Rangefunc_targets_collect : public Traverse
+{
+ public:
+  Rangefunc_targets_collect(Unordered_set(Unnamed_label*)* unnamed,
+			    Unordered_set(Label*)* named)
+    : Traverse(traverse_statements),
+      unnamed_(unnamed), named_(named)
+  { }
+
+  int
+  statement(Block*, size_t*, Statement*);
+
+ private:
+  Unordered_set(Unnamed_label*)* unnamed_;
+  Unordered_set(Label*)* named_;
+};
+
+int
+Rangefunc_targets_collect::statement(Block*, size_t*, Statement* s)
+{
+  switch (s->classification())
+    {
+    case Statement::STATEMENT_FOR:
+      {
+	For_statement* f = s->for_statement();
+	this->unnamed_->insert(f->break_label());
+	this->unnamed_->insert(f->continue_label());
+      }
+      break;
+    case Statement::STATEMENT_FOR_RANGE:
+      {
+	For_range_statement* f = s->for_range_statement();
+	this->unnamed_->insert(f->break_label());
+	this->unnamed_->insert(f->continue_label());
+      }
+      break;
+    case Statement::STATEMENT_SWITCH:
+      this->unnamed_->insert(s->switch_statement()->break_label());
+      break;
+    case Statement::STATEMENT_CONSTANT_SWITCH:
+      {
+	Unnamed_label* bl =
+	  static_cast<Constant_switch_statement*>(s)->break_label();
+	if (bl != NULL)
+	  this->unnamed_->insert(bl);
+      }
+      break;
+    case Statement::STATEMENT_TYPE_SWITCH:
+      this->unnamed_->insert(s->type_switch_statement()->break_label());
+      break;
+    case Statement::STATEMENT_SELECT:
+      this->unnamed_->insert(s->select_statement()->break_label());
+      break;
+    case Statement::STATEMENT_LABEL:
+      this->named_->insert(s->label_statement()->label());
+      break;
+    case Statement::STATEMENT_UNNAMED_LABEL:
+      this->unnamed_->insert(
+	s->unnamed_label_statement()->unnamed_label());
+      break;
+    default:
+      break;
+    }
+  return TRAVERSE_CONTINUE;
+}
+
+class Rangefunc_escape_check : public Traverse
+{
+ public:
+  Rangefunc_escape_check(const Unordered_set(Unnamed_label*)& unnamed,
+			 const Unordered_set(Label*)& named)
+    : Traverse(traverse_statements),
+      unnamed_(unnamed), named_(named), escapes_(false)
+  { }
+
+  bool
+  escapes() const
+  { return this->escapes_; }
+
+  int
+  statement(Block*, size_t*, Statement*);
+
+ private:
+  const Unordered_set(Unnamed_label*)& unnamed_;
+  const Unordered_set(Label*)& named_;
+  bool escapes_;
+};
+
+int
+Rangefunc_escape_check::statement(Block*, size_t*, Statement* s)
+{
+  switch (s->classification())
+    {
+    case Statement::STATEMENT_BREAK_OR_CONTINUE:
+      {
+	Bc_statement* bc = static_cast<Bc_statement*>(s);
+	Unnamed_label* l = bc->label();
+	if (l != NULL && this->unnamed_.find(l) == this->unnamed_.end())
+	  this->escapes_ = true;
+      }
+      break;
+    case Statement::STATEMENT_GOTO_UNNAMED:
+      {
+	Unnamed_label* l = s->goto_unnamed_statement()->unnamed_label();
+	if (l != NULL && this->unnamed_.find(l) == this->unnamed_.end())
+	  this->escapes_ = true;
+      }
+      break;
+    case Statement::STATEMENT_GOTO:
+      {
+	Label* l = s->goto_statement()->label();
+	if (l != NULL && this->named_.find(l) == this->named_.end())
+	  this->escapes_ = true;
+      }
+      break;
+    default:
+      break;
+    }
+  return TRAVERSE_CONTINUE;
+}
+
+int
+Rangefunc_body_rewrite::expression(Expression** pexpr)
+{
+  Expression* e = *pexpr;
+  Var_expression* ve = e->var_expression();
+  if (ve != NULL)
+    this->maybe_capture(ve->named_object());
+  return TRAVERSE_CONTINUE;
+}
+
+// Build a reference (an lvalue) to a captured variable through the
+// yield function's closure.  INDEX is the field index in the closure
+// struct (1-based; field 0 is the function code pointer).
+
+static Expression*
+rangefunc_closure_ref(Named_object* closure, unsigned int index,
+		      Named_object* var, Location loc);
+
+// Second-pass traversal over a range-over-func body: rewrite variable
+// references into closure references, and rewrite return statements
+// into (save return values; set state; break-out-of-yield).
+
+class Rangefunc_capture_rewrite : public Traverse
+{
+ public:
+  Rangefunc_capture_rewrite(Named_object* yield_no, Named_object* closure_no,
+			    Unordered_map(Named_object*, unsigned int)* fi,
+			    const std::vector<Named_object*>& ret_vars,
+			    Named_object* state_no)
+    : Traverse(traverse_statements | traverse_expressions),
+      yield_no_(yield_no), closure_no_(closure_no), field_index_(fi),
+      ret_vars_(ret_vars), state_no_(state_no)
+  { }
+
+  int
+  statement(Block*, size_t*, Statement*);
+
+  int
+  expression(Expression**);
+
+ private:
+  Named_object* yield_no_;
+  Named_object* closure_no_;
+  Unordered_map(Named_object*, unsigned int)* field_index_;
+  const std::vector<Named_object*>& ret_vars_;
+  Named_object* state_no_;
+};
+
+// Expression-only variant: rewrites captured-variable references into
+// closure references, without touching statements.  Used to rewrite the
+// contents of the block that replaces a return statement, so that the
+// synthetic "return false" in that block is not itself rewritten.
+
+class Rangefunc_expr_rewrite : public Traverse
+{
+ public:
+  Rangefunc_expr_rewrite(Named_object* closure_no,
+			 Unordered_map(Named_object*, unsigned int)* fi)
+    : Traverse(traverse_expressions),
+      closure_no_(closure_no), field_index_(fi)
+  { }
+
+  int
+  expression(Expression** pexpr)
+  {
+    Expression* e = *pexpr;
+    Var_expression* ve = e->var_expression();
+    if (ve != NULL)
+      {
+	Named_object* no = ve->named_object();
+	Unordered_map(Named_object*, unsigned int)::const_iterator p =
+	  this->field_index_->find(no);
+	if (p != this->field_index_->end())
+	  *pexpr = rangefunc_closure_ref(this->closure_no_, p->second, no,
+					 e->location());
+      }
+    return TRAVERSE_CONTINUE;
+  }
+
+ private:
+  Named_object* closure_no_;
+  Unordered_map(Named_object*, unsigned int)* field_index_;
+};
+
+int
+Rangefunc_capture_rewrite::expression(Expression** pexpr)
+{
+  Expression* e = *pexpr;
+  Named_object* no = NULL;
+  Var_expression* ve = e->var_expression();
+  if (ve != NULL)
+    no = ve->named_object();
+  if (no != NULL)
+    {
+      Unordered_map(Named_object*, unsigned int)::const_iterator p =
+	this->field_index_->find(no);
+      if (p != this->field_index_->end())
+	{
+	  *pexpr = rangefunc_closure_ref(this->closure_no_, p->second, no,
+					 e->location());
+	  return TRAVERSE_CONTINUE;
+	}
+    }
+  return TRAVERSE_CONTINUE;
+}
+
+int
+Rangefunc_capture_rewrite::statement(Block* block, size_t* pindex,
+				     Statement* s)
+{
+  if (s->classification() != Statement::STATEMENT_RETURN)
+    return TRAVERSE_CONTINUE;
+
+  Return_statement* rs = s->return_statement();
+  Location loc = rs->location();
+  const Expression_list* vals = rs->vals();
+
+  Block* b = new Block(block, loc);
+
+  // Save the return values into the $ret vars.
+  if (vals != NULL && !vals->empty())
+    {
+      go_assert(vals->size() == this->ret_vars_.size());
+      if (vals->size() == 1)
+	{
+	  Expression* lhs =
+	    Expression::make_var_reference(this->ret_vars_[0], loc);
+	  Statement* as = Statement::make_assignment(lhs, vals->front(), loc);
+	  b->add_statement(as);
+	}
+      else
+	{
+	  Expression_list* lhs = new Expression_list();
+	  Expression_list* rhs = new Expression_list();
+	  size_t i = 0;
+	  for (Expression_list::const_iterator pv = vals->begin();
+	       pv != vals->end();
+	       ++pv, ++i)
+	    {
+	      lhs->push_back(
+		Expression::make_var_reference(this->ret_vars_[i], loc));
+	      rhs->push_back(*pv);
+	    }
+	  Statement* as = Statement::make_tuple_assignment(lhs, rhs, loc);
+	  b->add_statement(as);
+	}
+    }
+
+  // $state = 2.
+  Type* int_type = Type::lookup_integer_type("int");
+  {
+    Expression* lhs =
+      Expression::make_var_reference(this->state_no_, loc);
+    Expression* two = Expression::make_integer_ul(2, int_type, loc);
+    b->add_statement(Statement::make_assignment(lhs, two, loc));
+  }
+
+  // return false from the yield function (stops iteration).  We do not
+  // go through the $break label, because that would reset $state to 1.
+  {
+    Expression_list* rf = new Expression_list();
+    rf->push_back(Expression::make_boolean(false, loc));
+    b->add_statement(Statement::make_return_statement(this->yield_no_, rf,
+						      loc));
+  }
+
+  // Rewrite variable references inside the new block (the saved return
+  // values reference captured variables, and the $ret/$state
+  // assignments reference captured variables too).  We do this
+  // explicitly because the enclosing Block::traverse will not descend
+  // into the statement we are substituting for the current one.  We use
+  // an expression-only rewriter so that the synthetic "return false" in
+  // the block is not itself treated as a user return.
+  Rangefunc_expr_rewrite er(this->closure_no_, this->field_index_);
+  b->traverse(&er);
+
+  // Replace the return statement with the block, and skip the default
+  // recursion into the (now removed) return statement.
+  Statement* bs = Statement::make_block_statement(b, loc);
+  block->replace_statement(*pindex, bs);
+  return TRAVERSE_SKIP_COMPONENTS;
+}
+
+static Expression*
+rangefunc_closure_ref(Named_object* closure, unsigned int index,
+		      Named_object* var, Location loc)
+{
+  Expression* closure_ref = Expression::make_var_reference(closure, loc);
+  closure_ref = Expression::make_dereference(closure_ref,
+					     Expression::NIL_CHECK_NOT_NEEDED,
+					     loc);
+  Expression* e = Expression::make_field_reference(closure_ref, index, loc);
+  e = Expression::make_dereference(e, Expression::NIL_CHECK_NOT_NEEDED, loc);
+  return Expression::make_enclosing_var_reference(e, var, loc);
+}
+
+// Lower a range over a function value (Go 1.23 range-over-func).
+//
+//   for x, y := range F { BODY }
+//
+// where F has type func(yield func(K, V) bool) is lowered to roughly:
+//
+//   {
+//     var $state int              // 0 normal, 1 break, 2 return
+//     var $ret_0 R0, ...          // saved return values, if any
+//     F(func(k K, v V) bool {     // the yield closure
+//       x = k; y = v
+//       BODY'                     // with return rewritten
+//       goto $continue            // fall-off end == continue
+//      $continue: return true
+//      $break: $state = 1; return false
+//     })
+//     if $state == 2 { return $ret_0, ... }
+//     // $state == 1 (break) or 0 (normal): loop is done, fall through
+//   }
+//
+// A return in BODY is rewritten to save the return values, set
+// $state = 2, and jump to $break (which returns false from yield).
+
+Statement*
+For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
+				      Block* enclosing, Type* range_type,
+				      Named_object*, Temporary_statement*,
+				      Type* index_type, Type* value_type,
+				      Location loc)
+{
+  Function_type* range_ft = range_type->function_type();
+  Type* yield_type = range_ft->parameters()->begin()->type();
+  Function_type* yield_ft = yield_type->function_type();
+  go_assert(yield_ft != NULL);
+
+  Type* int_type = Type::lookup_integer_type("int");
+  Type* bool_type = Type::lookup_bool_type();
+
+  // Detect control-flow transfers that would escape the yield function
+  // (a labeled break/continue to an outer construct, or a goto to a
+  // label outside the loop body).  These are not yet supported.
+  {
+    Unordered_set(Unnamed_label*) safe_unnamed;
+    Unordered_set(Label*) safe_named;
+    safe_unnamed.insert(this->break_label());
+    safe_unnamed.insert(this->continue_label());
+    Rangefunc_targets_collect tc(&safe_unnamed, &safe_named);
+    this->statements_->traverse(&tc);
+    Rangefunc_escape_check ec(safe_unnamed, safe_named);
+    this->statements_->traverse(&ec);
+    if (ec.escapes())
+      {
+	go_error_at(loc,
+		    "labeled break/continue or goto out of a range-over-func "
+		    "loop is not yet supported by gccgo");
+	return Statement::make_error_statement(loc);
+      }
+  }
+
+  // The outer block that will replace the range statement.
+  Block* outer = new Block(enclosing, loc);
+
+  // Save the range function expression into a temporary evaluated in
+  // the outer block (before the yield function is defined), matching
+  // Go's evaluation order.
+  Temporary_statement* func_temp =
+    Statement::make_temporary(range_type, this->range_, loc);
+  func_temp->determine_types(gogo);
+  outer->add_statement(func_temp);
+
+  // Create the $state variable in the outer block.
+  Named_object* state_no;
+  {
+    Variable* var = new Variable(int_type,
+				 Expression::make_integer_ul(0, int_type, loc),
+				 false, false, false, loc);
+    var->set_is_used();
+    state_no = outer->bindings()->add_variable("$rangestate", NULL, var);
+    outer->add_statement(Statement::make_variable_declaration(state_no));
+  }
+
+  // The enclosing function's result variables.  A return statement in
+  // the body has usually already been lowered into an assignment to
+  // these result variables followed by a bare return; by capturing the
+  // result variables in the yield closure, those assignments write
+  // directly to the enclosing function's results.  After the range
+  // function returns, the outer "if $state == 2 { return }" simply
+  // returns those already-set result values.
+  std::vector<Named_object*> ret_vars;
+  Function* efn = enclosing_fn->func_value();
+  Function::Results* results = efn->result_variables();
+  size_t results_count = (results == NULL ? 0 : results->size());
+  for (size_t i = 0; i < results_count; ++i)
+    ret_vars.push_back((*results)[i]);
+
+  // Collect the variables declared inside the body; these are local to
+  // the yield function and are not captured.
+  Unordered_set(Named_object*) body_locals;
+  {
+    Rangefunc_locals_collect lc(&body_locals);
+    this->statements_->traverse(&lc);
+  }
+
+  // Collect the variables captured by the body.
+  Rangefunc_body_rewrite rewrite(body_locals);
+  this->statements_->traverse(&rewrite);
+
+  // The list of captured variables: those referenced by the body, plus
+  // the index/value range variables, plus $state and the $ret vars.
+  std::vector<Named_object*> captured = rewrite.captured();
+
+  // Ensure the index/value range variable Named_objects are captured.
+  Named_object* index_no = NULL;
+  Named_object* value_no = NULL;
+  if (this->index_var_ != NULL && !this->index_var_->is_sink_expression())
+    {
+      Var_expression* ve = this->index_var_->var_expression();
+      if (ve != NULL)
+	index_no = ve->named_object();
+    }
+  if (this->value_var_ != NULL && !this->value_var_->is_sink_expression())
+    {
+      Var_expression* ve = this->value_var_->var_expression();
+      if (ve != NULL)
+	value_no = ve->named_object();
+    }
+
+  // Add the range variables, $state and $ret vars to the capture list
+  // (they may already be captured through the body if it references
+  // them; add them explicitly to be sure).
+  std::vector<Named_object*> extra;
+  if (index_no != NULL)
+    extra.push_back(index_no);
+  if (value_no != NULL)
+    extra.push_back(value_no);
+  extra.push_back(state_no);
+  for (size_t i = 0; i < ret_vars.size(); ++i)
+    extra.push_back(ret_vars[i]);
+
+  // Build the full capture list without duplicates, preserving order:
+  // body-captured vars first, then extras.
+  Unordered_set(Named_object*) in_list;
+  std::vector<Named_object*> all_captured;
+  for (size_t i = 0; i < captured.size(); ++i)
+    {
+      if (in_list.find(captured[i]) == in_list.end())
+	{
+	  in_list.insert(captured[i]);
+	  all_captured.push_back(captured[i]);
+	}
+    }
+  for (size_t i = 0; i < extra.size(); ++i)
+    {
+      if (in_list.find(extra[i]) == in_list.end())
+	{
+	  in_list.insert(extra[i]);
+	  all_captured.push_back(extra[i]);
+	}
+    }
+
+  // Build the yield function type: func(k K, v V) bool.
+  Typed_identifier_list* yield_params = new Typed_identifier_list();
+  if (index_type != NULL)
+    yield_params->push_back(Typed_identifier("$rfk", index_type, loc));
+  if (value_type != NULL)
+    yield_params->push_back(Typed_identifier("$rfv", value_type, loc));
+  if (yield_params->empty())
+    {
+      delete yield_params;
+      yield_params = NULL;
+    }
+  Typed_identifier_list* yield_results = new Typed_identifier_list();
+  yield_results->push_back(Typed_identifier("", bool_type, loc));
+  Function_type* yield_fntype = Type::make_function_type(NULL, yield_params,
+							 yield_results, loc);
+
+  // Start the yield function.  Because it has an enclosing function it
+  // will need a closure.  Give it a nested-function name (containing
+  // "..func") so the backend naming machinery is happy.
+  std::string yield_name(gogo->nested_function_name(enclosing_fn));
+  Named_object* yield_no = gogo->start_function(yield_name, yield_fntype,
+						false, loc);
+  Function* yield_fn = yield_no->func_value();
+
+  // Mark the yield function as nested inside the enclosing function so
+  // that the descriptor machinery knows it needs a closure (this
+  // lowering runs after the parser popped the function stack, so
+  // start_function set the enclosing to NULL).
+  yield_fn->set_enclosing(enclosing_fn);
+
+  // Set up the closure for the yield function, capturing all the
+  // variables in all_captured.  We add closure fields and then set the
+  // closure type ourselves (this function was created after the normal
+  // determine_types pass, so we must build its closure explicitly).
+  Named_object* closure_no = yield_fn->closure_var();
+  for (size_t i = 0; i < all_captured.size(); ++i)
+    yield_fn->add_closure_field(all_captured[i], loc);
+  yield_fn->set_closure_type();
+
+  // Map from captured Named_object to its closure field index.
+  Unordered_map(Named_object*, unsigned int) field_index;
+  for (size_t i = 0; i < all_captured.size(); ++i)
+    field_index[all_captured[i]] = (unsigned int) (i + 1);
+
+  // Build the body of the yield function.
+  gogo->start_block(loc);
+
+  // Get references to the parameters.
+  Named_object* kp = (index_type != NULL ? gogo->lookup("$rfk", NULL) : NULL);
+  Named_object* vp = (value_type != NULL ? gogo->lookup("$rfv", NULL) : NULL);
+
+  // Assign the range variables from the parameters: x = k; y = v.
+  if (index_no != NULL)
+    {
+      Expression* lhs = rangefunc_closure_ref(closure_no,
+					      field_index[index_no],
+					      index_no, loc);
+      Expression* rhs = Expression::make_var_reference(kp, loc);
+      Statement* s = Statement::make_assignment(lhs, rhs, loc);
+      gogo->add_statement(s);
+    }
+  if (value_no != NULL)
+    {
+      Expression* lhs = rangefunc_closure_ref(closure_no,
+					      field_index[value_no],
+					      value_no, loc);
+      Expression* rhs = Expression::make_var_reference(vp, loc);
+      Statement* s = Statement::make_assignment(lhs, rhs, loc);
+      gogo->add_statement(s);
+    }
+
+  // Rewrite every reference to a captured variable inside the body so
+  // that it goes through the closure, and rewrite return statements.
+  Statement* rewritten = this->rewrite_range_func_body(gogo, yield_no,
+						       closure_no, field_index,
+						       ret_vars, state_no, loc);
+  gogo->add_statement(rewritten);
+
+  // Fall-off end of body == continue: jump to the continue label.
+  Unnamed_label* cont_label = this->continue_label();
+  Unnamed_label* brk_label = this->break_label();
+  gogo->add_statement(Statement::make_goto_unnamed_statement(cont_label, loc));
+
+  // $continue: return true.
+  gogo->add_statement(Statement::make_unnamed_label_statement(cont_label));
+  {
+    Expression_list* vals = new Expression_list();
+    vals->push_back(Expression::make_boolean(true, loc));
+    gogo->add_statement(Statement::make_return_statement(yield_no, vals, loc));
+  }
+
+  // $break: $state = 1; return false.
+  gogo->add_statement(Statement::make_unnamed_label_statement(brk_label));
+  {
+    Expression* lhs = rangefunc_closure_ref(closure_no,
+					    field_index[state_no],
+					    state_no, loc);
+    Expression* rhs = Expression::make_integer_ul(1, int_type, loc);
+    gogo->add_statement(Statement::make_assignment(lhs, rhs, loc));
+
+    Expression_list* vals = new Expression_list();
+    vals->push_back(Expression::make_boolean(false, loc));
+    gogo->add_statement(Statement::make_return_statement(yield_no, vals, loc));
+  }
+
+  Block* yield_body = gogo->finish_block(loc);
+  gogo->add_block(yield_body, loc);
+  yield_body->determine_types(gogo);
+  gogo->lower_block(yield_no, yield_body);
+  gogo->add_conversions_in_block(yield_body);
+  gogo->finish_function(loc);
+
+  // Build the closure value to pass as the yield argument: a heap
+  // struct { .f = code, &var, ... }.
+  Struct_type* closure_st =
+    closure_no->var_value()->type()->deref()->struct_type();
+  Expression_list* cvals = new Expression_list();
+  cvals->push_back(Expression::make_func_code_reference(yield_no, loc));
+  for (size_t i = 0; i < all_captured.size(); ++i)
+    {
+      Named_object* cv = all_captured[i];
+      Expression* ref = Expression::make_var_reference(cv, loc);
+      ref = Expression::make_unary(OPERATOR_AND, ref, loc);
+      cvals->push_back(ref);
+    }
+  Expression* closure_lit =
+    Expression::make_struct_composite_literal(closure_st, cvals, loc);
+  Expression* closure_val = Expression::make_heap_expression(closure_lit, loc);
+
+  // The yield function value passed to F.
+  Expression* yield_val = Expression::make_func_reference(yield_no,
+							  closure_val, loc);
+
+  // Build the call F(yield).
+  Expression* func_ref = Expression::make_temporary_reference(func_temp, loc);
+  Expression_list* call_args = new Expression_list();
+  call_args->push_back(yield_val);
+  Expression* call = Expression::make_call(func_ref, call_args, false, loc);
+  Statement* call_stmt = Statement::make_statement(call, true);
+  outer->add_statement(call_stmt);
+
+  // After F returns: if $state == 2 (return), return from the enclosing
+  // function.  The return values were written directly into the
+  // enclosing function's result variables (which are captured by the
+  // closure), so a bare return returns the correct values.
+  {
+    Expression* state_ref = Expression::make_var_reference(state_no, loc);
+    Expression* two = Expression::make_integer_ul(2, int_type, loc);
+    Expression* cond = Expression::make_binary(OPERATOR_EQEQ, state_ref, two,
+					       loc);
+    Block* then_block = new Block(outer, loc);
+    Statement* rs = Statement::make_return_statement(enclosing_fn, NULL, loc);
+    then_block->add_statement(rs);
+    Statement* ifs = Statement::make_if_statement(cond, then_block, NULL, loc);
+    outer->add_statement(ifs);
+  }
+
+  Statement* result = Statement::make_block_statement(outer, loc);
+  result->determine_types(gogo);
+  return result;
+}
+
+// Rewrite the body of a range-over-func loop so that references to
+// captured variables go through the yield closure, and return
+// statements save their values and jump out of the yield function.
+
+Statement*
+For_range_statement::rewrite_range_func_body(
+    Gogo*, Named_object* yield_no, Named_object* closure_no,
+    Unordered_map(Named_object*, unsigned int)& field_index,
+    const std::vector<Named_object*>& ret_vars, Named_object* state_no,
+    Location loc)
+{
+  Rangefunc_capture_rewrite rw(yield_no, closure_no, &field_index, ret_vars,
+			       state_no);
+  this->statements_->traverse(&rw);
+  return Statement::make_block_statement(this->statements_, loc);
 }
 
 // Return a reference to the range, which may be in RANGE_OBJECT or in

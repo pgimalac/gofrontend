@@ -1558,6 +1558,11 @@ class Unnamed_label_statement : public Statement
  public:
   Unnamed_label_statement(Unnamed_label* label);
 
+  // The label defined here.
+  Unnamed_label*
+  unnamed_label() const
+  { return this->label_; }
+
  protected:
   int
   do_traverse(Traverse*);
@@ -1805,6 +1810,16 @@ class For_range_statement : public Statement
   lower_array_range_clear(Gogo*, Type*, Expression*, Block*,
                           Named_object*, Temporary_statement*,
                           Location);
+
+  Statement*
+  lower_range_func(Gogo*, Named_object*, Block*, Type*, Named_object*,
+		   Temporary_statement*, Type*, Type*, Location);
+
+  Statement*
+  rewrite_range_func_body(Gogo*, Named_object*, Named_object*,
+			  Unordered_map(Named_object*, unsigned int)&,
+			  const std::vector<Named_object*>&, Named_object*,
+			  Location);
 
   // The variable which is set to the index value.
   Expression* index_var_;

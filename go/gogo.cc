@@ -8431,6 +8431,43 @@ Variable::type_from_range(Expression* expr, bool get_index_type,
 	  return Type::make_error_type();
 	}
     }
+  else if (t->function_type() != NULL)
+    {
+      // range over func(yield func(K) bool) / func(yield func(K, V) bool).
+      Function_type* ft = t->function_type();
+      const Typed_identifier_list* params = ft->parameters();
+      Type* yield_type = NULL;
+      if (ft->results() == NULL && params != NULL && params->size() == 1)
+	yield_type = params->begin()->type();
+      Function_type* yield_ft =
+	(yield_type == NULL ? NULL : yield_type->function_type());
+      if (yield_ft == NULL)
+	{
+	  if (report_error)
+	    go_error_at(this->location(), "invalid type for range clause");
+	  return Type::make_error_type();
+	}
+      const Typed_identifier_list* yp = yield_ft->parameters();
+      size_t nparams = (yp == NULL ? 0 : yp->size());
+      if (get_index_type)
+	{
+	  if (nparams >= 1)
+	    return yp->begin()->type();
+	}
+      else
+	{
+	  if (nparams >= 2)
+	    {
+	      Typed_identifier_list::const_iterator pi = yp->begin();
+	      ++pi;
+	      return pi->type();
+	    }
+	}
+      if (report_error)
+	go_error_at(this->location(),
+		    "too many iteration variables for range over func");
+      return Type::make_error_type();
+    }
   else
     {
       if (report_error)
