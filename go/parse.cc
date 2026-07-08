@@ -64,6 +64,14 @@ struct Pending_generic_type
   Generic_function_info* info;
   // The type arguments, each a captured token sequence.
   std::vector<std::vector<Token> > type_args;
+  // Package-name -> pkgpath bindings for the type arguments' qualifiers,
+  // captured at the deferral site while they still resolve (file-scope imports
+  // and replay aliases are gone by the post-parse resolution pass).  Without
+  // this, a qualifier that is ambiguous by name (e.g. two loaded packages both
+  // named "tpm2": go-tpm's tpm2 and legacy/tpm2) would resolve to an arbitrary
+  // same-named package during resolution and the type argument would be
+  // "undefined".
+  std::map<std::string, std::string> pkg_bindings;
   Location location;
 };
 
@@ -4492,9 +4500,26 @@ Parse::instantiate_generic_type(Generic_function_info* info,
       return Type::make_error_type();
     }
 
-  record_constraint_obligations(this->gogo_, info, type_args,
-				Gogo::message_name(info->name()), location,
-				extra_pkg_aliases);
+  // If any type argument is an inference marker ("$infermarkerK"), this is a
+  // transient instance built only to give a marker signature its shape for
+  // unification (e.g. the result type "TPM2B[T, P]" of go-tpm's New2B while its
+  // own type arguments are still being inferred).  Its arguments are markers,
+  // not real types, so recording constraint obligations for them would check a
+  // "$infermarkerK" against the constraint and spuriously fail (e.g. a marker
+  // does not satisfy "Marshallable").  Skip.
+  bool marker_arg_ct = false;
+  for (size_t i = 0; i < type_args.size() && !marker_arg_ct; ++i)
+    for (size_t j = 0; j < type_args[i].size(); ++j)
+      if (type_args[i][j].is_identifier()
+	  && type_args[i][j].identifier().compare(0, 12, "$infermarker") == 0)
+	{
+	  marker_arg_ct = true;
+	  break;
+	}
+  if (!marker_arg_ct)
+    record_constraint_obligations(this->gogo_, info, type_args,
+				  Gogo::message_name(info->name()), location,
+				  extra_pkg_aliases);
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
@@ -4789,6 +4814,11 @@ Parse::generic_type_instantiation(Generic_function_info* info,
       p->placeholder = placeholder;
       p->info = info;
       p->type_args = type_args;
+      // Capture the qualifier bindings now, while they still resolve: at the
+      // post-parse resolution pass the file-scope imports and replay aliases
+      // are gone, so a by-name recomputation could pick the wrong same-named
+      // package.
+      p->pkg_bindings = pkg_bindings;
       p->location = location;
       this->gogo_->add_pending_generic_type(p);
       return Type::make_forward_declaration(placeholder);
@@ -4956,6 +4986,12 @@ Parse::resolve_pending_generic_types()
 	  std::map<std::string, std::string> bindings;
 	  for (size_t k = 0; k < targs.size(); ++k)
 	    this->note_token_package_usage(targs[k], &bindings);
+	  // The bindings captured at the deferral site (while file-scope imports
+	  // were in scope) are authoritative: they disambiguate a qualifier that
+	  // is ambiguous by name here, so let them win over the by-name recompute.
+	  for (std::map<std::string, std::string>::const_iterator b =
+		 p->pkg_bindings.begin(); b != p->pkg_bindings.end(); ++b)
+	    bindings[b->first] = b->second;
 	  this->canonicalize_type_args(targs, bindings, p->location);
 	  Type* inst = this->instantiate_generic_type(p->info, targs,
 						      p->location, &bindings);

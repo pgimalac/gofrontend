@@ -1859,11 +1859,31 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
 	}
     }
 
+  Package* ip = this->current_instantiation_package();
   if (this->package_ != NULL)
     {
       Named_object* ret = this->package_->bindings()->lookup(name);
       if (ret != NULL)
 	{
+	  // While re-parsing an IMPORTED template's body, a bare (package-scope,
+	  // unqualified) function name means a FUNCTION of the template's
+	  // DEFINING package -- that is where the body was written.  If the
+	  // compiling package also declares a same-spelled function (e.g.
+	  // go-tpm-keyfiles defines "func Marshal(*TPMKey)" while go-tpm/tpm2's
+	  // template body calls the tpm2 "func Marshal(Marshallable)"), the
+	  // compiling package's function must NOT shadow the defining package's.
+	  // Redirect to the instantiation package's function in that specific
+	  // collision.  Narrow on purpose: both must resolve to (distinct)
+	  // functions, and only during reparse, so ordinary type/forward-decl
+	  // resolution and inference are untouched.
+	  if (ip != NULL && ip != this->package_ && this->is_reparsing()
+	      && (ret->is_function() || ret->is_function_declaration()))
+	    {
+	      Named_object* ipf = ip->bindings()->lookup(name);
+	      if (ipf != NULL && ipf != ret
+		  && (ipf->is_function() || ipf->is_function_declaration()))
+		return ipf;
+	    }
 	  if (ret->package() != NULL)
             {
               std::string dot_alias = "." + ret->package()->package_name();
@@ -1879,7 +1899,6 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
   // that package, where such references are unqualified).  Resolve it
   // against that package's bindings so the reference and its linkage are
   // correct.
-  Package* ip = this->current_instantiation_package();
   if (ip != NULL)
     {
       Named_object* ret = ip->bindings()->lookup(name);
@@ -1928,6 +1947,27 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
   if (this->is_reparsing())
   {
       std::string bare = Gogo::unpack_hidden_name(name);
+
+      // The template body being re-parsed was written in its defining package,
+      // where a reference to that package's own types is unqualified.  But a
+      // type ARGUMENT substituted into the body is spelled with the defining
+      // package's NAME as a qualifier (e.g. "tpm2.TPMSECCPoint" when
+      // instantiating a go-tpm/tpm2 template with a tpm2 type).  If that bare
+      // name matches the current instantiation package's own name, it refers to
+      // that package -- resolve it there.  This must take precedence over the
+      // by-name scan below, which is ambiguous when two loaded packages share a
+      // name (e.g. go-tpm's "tpm2" and "legacy/tpm2") and would otherwise pick,
+      // and permanently cache, an arbitrary (possibly wrong) one.
+      Package* ipkg = this->current_instantiation_package();
+      if (ipkg != NULL
+	  && ipkg->has_package_name()
+	  && ipkg->package_name() == bare
+	  && ipkg != this->package_)
+	{
+	  ipkg->add_alias(bare, Linemap::unknown_location());
+	  return Named_object::make_package(bare, ipkg);
+	}
+
       Unordered_map(std::string, Named_object*)::const_iterator c =
 	this->instantiation_package_cache_.find(bare);
       if (c != this->instantiation_package_cache_.end())
