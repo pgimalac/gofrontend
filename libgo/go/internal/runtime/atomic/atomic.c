@@ -7,11 +7,11 @@
 #include "runtime.h"
 
 extern void panicUnaligned(void)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.panicUnaligned")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.panicUnaligned")
   __attribute__ ((noreturn));
 
 uint32_t Load (uint32_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Load")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Load")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -21,7 +21,7 @@ Load (uint32_t *ptr)
 }
 
 void *Loadp (void *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Loadp")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Loadp")
   __attribute__ ((no_split_stack));
 
 void *
@@ -31,7 +31,7 @@ Loadp (void *ptr)
 }
 
 uint8_t Load8 (uint8_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Load8")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Load8")
   __attribute__ ((no_split_stack));
 
 uint8_t
@@ -41,7 +41,7 @@ Load8 (uint8_t *ptr)
 }
 
 uint64_t Load64 (uint64_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Load64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Load64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -53,7 +53,7 @@ Load64 (uint64_t *ptr)
 }
 
 uint32_t LoadAcq (uint32_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.LoadAcq")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.LoadAcq")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -63,7 +63,7 @@ LoadAcq (uint32_t *ptr)
 }
 
 uint64_t LoadAcq64 (uint64_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.LoadAcq64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.LoadAcq64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -75,7 +75,7 @@ LoadAcq64 (uint64_t *ptr)
 }
 
 uintptr_t LoadAcquintptr (uintptr_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.LoadAcquintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.LoadAcquintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -85,7 +85,7 @@ LoadAcquintptr (uintptr_t *ptr)
 }
 
 uintptr_t Loaduintptr (uintptr_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Loaduintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Loaduintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -95,7 +95,7 @@ Loaduintptr (uintptr_t *ptr)
 }
 
 uintgo Loaduint (uintgo *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Loaduint")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Loaduint")
   __attribute__ ((no_split_stack));
 
 uintgo
@@ -105,7 +105,7 @@ Loaduint (uintgo *ptr)
 }
 
 int32_t Loadint32 (int32_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Loadint32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Loadint32")
   __attribute__ ((no_split_stack));
 
 int32_t
@@ -115,7 +115,7 @@ Loadint32 (int32_t *ptr)
 }
 
 int64_t Loadint64 (int64_t *ptr)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Loadint64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Loadint64")
   __attribute__ ((no_split_stack));
 
 int64_t
@@ -127,7 +127,7 @@ Loadint64 (int64_t *ptr)
 }
 
 uint32_t Xadd (uint32_t *ptr, int32_t delta)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xadd")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xadd")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -137,7 +137,7 @@ Xadd (uint32_t *ptr, int32_t delta)
 }
 
 int32_t Xaddint32 (int32_t *ptr, int32_t delta)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xaddint32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xaddint32")
   __attribute__ ((no_split_stack));
 
 int32_t
@@ -147,7 +147,7 @@ Xaddint32 (int32_t *ptr, int32_t delta)
 }
 
 uint64_t Xadd64 (uint64_t *ptr, int64_t delta)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xadd64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xadd64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -159,7 +159,7 @@ Xadd64 (uint64_t *ptr, int64_t delta)
 }
 
 uintptr_t Xadduintptr (uintptr_t *ptr, uintptr_t delta)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xadduintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xadduintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -169,7 +169,7 @@ Xadduintptr (uintptr_t *ptr, uintptr_t delta)
 }
 
 int64_t Xaddint64 (int64_t *ptr, int64_t delta)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xaddint64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xaddint64")
   __attribute__ ((no_split_stack));
 
 int64_t
@@ -181,7 +181,7 @@ Xaddint64 (int64_t *ptr, int64_t delta)
 }
 
 uint32_t Xchg (uint32_t *ptr, uint32_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xchg")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xchg")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -191,7 +191,7 @@ Xchg (uint32_t *ptr, uint32_t new)
 }
 
 int32_t Xchgint32 (int32_t *ptr, int32_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xchgint32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xchgint32")
   __attribute__ ((no_split_stack));
 
 int32_t
@@ -201,7 +201,7 @@ Xchgint32 (int32_t *ptr, int32_t new)
 }
 
 uint64_t Xchg64 (uint64_t *ptr, uint64_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xchg64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xchg64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -213,7 +213,7 @@ Xchg64 (uint64_t *ptr, uint64_t new)
 }
 
 int64_t Xchgint64 (int64_t *ptr, int64_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xchgint64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xchgint64")
   __attribute__ ((no_split_stack));
 
 int64_t
@@ -223,7 +223,7 @@ Xchgint64 (int64_t *ptr, int64_t new)
 }
 
 uintptr_t Xchguintptr (uintptr_t *ptr, uintptr_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Xchguintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Xchguintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -233,7 +233,7 @@ Xchguintptr (uintptr_t *ptr, uintptr_t new)
 }
 
 void And8 (uint8_t *ptr, uint8_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And8")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.And8")
   __attribute__ ((no_split_stack));
 
 void
@@ -243,7 +243,7 @@ And8 (uint8_t *ptr, uint8_t val)
 }
 
 void Or8 (uint8_t *ptr, uint8_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or8")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Or8")
   __attribute__ ((no_split_stack));
 
 void
@@ -253,7 +253,7 @@ Or8 (uint8_t *ptr, uint8_t val)
 }
 
 void And (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.And")
   __attribute__ ((no_split_stack));
 
 void
@@ -263,7 +263,7 @@ And (uint32_t *ptr, uint32_t val)
 }
 
 void Or (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Or")
   __attribute__ ((no_split_stack));
 
 void
@@ -273,7 +273,7 @@ Or (uint32_t *ptr, uint32_t val)
 }
 
 uint32_t And32 (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.And32")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -283,7 +283,7 @@ And32 (uint32_t *ptr, uint32_t val)
 }
 
 uint32_t Or32 (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Or32")
   __attribute__ ((no_split_stack));
 
 uint32_t
@@ -293,7 +293,7 @@ Or32 (uint32_t *ptr, uint32_t val)
 }
 
 uint64_t And64 (uint64_t *ptr, uint64_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.And64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.And64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -303,7 +303,7 @@ And64 (uint64_t *ptr, uint64_t val)
 }
 
 uint64_t Or64 (uint64_t *ptr, uint64_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Or64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Or64")
   __attribute__ ((no_split_stack));
 
 uint64_t
@@ -313,7 +313,7 @@ Or64 (uint64_t *ptr, uint64_t val)
 }
 
 uintptr_t Anduintptr (uintptr_t *ptr, uintptr_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Anduintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Anduintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -323,7 +323,7 @@ Anduintptr (uintptr_t *ptr, uintptr_t val)
 }
 
 uintptr_t Oruintptr (uintptr_t *ptr, uintptr_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Oruintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Oruintptr")
   __attribute__ ((no_split_stack));
 
 uintptr_t
@@ -333,7 +333,7 @@ Oruintptr (uintptr_t *ptr, uintptr_t val)
 }
 
 _Bool Cas (uint32_t *ptr, uint32_t old, uint32_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Cas")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Cas")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -343,7 +343,7 @@ Cas (uint32_t *ptr, uint32_t old, uint32_t new)
 }
 
 _Bool Cas64 (uint64_t *ptr, uint64_t old, uint64_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Cas64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Cas64")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -355,7 +355,7 @@ Cas64 (uint64_t *ptr, uint64_t old, uint64_t new)
 }
 
 _Bool CasRel (uint32_t *ptr, uint32_t old, uint32_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.CasRel")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.CasRel")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -365,7 +365,7 @@ CasRel (uint32_t *ptr, uint32_t old, uint32_t new)
 }
 
 _Bool Casint32 (int32_t *ptr, int32_t old, int32_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Casint32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Casint32")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -375,7 +375,7 @@ Casint32 (int32_t *ptr, int32_t old, int32_t new)
 }
 
 _Bool Casint64 (int64_t *ptr, int64_t old, int64_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Casint64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Casint64")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -385,7 +385,7 @@ Casint64 (int64_t *ptr, int64_t old, int64_t new)
 }
 
 _Bool Casp1 (void **ptr, void *old, void *new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Casp1")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Casp1")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -395,7 +395,7 @@ Casp1 (void **ptr, void *old, void *new)
 }
 
 _Bool Casuintptr (uintptr_t *ptr, uintptr_t old, uintptr_t new)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Casuintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Casuintptr")
   __attribute__ ((no_split_stack));
 
 _Bool
@@ -405,7 +405,7 @@ Casuintptr (uintptr_t *ptr, uintptr_t old, uintptr_t new)
 }
 
 void Store (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Store")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Store")
   __attribute__ ((no_split_stack));
 
 void
@@ -415,7 +415,7 @@ Store (uint32_t *ptr, uint32_t val)
 }
 
 void Store8 (uint8_t *ptr, uint8_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Store8")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Store8")
   __attribute__ ((no_split_stack));
 
 void
@@ -425,7 +425,7 @@ Store8 (uint8_t *ptr, uint8_t val)
 }
 
 void Storeint32 (int32_t *ptr, int32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Storeint32")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Storeint32")
   __attribute__ ((no_split_stack));
 
 void
@@ -435,7 +435,7 @@ Storeint32 (int32_t *ptr, int32_t val)
 }
 
 void Store64 (uint64_t *ptr, uint64_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Store64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Store64")
   __attribute__ ((no_split_stack));
 
 void
@@ -447,7 +447,7 @@ Store64 (uint64_t *ptr, uint64_t val)
 }
 
 void StoreRel (uint32_t *ptr, uint32_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.StoreRel")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.StoreRel")
   __attribute__ ((no_split_stack));
 
 void
@@ -457,7 +457,7 @@ StoreRel (uint32_t *ptr, uint32_t val)
 }
 
 void StoreRel64 (uint64_t *ptr, uint64_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.StoreRel64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.StoreRel64")
   __attribute__ ((no_split_stack));
 
 void
@@ -469,7 +469,7 @@ StoreRel64 (uint64_t *ptr, uint64_t val)
 }
 
 void Storeint64 (int64_t *ptr, int64_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Storeint64")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Storeint64")
   __attribute__ ((no_split_stack));
 
 void
@@ -479,7 +479,7 @@ Storeint64 (int64_t *ptr, int64_t val)
 }
 
 void StoreReluintptr (uintptr_t *ptr, uintptr_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.StoreReluintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.StoreReluintptr")
   __attribute__ ((no_split_stack));
 
 void
@@ -489,7 +489,7 @@ StoreReluintptr (uintptr_t *ptr, uintptr_t val)
 }
 
 void Storeuintptr (uintptr_t *ptr, uintptr_t val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.Storeuintptr")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.Storeuintptr")
   __attribute__ ((no_split_stack));
 
 void
@@ -499,7 +499,7 @@ Storeuintptr (uintptr_t *ptr, uintptr_t val)
 }
 
 void StorepNoWB (void *ptr, void *val)
-  __asm__ (GOSYM_PREFIX "runtime_1internal_1atomic.StorepNoWB")
+  __asm__ (GOSYM_PREFIX "internal_1runtime_1atomic.StorepNoWB")
   __attribute__ ((no_split_stack));
 
 void

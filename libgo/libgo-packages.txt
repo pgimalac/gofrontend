@@ -3,10 +3,6 @@ archive/zip
 bufio
 bytes
 cmd/go/internal/mmap
-cmd/go/internal/telemetrycmd
-cmd/go/internal/telemetrystats
-cmd/internal/telemetry
-cmd/internal/telemetry/counter
 cmp
 compress/bzip2
 compress/flate
@@ -197,6 +193,12 @@ internal/sysinfo
 internal/testenv
 internal/testlog
 internal/testpty
+internal/trace
+internal/trace/event
+internal/trace/event/go122
+internal/trace/internal/oldtrace
+internal/trace/traceviewer/format
+internal/trace/version
 internal/txtar
 internal/types/errors
 internal/unsafeheader

@@ -1270,7 +1270,7 @@ func copyMemProfileRecord(dst *MemProfileRecord, src profilerecord.MemProfileRec
 	clear(dst.Stack0[i:])
 }
 
-//go:linkname pprof_memProfileInternal
+//go:linkname pprof_memProfileInternal runtime.pprof_memProfileInternal
 func pprof_memProfileInternal(p []profilerecord.MemProfileRecord, inuseZero bool) (n int, ok bool) {
 	return memProfileInternal(len(p), inuseZero, func(r profilerecord.MemProfileRecord) {
 		p[0] = r
@@ -1387,7 +1387,7 @@ func copyBlockProfileRecord(dst *BlockProfileRecord, src profilerecord.BlockProf
 	clear(dst.Stack0[i:])
 }
 
-//go:linkname pprof_blockProfileInternal
+//go:linkname pprof_blockProfileInternal runtime.pprof_blockProfileInternal
 func pprof_blockProfileInternal(p []profilerecord.BlockProfileRecord) (n int, ok bool) {
 	return blockProfileInternal(len(p), func(r profilerecord.BlockProfileRecord) {
 		p[0] = r
@@ -1420,7 +1420,7 @@ func mutexProfileInternal(size int, copyFn func(profilerecord.BlockProfileRecord
 	return
 }
 
-//go:linkname pprof_mutexProfileInternal
+//go:linkname pprof_mutexProfileInternal runtime.pprof_mutexProfileInternal
 func pprof_mutexProfileInternal(p []profilerecord.BlockProfileRecord) (n int, ok bool) {
 	return mutexProfileInternal(len(p), func(r profilerecord.BlockProfileRecord) {
 		p[0] = r
@@ -1481,7 +1481,7 @@ func threadCreateProfileInternal(size int, copyFn func(profilerecord.StackRecord
 	return
 }
 
-//go:linkname pprof_threadCreateInternal
+//go:linkname pprof_threadCreateInternal runtime.pprof_threadCreateInternal
 func pprof_threadCreateInternal(p []profilerecord.StackRecord) (n int, ok bool) {
 	return threadCreateProfileInternal(len(p), func(r profilerecord.StackRecord) {
 		p[0] = r
@@ -1489,7 +1489,7 @@ func pprof_threadCreateInternal(p []profilerecord.StackRecord) (n int, ok bool) 
 	})
 }
 
-//go:linkname pprof_goroutineProfileWithLabels
+//go:linkname pprof_goroutineProfileWithLabels runtime.pprof_goroutineProfileWithLabels
 func pprof_goroutineProfileWithLabels(p []profilerecord.StackRecord, labels []unsafe.Pointer) (n int, ok bool) {
 	return goroutineProfileWithLabels(p, labels)
 }

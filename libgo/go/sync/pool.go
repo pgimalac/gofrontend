@@ -311,8 +311,8 @@ func runtime_procUnpin()
 // compiler also knows to intrinsify the symbol we linkname into this
 // package.
 
-//go:linkname runtime_LoadAcquintptr runtime_1internal_1atomic.LoadAcquintptr
+//go:linkname runtime_LoadAcquintptr internal_1runtime_1atomic.LoadAcquintptr
 func runtime_LoadAcquintptr(ptr *uintptr) uintptr
 
-//go:linkname runtime_StoreReluintptr runtime_1internal_1atomic.StoreReluintptr
+//go:linkname runtime_StoreReluintptr internal_1runtime_1atomic.StoreReluintptr
 func runtime_StoreReluintptr(ptr *uintptr, val uintptr) uintptr

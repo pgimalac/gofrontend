@@ -949,7 +949,7 @@ func makeProfStackFP() []uintptr {
 // trace.
 func makeProfStack() []uintptr { return make([]uintptr, debug.profstackdepth) }
 
-//go:linkname pprof_makeProfStack
+//go:linkname pprof_makeProfStack runtime.pprof_makeProfStack
 func pprof_makeProfStack() []uintptr { return makeProfStack() }
 
 func (mp *m) becomeSpinning() {

@@ -33,6 +33,8 @@ cmd/go/internal/run
 cmd/go/internal/script
 cmd/go/internal/search
 cmd/go/internal/str
+cmd/go/internal/telemetrycmd
+cmd/go/internal/telemetrystats
 cmd/go/internal/test
 cmd/go/internal/test/internal/genflags
 cmd/go/internal/tool
@@ -57,6 +59,8 @@ cmd/internal/pkgpath
 cmd/internal/pkgpattern
 cmd/internal/quoted
 cmd/internal/sys
+cmd/internal/telemetry
+cmd/internal/telemetry/counter
 cmd/internal/test2json
 golang.org/x/crypto/chacha20
 golang.org/x/crypto/chacha20poly1305
