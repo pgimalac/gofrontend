@@ -46,8 +46,9 @@
 package runtime
 
 import (
+	"internal/abi"
 	"internal/goarch"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"runtime/internal/sys"
 	"unsafe"
 )
@@ -410,6 +411,15 @@ func badPointer(s *mspan, p, refBase, refOff uintptr) {
 // It is nosplit so it is safe for p to be a pointer to the current goroutine's stack.
 // Since p is a uintptr, it would not be adjusted if the stack were to move.
 //
+// findObject should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname findObject
 //go:nosplit
 func findObject(p, refBase, refOff uintptr, forStack bool) (base uintptr, s *mspan, objIndex uintptr) {
 	s = spanOf(p)
@@ -2050,5 +2060,172 @@ func getgcmask(ep any) (mask []byte) {
 	// possibly read-only data, like malloc(0).
 	// must not have pointers
 	// For gccgo, may live on the stack, which is collected conservatively.
+	return
+}
+
+// Returns GC type info for the pointer stored in ep for testing.
+// If ep points to the stack, only static live information will be returned
+// (i.e. not for objects which are only dynamically live stack objects).
+func getgcmask(ep any) (mask []byte) {
+	e := *efaceOf(&ep)
+	p := e.data
+	t := e._type
+
+	var et *_type
+	if t.Kind_&abi.KindMask != abi.Pointer {
+		throw("bad argument to getgcmask: expected type to be a pointer to the value type whose mask is being queried")
+	}
+	et = (*ptrtype)(unsafe.Pointer(t)).Elem
+
+	// data or bss
+	for _, datap := range activeModules() {
+		// data
+		if datap.data <= uintptr(p) && uintptr(p) < datap.edata {
+			bitmap := datap.gcdatamask.bytedata
+			n := et.Size_
+			mask = make([]byte, n/goarch.PtrSize)
+			for i := uintptr(0); i < n; i += goarch.PtrSize {
+				off := (uintptr(p) + i - datap.data) / goarch.PtrSize
+				mask[i/goarch.PtrSize] = (*addb(bitmap, off/8) >> (off % 8)) & 1
+			}
+			return
+		}
+
+		// bss
+		if datap.bss <= uintptr(p) && uintptr(p) < datap.ebss {
+			bitmap := datap.gcbssmask.bytedata
+			n := et.Size_
+			mask = make([]byte, n/goarch.PtrSize)
+			for i := uintptr(0); i < n; i += goarch.PtrSize {
+				off := (uintptr(p) + i - datap.bss) / goarch.PtrSize
+				mask[i/goarch.PtrSize] = (*addb(bitmap, off/8) >> (off % 8)) & 1
+			}
+			return
+		}
+	}
+
+	// heap
+	if base, s, _ := findObject(uintptr(p), 0, 0); base != 0 {
+		if s.spanclass.noscan() {
+			return nil
+		}
+		limit := base + s.elemsize
+
+		// Move the base up to the iterator's start, because
+		// we want to hide evidence of a malloc header from the
+		// caller.
+		tp := s.typePointersOfUnchecked(base)
+		base = tp.addr
+
+		// Unroll the full bitmap the GC would actually observe.
+		maskFromHeap := make([]byte, (limit-base)/goarch.PtrSize)
+		for {
+			var addr uintptr
+			if tp, addr = tp.next(limit); addr == 0 {
+				break
+			}
+			maskFromHeap[(addr-base)/goarch.PtrSize] = 1
+		}
+
+		// Double-check that every part of the ptr/scalar we're not
+		// showing the caller is zeroed. This keeps us honest that
+		// that information is actually irrelevant.
+		for i := limit; i < s.elemsize; i++ {
+			if *(*byte)(unsafe.Pointer(i)) != 0 {
+				throw("found non-zeroed tail of allocation")
+			}
+		}
+
+		// Callers (and a check we're about to run) expects this mask
+		// to end at the last pointer.
+		for len(maskFromHeap) > 0 && maskFromHeap[len(maskFromHeap)-1] == 0 {
+			maskFromHeap = maskFromHeap[:len(maskFromHeap)-1]
+		}
+
+		if et.Kind_&abi.KindGCProg == 0 {
+			// Unroll again, but this time from the type information.
+			maskFromType := make([]byte, (limit-base)/goarch.PtrSize)
+			tp = s.typePointersOfType(et, base)
+			for {
+				var addr uintptr
+				if tp, addr = tp.next(limit); addr == 0 {
+					break
+				}
+				maskFromType[(addr-base)/goarch.PtrSize] = 1
+			}
+
+			// Validate that the prefix of maskFromType is equal to
+			// maskFromHeap. maskFromType may contain more pointers than
+			// maskFromHeap produces because maskFromHeap may be able to
+			// get exact type information for certain classes of objects.
+			// With maskFromType, we're always just tiling the type bitmap
+			// through to the elemsize.
+			//
+			// It's OK if maskFromType has pointers in elemsize that extend
+			// past the actual populated space; we checked above that all
+			// that space is zeroed, so just the GC will just see nil pointers.
+			differs := false
+			for i := range maskFromHeap {
+				if maskFromHeap[i] != maskFromType[i] {
+					differs = true
+					break
+				}
+			}
+
+			if differs {
+				print("runtime: heap mask=")
+				for _, b := range maskFromHeap {
+					print(b)
+				}
+				println()
+				print("runtime: type mask=")
+				for _, b := range maskFromType {
+					print(b)
+				}
+				println()
+				print("runtime: type=", toRType(et).string(), "\n")
+				throw("found two different masks from two different methods")
+			}
+		}
+
+		// Select the heap mask to return. We may not have a type mask.
+		mask = maskFromHeap
+
+		// Make sure we keep ep alive. We may have stopped referencing
+		// ep's data pointer sometime before this point and it's possible
+		// for that memory to get freed.
+		KeepAlive(ep)
+		return
+	}
+
+	// stack
+	if gp := getg(); gp.m.curg.stack.lo <= uintptr(p) && uintptr(p) < gp.m.curg.stack.hi {
+		found := false
+		var u unwinder
+		for u.initAt(gp.m.curg.sched.pc, gp.m.curg.sched.sp, 0, gp.m.curg, 0); u.valid(); u.next() {
+			if u.frame.sp <= uintptr(p) && uintptr(p) < u.frame.varp {
+				found = true
+				break
+			}
+		}
+		if found {
+			locals, _, _ := u.frame.getStackMap(false)
+			if locals.n == 0 {
+				return
+			}
+			size := uintptr(locals.n) * goarch.PtrSize
+			n := (*ptrtype)(unsafe.Pointer(t)).Elem.Size_
+			mask = make([]byte, n/goarch.PtrSize)
+			for i := uintptr(0); i < n; i += goarch.PtrSize {
+				off := (uintptr(p) + i - u.frame.varp + size) / goarch.PtrSize
+				mask[i/goarch.PtrSize] = locals.ptrbit(off)
+			}
+		}
+		return
+	}
+
+	// otherwise, not something the GC knows about.
+	// possibly read-only data, like malloc(0).
+	// must not have pointers
 	return
 }

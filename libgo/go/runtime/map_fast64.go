@@ -49,7 +49,7 @@ func mapaccess1_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 		}
 	}
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < bucketCnt; i, k = i+1, add(k, 8) {
+		for i, k := uintptr(0), b.keys(); i < abi.MapBucketCount; i, k = i+1, add(k, 8) {
 			if *(*uint64)(k) == key && !isEmpty(b.tophash[i]) {
 				return add(unsafe.Pointer(b), dataOffset+bucketCnt*8+i*uintptr(t.elemsize))
 			}
@@ -58,6 +58,15 @@ func mapaccess1_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 	return unsafe.Pointer(&zeroVal[0])
 }
 
+// mapaccess2_fast64 should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapaccess2_fast64
 func mapaccess2_fast64(t *maptype, h *hmap, key uint64) (unsafe.Pointer, bool) {
 	if raceenabled && h != nil {
 		callerpc := getcallerpc()
@@ -89,7 +98,7 @@ func mapaccess2_fast64(t *maptype, h *hmap, key uint64) (unsafe.Pointer, bool) {
 		}
 	}
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < bucketCnt; i, k = i+1, add(k, 8) {
+		for i, k := uintptr(0), b.keys(); i < abi.MapBucketCount; i, k = i+1, add(k, 8) {
 			if *(*uint64)(k) == key && !isEmpty(b.tophash[i]) {
 				return add(unsafe.Pointer(b), dataOffset+bucketCnt*8+i*uintptr(t.elemsize)), true
 			}
@@ -98,6 +107,17 @@ func mapaccess2_fast64(t *maptype, h *hmap, key uint64) (unsafe.Pointer, bool) {
 	return unsafe.Pointer(&zeroVal[0]), false
 }
 
+// mapassign_fast64 should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapassign_fast64
 func mapassign_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 	if h == nil {
 		panic(plainError("assignment to entry in nil map"))
@@ -131,7 +151,7 @@ again:
 
 bucketloop:
 	for {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if isEmpty(b.tophash[i]) {
 				if insertb == nil {
 					insertb = b
@@ -171,7 +191,7 @@ bucketloop:
 		insertb = h.newoverflow(t, b)
 		inserti = 0 // not necessary, but avoids needlessly spilling inserti
 	}
-	insertb.tophash[inserti&(bucketCnt-1)] = tophash(hash) // mask inserti to avoid bounds checks
+	insertb.tophash[inserti&(abi.MapBucketCount-1)] = tophash(hash) // mask inserti to avoid bounds checks
 
 	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*8)
 	// store new key at insert position
@@ -188,6 +208,17 @@ done:
 	return elem
 }
 
+// mapassign_fast64ptr should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapassign_fast64ptr
 func mapassign_fast64ptr(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	if h == nil {
 		panic(plainError("assignment to entry in nil map"))
@@ -221,7 +252,7 @@ again:
 
 bucketloop:
 	for {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if isEmpty(b.tophash[i]) {
 				if insertb == nil {
 					insertb = b
@@ -261,7 +292,7 @@ bucketloop:
 		insertb = h.newoverflow(t, b)
 		inserti = 0 // not necessary, but avoids needlessly spilling inserti
 	}
-	insertb.tophash[inserti&(bucketCnt-1)] = tophash(hash) // mask inserti to avoid bounds checks
+	insertb.tophash[inserti&(abi.MapBucketCount-1)] = tophash(hash) // mask inserti to avoid bounds checks
 
 	insertk = add(unsafe.Pointer(insertb), dataOffset+inserti*8)
 	// store new key at insert position
@@ -303,7 +334,7 @@ func mapdelete_fast64(t *maptype, h *hmap, key uint64) {
 	bOrig := b
 search:
 	for ; b != nil; b = b.overflow(t) {
-		for i, k := uintptr(0), b.keys(); i < bucketCnt; i, k = i+1, add(k, 8) {
+		for i, k := uintptr(0), b.keys(); i < abi.MapBucketCount; i, k = i+1, add(k, 8) {
 			if key != *(*uint64)(k) || isEmpty(b.tophash[i]) {
 				continue
 			}
@@ -326,7 +357,7 @@ search:
 			b.tophash[i] = emptyOne
 			// If the bucket now ends in a bunch of emptyOne states,
 			// change those to emptyRest states.
-			if i == bucketCnt-1 {
+			if i == abi.MapBucketCount-1 {
 				if b.overflow(t) != nil && b.overflow(t).tophash[0] != emptyRest {
 					goto notLast
 				}
@@ -345,7 +376,7 @@ search:
 					c := b
 					for b = bOrig; b.overflow(t) != c; b = b.overflow(t) {
 					}
-					i = bucketCnt - 1
+					i = abi.MapBucketCount - 1
 				} else {
 					i--
 				}
@@ -393,7 +424,7 @@ func evacuate_fast64(t *maptype, h *hmap, oldbucket uintptr) {
 		x := &xy[0]
 		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.bucketsize)))
 		x.k = add(unsafe.Pointer(x.b), dataOffset)
-		x.e = add(x.k, bucketCnt*8)
+		x.e = add(x.k, abi.MapBucketCount*8)
 
 		if !h.sameSizeGrow() {
 			// Only calculate y pointers if we're growing bigger.
@@ -401,7 +432,7 @@ func evacuate_fast64(t *maptype, h *hmap, oldbucket uintptr) {
 			y := &xy[1]
 			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.bucketsize)))
 			y.k = add(unsafe.Pointer(y.b), dataOffset)
-			y.e = add(y.k, bucketCnt*8)
+			y.e = add(y.k, abi.MapBucketCount*8)
 		}
 
 		for ; b != nil; b = b.overflow(t) {
@@ -429,13 +460,13 @@ func evacuate_fast64(t *maptype, h *hmap, oldbucket uintptr) {
 				b.tophash[i] = evacuatedX + useY // evacuatedX + 1 == evacuatedY, enforced in makemap
 				dst := &xy[useY]                 // evacuation destination
 
-				if dst.i == bucketCnt {
+				if dst.i == abi.MapBucketCount {
 					dst.b = h.newoverflow(t, dst.b)
 					dst.i = 0
 					dst.k = add(unsafe.Pointer(dst.b), dataOffset)
-					dst.e = add(dst.k, bucketCnt*8)
+					dst.e = add(dst.k, abi.MapBucketCount*8)
 				}
-				dst.b.tophash[dst.i&(bucketCnt-1)] = top // mask dst.i as an optimization, to avoid a bounds check
+				dst.b.tophash[dst.i&(abi.MapBucketCount-1)] = top // mask dst.i as an optimization, to avoid a bounds check
 
 				// Copy key.
 				if t.key.ptrdata != 0 && writeBarrier.enabled {

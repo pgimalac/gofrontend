@@ -56,7 +56,7 @@ package runtime
 import (
 	"internal/abi"
 	"internal/goarch"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"runtime/internal/math"
 	"unsafe"
 )
@@ -166,7 +166,7 @@ type bmap struct {
 	// tophash generally contains the top byte of the hash value
 	// for each key in this bucket. If tophash[0] < minTopHash,
 	// tophash[0] is a bucket evacuation state instead.
-	tophash [bucketCnt]uint8
+	tophash [abi.MapBucketCount]uint8
 	// Followed by bucketCnt keys and then bucketCnt elems.
 	// NOTE: packing all the keys together and then all the elems together makes the
 	// code a bit more complicated than alternating key/elem/key/elem/... but it allows
@@ -305,6 +305,16 @@ func makemap64(t *maptype, hint int64, h *hmap) *hmap {
 // makemap_small implements Go map creation for make(map[k]v) and
 // make(map[k]v, hint) when hint is known to be at most bucketCnt
 // at compile time and the map needs to be allocated on the heap.
+//
+// makemap_small should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname makemap_small
 func makemap_small() *hmap {
 	h := new(hmap)
 	h.hash0 = uint32(rand())
@@ -316,6 +326,17 @@ func makemap_small() *hmap {
 // can be created on the stack, h and/or bucket may be non-nil.
 // If h != nil, the map can be created directly in h.
 // If h.buckets != nil, bucket pointed to can be used as the first bucket.
+//
+// makemap should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/cloudwego/frugal
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname makemap
 func makemap(t *maptype, hint int, h *hmap) *hmap {
 	mem, overflow := math.MulUintptr(uintptr(hint), t.bucket.size)
 	if overflow || mem > maxAlloc {
@@ -450,7 +471,7 @@ func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	top := tophash(hash)
 bucketloop:
 	for ; b != nil; b = b.overflow(t) {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if b.tophash[i] != top {
 				if b.tophash[i] == emptyRest {
 					break bucketloop
@@ -473,6 +494,15 @@ bucketloop:
 	return unsafe.Pointer(&zeroVal[0])
 }
 
+// mapaccess2 should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapaccess2
 func mapaccess2(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, bool) {
 	// Check preemption, since unlike gc we don't check on every call.
 	if getg().preempt {
@@ -516,7 +546,7 @@ func mapaccess2(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, bool) 
 	top := tophash(hash)
 bucketloop:
 	for ; b != nil; b = b.overflow(t) {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if b.tophash[i] != top {
 				if b.tophash[i] == emptyRest {
 					break bucketloop
@@ -565,7 +595,7 @@ func mapaccessK(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, unsafe
 	top := tophash(hash)
 bucketloop:
 	for ; b != nil; b = b.overflow(t) {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if b.tophash[i] != top {
 				if b.tophash[i] == emptyRest {
 					break bucketloop
@@ -605,6 +635,20 @@ func mapaccess2_fat(t *maptype, h *hmap, key, zero unsafe.Pointer) (unsafe.Point
 }
 
 // Like mapaccess, but allocates a slot for the key if it is not present in the map.
+//
+// mapassign should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
+//   - github.com/RomiChan/protobuf
+//   - github.com/segmentio/encoding
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapassign
 func mapassign(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	// Check preemption, since unlike gc we don't check on every call.
 	if getg().preempt {
@@ -652,7 +696,7 @@ again:
 	var elem unsafe.Pointer
 bucketloop:
 	for {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if b.tophash[i] != top {
 				if isEmpty(b.tophash[i]) && inserti == nil {
 					inserti = &b.tophash[i]
@@ -727,6 +771,15 @@ done:
 	return elem
 }
 
+// mapdelete should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/ugorji/go/codec
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapdelete
 func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
 	if raceenabled && h != nil {
 		callerpc := getcallerpc()
@@ -765,7 +818,7 @@ func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
 	top := tophash(hash)
 search:
 	for ; b != nil; b = b.overflow(t) {
-		for i := uintptr(0); i < bucketCnt; i++ {
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
 			if b.tophash[i] != top {
 				if b.tophash[i] == emptyRest {
 					break search
@@ -799,7 +852,7 @@ search:
 			// change those to emptyRest states.
 			// It would be nice to make this a separate function, but
 			// for loops are not currently inlineable.
-			if i == bucketCnt-1 {
+			if i == abi.MapBucketCount-1 {
 				if b.overflow(t) != nil && b.overflow(t).tophash[0] != emptyRest {
 					goto notLast
 				}
@@ -818,7 +871,7 @@ search:
 					c := b
 					for b = bOrig; b.overflow(t) != c; b = b.overflow(t) {
 					}
-					i = bucketCnt - 1
+					i = abi.MapBucketCount - 1
 				} else {
 					i--
 				}
@@ -897,7 +950,7 @@ func mapiterinit(t *maptype, h *hmap, it *hiter) {
 	// decide where to start
 	r := uintptr(rand())
 	it.startBucket = r & bucketMask(h.B)
-	it.offset = uint8(r >> h.B & (bucketCnt - 1))
+	it.offset = uint8(r >> h.B & (abi.MapBucketCount - 1))
 
 	// iterator state
 	it.bucket = it.startBucket
@@ -911,6 +964,20 @@ func mapiterinit(t *maptype, h *hmap, it *hiter) {
 	mapiternext(it)
 }
 
+// mapiternext should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/sonic
+//   - github.com/cloudwego/frugal
+//   - github.com/RomiChan/protobuf
+//   - github.com/segmentio/encoding
+//   - github.com/ugorji/go/codec
+//   - gonum.org/v1/gonum
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapiternext
 func mapiternext(it *hiter) {
 	// Check preemption, since unlike gc we don't check on every call.
 	if getg().preempt {
@@ -963,8 +1030,8 @@ next:
 		}
 		i = 0
 	}
-	for ; i < bucketCnt; i++ {
-		offi := (i + it.offset) & (bucketCnt - 1)
+	for ; i < abi.MapBucketCount; i++ {
+		offi := (i + it.offset) & (abi.MapBucketCount - 1)
 		if isEmpty(b.tophash[offi]) || b.tophash[offi] == evacuatedEmpty {
 			// TODO: emptyRest is hard to use here, as we start iterating
 			// in the middle of a bucket. It's feasible, just tricky.
@@ -1043,6 +1110,17 @@ next:
 }
 
 // mapclear deletes all keys from a map.
+// It is called by the compiler.
+//
+// mapclear should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/cloudwego/frugal
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname mapclear
 func mapclear(t *maptype, h *hmap) {
 	if raceenabled && h != nil {
 		callerpc := getcallerpc()
@@ -1059,6 +1137,22 @@ func mapclear(t *maptype, h *hmap) {
 	}
 
 	h.flags ^= hashWriting
+
+	// Mark buckets empty, so existing iterators can be terminated, see issue #59411.
+	markBucketsEmpty := func(bucket unsafe.Pointer, mask uintptr) {
+		for i := uintptr(0); i <= mask; i++ {
+			b := (*bmap)(add(bucket, i*uintptr(t.bucketsize)))
+			for ; b != nil; b = b.overflow(t) {
+				for i := uintptr(0); i < bucketCnt; i++ {
+					b.tophash[i] = emptyRest
+				}
+			}
+		}
+	}
+	markBucketsEmpty(h.buckets, bucketMask(h.B))
+	if oldBuckets := h.oldbuckets; oldBuckets != nil {
+		markBucketsEmpty(oldBuckets, h.oldbucketmask())
+	}
 
 	h.flags &^= sameSizeGrow
 	h.oldbuckets = nil
@@ -1136,7 +1230,7 @@ func hashGrow(t *maptype, h *hmap) {
 
 // overLoadFactor reports whether count items placed in 1<<B buckets is over loadFactor.
 func overLoadFactor(count int, B uint8) bool {
-	return count > bucketCnt && uintptr(count) > loadFactorNum*(bucketShift(B)/loadFactorDen)
+	return count > abi.MapBucketCount && uintptr(count) > loadFactorNum*(bucketShift(B)/loadFactorDen)
 }
 
 // tooManyOverflowBuckets reports whether noverflow buckets is too many for a map with 1<<B buckets.
@@ -1274,7 +1368,7 @@ func evacuate(t *maptype, h *hmap, oldbucket uintptr) {
 				b.tophash[i] = evacuatedX + useY // evacuatedX + 1 == evacuatedY
 				dst := &xy[useY]                 // evacuation destination
 
-				if dst.i == bucketCnt {
+				if dst.i == abi.MapBucketCount {
 					dst.b = h.newoverflow(t, dst.b)
 					dst.i = 0
 					dst.k = add(unsafe.Pointer(dst.b), dataOffset)
@@ -1342,6 +1436,19 @@ func advanceEvacuationMark(h *hmap, t *maptype, newbit uintptr) {
 
 // Reflect stubs. Called from ../reflect/asm_*.s
 
+// reflect_makemap is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - gitee.com/quant1x/gox
+//   - github.com/modern-go/reflect2
+//   - github.com/goccy/go-json
+//   - github.com/RomiChan/protobuf
+//   - github.com/segmentio/encoding
+//   - github.com/v2pro/plz
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_makemap reflect.makemap
 func reflect_makemap(t *maptype, cap int) *hmap {
 	// Check invariants and reflects math.
@@ -1368,7 +1475,7 @@ func reflect_makemap(t *maptype, cap int) *hmap {
 	if t.elem.size%uintptr(t.elem.align) != 0 {
 		throw("elem size not a multiple of elem align")
 	}
-	if bucketCnt < 8 {
+	if abi.MapBucketCount < 8 {
 		throw("bucketsize too small for proper alignment")
 	}
 	if dataOffset%uintptr(t.key.align) != 0 {
@@ -1381,6 +1488,16 @@ func reflect_makemap(t *maptype, cap int) *hmap {
 	return makemap(t, cap, nil)
 }
 
+// reflect_mapaccess is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - gitee.com/quant1x/gox
+//   - github.com/modern-go/reflect2
+//   - github.com/v2pro/plz
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_mapaccess reflect.mapaccess
 func reflect_mapaccess(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	elem, ok := mapaccess2(t, h, key)
@@ -1423,26 +1540,76 @@ func reflect_mapdelete_faststr(t *maptype, h *hmap, key string) {
 	mapdelete_faststr(t, h, key)
 }
 
+// reflect_mapiterinit is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/modern-go/reflect2
+//   - gitee.com/quant1x/gox
+//   - github.com/v2pro/plz
+//   - github.com/wI2L/jettison
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_mapiterinit reflect.mapiterinit
 func reflect_mapiterinit(t *maptype, h *hmap, it *hiter) {
 	mapiterinit(t, h, it)
 }
 
+// reflect_mapiternext is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - gitee.com/quant1x/gox
+//   - github.com/modern-go/reflect2
+//   - github.com/goccy/go-json
+//   - github.com/v2pro/plz
+//   - github.com/wI2L/jettison
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_mapiternext reflect.mapiternext
 func reflect_mapiternext(it *hiter) {
 	mapiternext(it)
 }
 
+// reflect_mapiterkey is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/goccy/go-json
+//   - gonum.org/v1/gonum
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_mapiterkey reflect.mapiterkey
 func reflect_mapiterkey(it *hiter) unsafe.Pointer {
 	return it.key
 }
 
+// reflect_mapiterelem is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/goccy/go-json
+//   - gonum.org/v1/gonum
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_mapiterelem reflect.mapiterelem
 func reflect_mapiterelem(it *hiter) unsafe.Pointer {
 	return it.elem
 }
 
+// reflect_maplen is for package reflect,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/goccy/go-json
+//   - github.com/wI2L/jettison
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
 //go:linkname reflect_maplen reflect.maplen
 func reflect_maplen(h *hmap) int {
 	if h == nil {
@@ -1486,18 +1653,18 @@ func mapclone(m any) any {
 // moveToBmap moves a bucket from src to dst. It returns the destination bucket or new destination bucket if it overflows
 // and the pos that the next key/value will be written, if pos == bucketCnt means needs to written in overflow bucket.
 func moveToBmap(t *maptype, h *hmap, dst *bmap, pos int, src *bmap) (*bmap, int) {
-	for i := 0; i < bucketCnt; i++ {
+	for i := 0; i < abi.MapBucketCount; i++ {
 		if isEmpty(src.tophash[i]) {
 			continue
 		}
 
-		for ; pos < bucketCnt; pos++ {
+		for ; pos < abi.MapBucketCount; pos++ {
 			if isEmpty(dst.tophash[pos]) {
 				break
 			}
 		}
 
-		if pos == bucketCnt {
+		if pos == abi.MapBucketCount {
 			dst = h.newoverflow(t, dst)
 			pos = 0
 		}
@@ -1528,7 +1695,7 @@ func mapclone2(t *maptype, src *hmap) *hmap {
 	dst := makemap(t, src.count, nil)
 	dst.hash0 = src.hash0
 	dst.nevacuate = 0
-	//flags do not need to be copied here, just like a new map has no flags.
+	// flags do not need to be copied here, just like a new map has no flags.
 
 	if src.count == 0 {
 		return dst
@@ -1596,7 +1763,7 @@ func mapclone2(t *maptype, src *hmap) *hmap {
 		// Process entries one at a time.
 		for srcBmap != nil {
 			// move from oldBlucket to new bucket
-			for i := uintptr(0); i < bucketCnt; i++ {
+			for i := uintptr(0); i < abi.MapBucketCount; i++ {
 				if isEmpty(srcBmap.tophash[i]) {
 					continue
 				}
@@ -1636,7 +1803,7 @@ func keys(m any, p unsafe.Pointer) {
 	}
 	s := (*slice)(p)
 	r := int(rand())
-	offset := uint8(r >> h.B & (bucketCnt - 1))
+	offset := uint8(r >> h.B & (abi.MapBucketCount - 1))
 	if h.B == 0 {
 		copyKeys(t, h, (*bmap)(h.buckets), s, offset)
 		return
@@ -1665,8 +1832,8 @@ func keys(m any, p unsafe.Pointer) {
 
 func copyKeys(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 	for b != nil {
-		for i := uintptr(0); i < bucketCnt; i++ {
-			offi := (i + uintptr(offset)) & (bucketCnt - 1)
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
+			offi := (i + uintptr(offset)) & (abi.MapBucketCount - 1)
 			if isEmpty(b.tophash[offi]) {
 				continue
 			}
@@ -1699,7 +1866,7 @@ func values(m any, p unsafe.Pointer) {
 	}
 	s := (*slice)(p)
 	r := int(rand())
-	offset := uint8(r >> h.B & (bucketCnt - 1))
+	offset := uint8(r >> h.B & (abi.MapBucketCount - 1))
 	if h.B == 0 {
 		copyValues(t, h, (*bmap)(h.buckets), s, offset)
 		return
@@ -1728,8 +1895,8 @@ func values(m any, p unsafe.Pointer) {
 
 func copyValues(t *maptype, h *hmap, b *bmap, s *slice, offset uint8) {
 	for b != nil {
-		for i := uintptr(0); i < bucketCnt; i++ {
-			offi := (i + uintptr(offset)) & (bucketCnt - 1)
+		for i := uintptr(0); i < abi.MapBucketCount; i++ {
+			offi := (i + uintptr(offset)) & (abi.MapBucketCount - 1)
 			if isEmpty(b.tophash[offi]) {
 				continue
 			}

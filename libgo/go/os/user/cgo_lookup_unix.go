@@ -53,6 +53,9 @@ func lookupUser(username string) (*User, error) {
 		}
 		return 0
 	})
+	if err == syscall.ENOENT || (err == nil && !found) {
+		return nil, UnknownUserError(username)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("user: lookup username %s: %v", username, err)
 	}
@@ -90,6 +93,9 @@ func lookupUnixUid(uid int) (*User, error) {
 		}
 		return 0
 	})
+	if err == syscall.ENOENT || (err == nil && !found) {
+		return nil, UnknownUserIdError(uid)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("user: lookup userid %d: %v", uid, err)
 	}
@@ -136,6 +142,9 @@ func lookupGroup(groupname string) (*Group, error) {
 		}
 		return 0
 	})
+	if err == syscall.ENOENT || (err == nil && !found) {
+		return nil, UnknownGroupError(groupname)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("user: lookup groupname %s: %v", groupname, err)
 	}
@@ -173,6 +182,9 @@ func lookupUnixGid(gid int) (*Group, error) {
 		}
 		return 0
 	})
+	if err == syscall.ENOENT || (err == nil && !found) {
+		return nil, UnknownGroupIdError(strconv.Itoa(gid))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("user: lookup groupid %d: %v", gid, err)
 	}

@@ -20,7 +20,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 type command struct {
@@ -180,13 +179,12 @@ func TestForeground(t *testing.T) {
 	}
 	defer tty.Close()
 
-	fpgrp := syscall.Pid_t(0)
+	ttyFD := int(tty.Fd())
 
-	errno := syscall.Ioctl(tty.Fd(), syscall.TIOCGPGRP, unsafe.Pointer(&fpgrp))
-	if errno != 0 {
-		t.Fatalf("TIOCGPGRP failed with error code: %s", errno)
+	fpgrp, err := syscall.Tcgetpgrp(ttyFD)
+	if err != nil {
+		t.Fatalf("Tcgetpgrp failed: %v", err)
 	}
-
 	if fpgrp == 0 {
 		t.Fatalf("Foreground process group is zero")
 	}
@@ -196,7 +194,7 @@ func TestForeground(t *testing.T) {
 	cmd := create(t)
 
 	cmd.proc.SysProcAttr = &syscall.SysProcAttr{
-		Ctty:       int(tty.Fd()),
+		Ctty:       ttyFD,
 		Foreground: true,
 	}
 	cmd.Start()
@@ -219,7 +217,7 @@ func TestForeground(t *testing.T) {
 
 	// This call fails on darwin/arm64. The failure doesn't matter, though.
 	// This is just best effort.
-	syscall.Ioctl(tty.Fd(), syscall.TIOCSPGRP, unsafe.Pointer(&fpgrp))
+	syscall.Tcsetpgrp(ttyFD, fpgrp)
 }
 
 func TestForegroundSignal(t *testing.T) {
@@ -229,22 +227,19 @@ func TestForegroundSignal(t *testing.T) {
 	}
 	defer tty.Close()
 
-	// This should really be pid_t, however _C_int (aka int32) is generally
-	// equivalent.
-	fpgrp := int32(0)
+	ttyFD := int(tty.Fd())
 
-	errno := syscall.Ioctl(tty.Fd(), syscall.TIOCGPGRP, unsafe.Pointer(&fpgrp))
-	if errno != 0 {
-		t.Fatalf("TIOCGPGRP failed with error code: %s", errno)
+	fpgrp, err := syscall.Tcgetpgrp(ttyFD)
+	if err != nil {
+		t.Fatalf("Tcgetpgrp failed: %v", err)
 	}
-
 	if fpgrp == 0 {
 		t.Fatalf("Foreground process group is zero")
 	}
 
 	defer func() {
 		signal.Ignore(syscall.SIGTTIN, syscall.SIGTTOU)
-		syscall.Ioctl(tty.Fd(), syscall.TIOCSPGRP, unsafe.Pointer(&fpgrp))
+		syscall.Tcsetpgrp(ttyFD, fpgrp)
 		signal.Reset()
 	}()
 
@@ -258,7 +253,7 @@ func TestForegroundSignal(t *testing.T) {
 
 	go func() {
 		cmd.proc.SysProcAttr = &syscall.SysProcAttr{
-			Ctty:       int(tty.Fd()),
+			Ctty:       ttyFD,
 			Foreground: true,
 		}
 		cmd.Start()

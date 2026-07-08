@@ -10,7 +10,7 @@ package runtime
 
 import (
 	"internal/goarch"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"unsafe"
 )
 
@@ -22,10 +22,7 @@ func kqueue() int32
 func kevent(kq int32, ch *keventt, nch uintptr, ev *keventt, nev uintptr, ts *timespec) int32
 
 var (
-	kq int32 = -1
-
-	netpollBreakRd, netpollBreakWr uintptr // for netpollBreak
-
+	kq             int32         = -1
 	netpollWakeSig atomic.Uint32 // used to avoid duplicate calls of netpollBreak
 )
 
@@ -36,27 +33,7 @@ func netpollinit() {
 		throw("runtime: netpollinit failed")
 	}
 	closeonexec(kq)
-	r, w, errno := nonblockingPipe()
-	if errno != 0 {
-		println("runtime: pipe failed with", -errno)
-		throw("runtime: pipe failed")
-	}
-	ev := keventt{
-		filter: _EVFILT_READ,
-		flags:  _EV_ADD,
-	}
-	*(*uintptr)(unsafe.Pointer(&ev.ident)) = uintptr(r)
-	n := kevent(kq, &ev, 1, nil, 0, nil)
-	if n < 0 {
-		println("runtime: kevent failed with", -n)
-		throw("runtime: kevent failed")
-	}
-	netpollBreakRd = uintptr(r)
-	netpollBreakWr = uintptr(w)
-}
-
-func netpollIsPollDescriptor(fd uintptr) bool {
-	return fd == uintptr(kq) || fd == netpollBreakRd || fd == netpollBreakWr
+	addWakeupEvent(kq)
 }
 
 func netpollopen(fd uintptr, pd *pollDesc) int32 {
@@ -106,18 +83,7 @@ func netpollBreak() {
 		return
 	}
 
-	for {
-		var b byte
-		n := write(netpollBreakWr, unsafe.Pointer(&b), 1)
-		if n == 1 || n == -_EAGAIN {
-			break
-		}
-		if n == -_EINTR {
-			continue
-		}
-		println("runtime: netpollBreak write failed with", -n)
-		throw("runtime: netpollBreak write failed")
-	}
+	wakeNetpoll(kq)
 }
 
 // netpoll checks for ready network connections.
@@ -168,17 +134,11 @@ retry:
 	for i := 0; i < int(n); i++ {
 		ev := &events[i]
 
-		if uintptr(ev.ident) == netpollBreakRd {
-			if ev.filter != _EVFILT_READ {
-				println("runtime: netpoll: break fd ready for", ev.filter)
-				throw("runtime: netpoll: break fd ready for something unexpected")
-			}
+		if isWakeup(ev) {
 			if delay != 0 {
-				// netpollBreak could be picked up by a
-				// nonblocking poll. Only read the byte
-				// if blocking.
-				var tmp [16]byte
-				read(int32(netpollBreakRd), noescape(unsafe.Pointer(&tmp[0])), int32(len(tmp)))
+				// netpollBreak could be picked up by a nonblocking poll.
+				// Only call drainWakeupEvent and reset the netpollWakeSig if blocking.
+				drainWakeupEvent(kq)
 				netpollWakeSig.Store(0)
 			}
 			continue

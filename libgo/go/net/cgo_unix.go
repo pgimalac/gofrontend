@@ -22,6 +22,7 @@ package net
 
 import (
 	"context"
+	"internal/bytealg"
 	"net/netip"
 	"syscall"
 	"unsafe"
@@ -66,8 +67,20 @@ func (eai addrinfoErrno) isAddrinfoErrno() {}
 // doBlockingWithCtx executes a blocking function in a separate goroutine when the provided
 // context is cancellable. It is intended for use with calls that don't support context
 // cancellation (cgo, syscalls). blocking func may still be running after this function finishes.
-func doBlockingWithCtx[T any](ctx context.Context, blocking func() (T, error)) (T, error) {
+// For the duration of the execution of the blocking function, the thread is 'acquired' using [acquireThread],
+// blocking might not be executed when the context gets canceled early.
+func doBlockingWithCtx[T any](ctx context.Context, lookupName string, blocking func() (T, error)) (T, error) {
+	if err := acquireThread(ctx); err != nil {
+		var zero T
+		return zero, &DNSError{
+			Name:      lookupName,
+			Err:       mapErr(err).Error(),
+			IsTimeout: err == context.DeadlineExceeded,
+		}
+	}
+
 	if ctx.Done() == nil {
+		defer releaseThread()
 		return blocking()
 	}
 
@@ -78,6 +91,7 @@ func doBlockingWithCtx[T any](ctx context.Context, blocking func() (T, error)) (
 
 	res := make(chan result, 1)
 	go func() {
+		defer releaseThread()
 		var r result
 		r.res, r.err = blocking()
 		res <- r
@@ -88,7 +102,11 @@ func doBlockingWithCtx[T any](ctx context.Context, blocking func() (T, error)) (
 		return r.res, r.err
 	case <-ctx.Done():
 		var zero T
-		return zero, mapErr(ctx.Err())
+		return zero, &DNSError{
+			Name:      lookupName,
+			Err:       mapErr(ctx.Err()).Error(),
+			IsTimeout: ctx.Err() == context.DeadlineExceeded,
+		}
 	}
 }
 
@@ -123,7 +141,7 @@ func cgoLookupPort(ctx context.Context, network, service string) (port int, err 
 		hints.Ai_family = syscall.AF_INET6
 	}
 
-	return doBlockingWithCtx(ctx, func() (int, error) {
+	return doBlockingWithCtx(ctx, network+"/"+service, func() (int, error) {
 		return cgoLookupServicePort(&hints, network, service)
 	})
 }
@@ -143,21 +161,18 @@ func cgoLookupServicePort(hints *syscall.Addrinfo, network, service string) (por
 	gerrno := libc_getaddrinfo(nil, s, hints, &res)
 	syscall.Exitsyscall()
 	if gerrno != 0 {
-		isTemporary := false
 		switch gerrno {
 		case syscall.EAI_SYSTEM:
 			errno := syscall.GetErrno()
 			if errno == 0 { // see golang.org/issue/6232
 				errno = syscall.EMFILE
 			}
-			err = errno
+			return 0, newDNSError(errno, network+"/"+service, "")
 		case syscall.EAI_SERVICE, syscall.EAI_NONAME: // Darwin returns EAI_NONAME.
-			return 0, &DNSError{Err: "unknown port", Name: network + "/" + service, IsNotFound: true}
+			return 0, newDNSError(errUnknownPort, network+"/"+service, "")
 		default:
-			err = addrinfoErrno(gerrno)
-			isTemporary = addrinfoErrno(gerrno).Temporary()
+			return 0, newDNSError(addrinfoErrno(gerrno), network+"/"+service, "")
 		}
-		return 0, &DNSError{Err: err.Error(), Name: network + "/" + service, IsTemporary: isTemporary}
 	}
 	defer libc_freeaddrinfo(res)
 
@@ -173,13 +188,10 @@ func cgoLookupServicePort(hints *syscall.Addrinfo, network, service string) (por
 			return int(p[0])<<8 | int(p[1]), nil
 		}
 	}
-	return 0, &DNSError{Err: "unknown port", Name: network + "/" + service, IsNotFound: true}
+	return 0, newDNSError(errUnknownPort, network+"/"+service, "")
 }
 
 func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err error) {
-	acquireThread()
-	defer releaseThread()
-
 	var hints syscall.Addrinfo
 	hints.Ai_flags = int32(cgoAddrInfoFlags)
 	hints.Ai_socktype = syscall.SOCK_STREAM
@@ -197,8 +209,6 @@ func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err e
 	gerrno := libc_getaddrinfo(h, nil, &hints, &res)
 	syscall.Exitsyscall()
 	if gerrno != 0 {
-		isErrorNoSuchHost := false
-		isTemporary := false
 		switch gerrno {
 		case syscall.EAI_SYSTEM:
 			errno := syscall.GetErrno()
@@ -212,16 +222,12 @@ func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err e
 				// comes up again. golang.org/issue/6232.
 				errno = syscall.EMFILE
 			}
-			err = errno
+			return nil, "", newDNSError(errno, name, "")
 		case syscall.EAI_NONAME, syscall.EAI_NODATA:
-			err = errNoSuchHost
-			isErrorNoSuchHost = true
+			return nil, "", newDNSError(errNoSuchHost, name, "")
 		default:
-			err = addrinfoErrno(gerrno)
-			isTemporary = addrinfoErrno(gerrno).Temporary()
+			return nil, "", newDNSError(addrinfoErrno(gerrno), name, "")
 		}
-
-		return nil, "", &DNSError{Err: err.Error(), Name: name, IsNotFound: isErrorNoSuchHost, IsTemporary: isTemporary}
 	}
 	defer libc_freeaddrinfo(res)
 
@@ -254,14 +260,14 @@ func cgoLookupIPCNAME(network, name string) (addrs []IPAddr, cname string, err e
 }
 
 func cgoLookupIP(ctx context.Context, network, name string) (addrs []IPAddr, err error) {
-	return doBlockingWithCtx(ctx, func() ([]IPAddr, error) {
+	return doBlockingWithCtx(ctx, name, func() ([]IPAddr, error) {
 		addrs, _, err := cgoLookupIPCNAME(network, name)
 		return addrs, err
 	})
 }
 
 func cgoLookupCNAME(ctx context.Context, name string) (cname string, err error, completed bool) {
-	cname, err = doBlockingWithCtx(ctx, func() (string, error) {
+	cname, err = doBlockingWithCtx(ctx, name, func() (string, error) {
 		_, cname, err := cgoLookupIPCNAME("ip", name)
 		return cname, err
 	})
@@ -292,15 +298,12 @@ func cgoLookupPTR(ctx context.Context, addr string) (names []string, err error) 
 		return nil, &DNSError{Err: "invalid address " + ip.String(), Name: addr}
 	}
 
-	return doBlockingWithCtx(ctx, func() ([]string, error) {
+	return doBlockingWithCtx(ctx, addr, func() ([]string, error) {
 		return cgoLookupAddrPTR(addr, sa, salen)
 	})
 }
 
 func cgoLookupAddrPTR(addr string, sa *syscall.RawSockaddr, salen syscall.Socklen_t) (names []string, err error) {
-	acquireThread()
-	defer releaseThread()
-
 	var gerrno int
 	var b []byte
 	for l := nameinfoLen; l <= maxNameinfoLen; l *= 2 {
@@ -311,27 +314,20 @@ func cgoLookupAddrPTR(addr string, sa *syscall.RawSockaddr, salen syscall.Sockle
 		}
 	}
 	if gerrno != 0 {
-		isErrorNoSuchHost := false
-		isTemporary := false
 		switch gerrno {
 		case syscall.EAI_SYSTEM:
 			if err == nil { // see golang.org/issue/6232
 				err = syscall.EMFILE
 			}
+			return nil, newDNSError(err, addr, "")
 		case syscall.EAI_NONAME:
-			err = errNoSuchHost
-			isErrorNoSuchHost = true
+			return nil, newDNSError(errNoSuchHost, addr, "")
 		default:
-			err = addrinfoErrno(gerrno)
-			isTemporary = addrinfoErrno(gerrno).Temporary()
+			return nil, newDNSError(addrinfoErrno(gerrno), addr, "")
 		}
-		return nil, &DNSError{Err: err.Error(), Name: addr, IsTemporary: isTemporary, IsNotFound: isErrorNoSuchHost}
 	}
-	for i := 0; i < len(b); i++ {
-		if b[i] == 0 {
-			b = b[:i]
-			break
-		}
+	if i := bytealg.IndexByte(b, 0); i != -1 {
+		b = b[:i]
 	}
 	return []string{absDomainName(string(b))}, nil
 }

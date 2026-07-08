@@ -94,3 +94,5 @@ type Buffer struct {
 var MethodValueCallCodePtr = methodValueCallCodePtr
 
 var InternalIsZero = isZero
+
+var IsRegularMemory = isRegularMemory

@@ -7,6 +7,7 @@
 package os
 
 import (
+	"internal/filepathlite"
 	"syscall"
 	"time"
 )
@@ -20,9 +21,9 @@ const (
 )
 
 func fillFileStatFromSys(fs *fileStat, name string) {
-	fs.name = basename(name)
-	fs.size = int64(fs.sys.Size)
-	fs.modTime = timestrucToTime(fs.sys.Mtim)
+	fs.name = filepathlite.Base(name)
+	fs.size = fs.sys.Size
+	fs.modTime = time.Unix(fs.sys.Mtim.Unix())
 	fs.mode = FileMode(fs.sys.Mode & 0777)
 	switch fs.sys.Mode & syscall.S_IFMT {
 	case syscall.S_IFBLK:

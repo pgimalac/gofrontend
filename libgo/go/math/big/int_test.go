@@ -1910,7 +1910,7 @@ func TestFillBytes(t *testing.T) {
 		"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 	} {
 		t.Run(n, func(t *testing.T) {
-			t.Logf(n)
+			t.Log(n)
 			x, ok := new(Int).SetString(n, 0)
 			if !ok {
 				panic("invalid test entry")

@@ -249,11 +249,16 @@ type stringer interface {
 	String() string
 }
 
-// printany prints an argument passed to panic.
+// printpanicval prints an argument passed to panic.
 // If panic is called with a value that has a String or Error method,
 // it has already been converted into a string by preprintpanics.
-func printany(i any) {
-	switch v := i.(type) {
+//
+// To ensure that the traceback can be unambiguously parsed even when
+// the panic value contains "\ngoroutine" and other stack-like
+// strings, newlines in the string representation of v are replaced by
+// "\n\t".
+func printpanicval(v any) {
+	switch v := v.(type) {
 	case nil:
 		print("nil")
 	case bool:
@@ -291,10 +296,11 @@ func printany(i any) {
 	case string:
 		print(v)
 	default:
-		printanycustomtype(i)
+		printanycustomtype(v)
 	}
 }
 
+// Invariant: each newline in the string representation is followed by a tab.
 func printanycustomtype(i any) {
 	eface := efaceOf(&i)
 	typestring := eface._type.string()

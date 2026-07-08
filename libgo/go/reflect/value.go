@@ -23,7 +23,7 @@ import (
 // inappropriate to the kind of type causes a run time panic.
 //
 // The zero Value represents no value.
-// Its IsValid method returns false, its Kind method returns Invalid,
+// Its [Value.IsValid] method returns false, its Kind method returns [Invalid],
 // its String method returns "<invalid Value>", and all other methods panic.
 // Most functions and methods never return an invalid value.
 // If one does, its documentation states the conditions explicitly.
@@ -109,7 +109,7 @@ func (v Value) pointer() unsafe.Pointer {
 func packEface(v Value) any {
 	t := v.typ
 	var i any
-	e := (*emptyInterface)(unsafe.Pointer(&i))
+	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
 	// First, fill in the data portion of the interface.
 	switch {
 	case ifaceIndir(t):
@@ -119,34 +119,32 @@ func packEface(v Value) any {
 		// Value is indirect, and so is the interface we're making.
 		ptr := v.ptr
 		if v.flag&flagAddr != 0 {
-			// TODO: pass safe boolean from valueInterface so
-			// we don't need to copy if safe==true?
 			c := unsafe_New(t)
 			typedmemmove(t, c, ptr)
 			ptr = c
 		}
-		e.word = ptr
+		e.Data = ptr
 	case v.flag&flagIndir != 0:
 		// Value is indirect, but interface is direct. We need
 		// to load the data at v.ptr into the interface data word.
-		e.word = *(*unsafe.Pointer)(v.ptr)
+		e.Data = *(*unsafe.Pointer)(v.ptr)
 	default:
 		// Value is direct, and so is the interface.
-		e.word = v.ptr
+		e.Data = v.ptr
 	}
 	// Now, fill in the type portion. We're very careful here not
 	// to have any operation between the e.word and e.typ assignments
 	// that would let the garbage collector observe the partially-built
 	// interface value.
-	e.typ = t
+	e.Type = t
 	return i
 }
 
 // unpackEface converts the empty interface i to a Value.
 func unpackEface(i any) Value {
-	e := (*emptyInterface)(unsafe.Pointer(&i))
+	e := (*abi.EmptyInterface)(unsafe.Pointer(&i))
 	// NOTE: don't read e.word until we know whether it is really a pointer or not.
-	t := e.typ
+	t := e.Type
 	if t == nil {
 		return Value{}
 	}
@@ -154,7 +152,7 @@ func unpackEface(i any) Value {
 	if ifaceIndir(t) {
 		f |= flagIndir
 	}
-	return Value{t, e.word, f}
+	return Value{t, e.Data, f}
 }
 
 // A ValueError occurs when a Value method is invoked on
@@ -580,7 +578,7 @@ func storeRcvr(v Value, p unsafe.Pointer) {
 		// the interface data word becomes the receiver word
 		iface := (*nonEmptyInterface)(v.ptr)
 		*(*unsafe.Pointer)(p) = iface.word
-	} else if v.flag&flagIndir != 0 && !ifaceIndir(t) {
+	} else if v.flag&flagIndir != 0 && !t.IfaceIndir() {
 		*(*unsafe.Pointer)(p) = *(*unsafe.Pointer)(v.ptr)
 	} else {
 		*(*unsafe.Pointer)(p) = v.ptr
@@ -970,7 +968,6 @@ func valueInterface(v Value, safe bool) any {
 		})(v.ptr)
 	}
 
-	// TODO: pass safe to packEface so we don't need to copy if safe==true?
 	return packEface(v)
 }
 
@@ -997,7 +994,7 @@ func (v Value) InterfaceData() [2]uintptr {
 // a chan, func, interface, map, pointer, or slice value; if it is
 // not, IsNil panics. Note that IsNil is not always equivalent to a
 // regular comparison with nil in Go. For example, if v was created
-// by calling ValueOf with an uninitialized interface variable i,
+// by calling [ValueOf] with an uninitialized interface variable i,
 // i==nil will be true but v.IsNil will panic as v will be the zero
 // Value.
 func (v Value) IsNil() bool {
@@ -1022,7 +1019,7 @@ func (v Value) IsNil() bool {
 
 // IsValid reports whether v represents a value.
 // It returns false if v is the zero Value.
-// If IsValid returns false, all other methods except String panic.
+// If [Value.IsValid] returns false, all other methods except String panic.
 // Most functions and methods never return an invalid Value.
 // If one does, its documentation states the conditions explicitly.
 func (v Value) IsValid() bool {
@@ -1177,7 +1174,7 @@ func (v Value) SetZero() {
 	case Slice:
 		*(*unsafeheader.Slice)(v.ptr) = unsafeheader.Slice{}
 	case Interface:
-		*(*emptyInterface)(v.ptr) = emptyInterface{}
+		*(*abi.EmptyInterface)(v.ptr) = abi.EmptyInterface{}
 	case Chan, Func, Map, Pointer, UnsafePointer:
 		*(*unsafe.Pointer)(v.ptr) = nil
 	case Array, Struct:
@@ -1620,7 +1617,7 @@ func (v Value) OverflowUint(x uint64) bool {
 // and make an exception.
 
 // Pointer returns v's value as a uintptr.
-// It panics if v's Kind is not [Chan], [Func], [Map], [Pointer], [Slice], or [UnsafePointer].
+// It panics if v's Kind is not [Chan], [Func], [Map], [Pointer], [Slice], [String], or [UnsafePointer].
 //
 // If v's Kind is [Func], the returned pointer is an underlying
 // code pointer, but not necessarily enough to identify a
@@ -1630,6 +1627,9 @@ func (v Value) OverflowUint(x uint64) bool {
 // If v's Kind is [Slice], the returned pointer is to the first
 // element of the slice. If the slice is nil the returned value
 // is 0.  If the slice is empty but non-nil the return value is non-zero.
+//
+// If v's Kind is [String], the returned pointer is to the first
+// element of the underlying bytes of string.
 //
 // It's preferred to use uintptr(Value.UnsafePointer()) to get the equivalent result.
 func (v Value) Pointer() uintptr {
@@ -1665,9 +1665,10 @@ func (v Value) Pointer() uintptr {
 			p = *(*unsafe.Pointer)(p)
 		}
 		return uintptr(p)
-
 	case Slice:
 		return uintptr((*unsafeheader.Slice)(v.ptr).Data)
+	case String:
+		return uintptr((*unsafeheader.String)(v.ptr).Data)
 	}
 	panic(&ValueError{"reflect.Value.Pointer", v.kind()})
 }
@@ -1693,7 +1694,7 @@ func (v Value) recv(nb bool) (val Value, ok bool) {
 	t := tt.elem
 	val = Value{t, nil, flag(t.Kind())}
 	var p unsafe.Pointer
-	if ifaceIndir(t) {
+	if t.IfaceIndir() {
 		p = unsafe_New(t)
 		val.ptr = p
 		val.flag |= flagIndir
@@ -1936,7 +1937,7 @@ func (v Value) SetUint(x uint64) {
 }
 
 // SetPointer sets the [unsafe.Pointer] value v to x.
-// It panics if v's Kind is not UnsafePointer.
+// It panics if v's Kind is not [UnsafePointer].
 func (v Value) SetPointer(x unsafe.Pointer) {
 	v.mustBeAssignable()
 	v.mustBe(UnsafePointer)
@@ -2199,7 +2200,7 @@ func (v Value) UnsafeAddr() uintptr {
 }
 
 // UnsafePointer returns v's value as a [unsafe.Pointer].
-// It panics if v's Kind is not [Chan], [Func], [Map], [Pointer], [Slice], or [UnsafePointer].
+// It panics if v's Kind is not [Chan], [Func], [Map], [Pointer], [Slice], [String] or [UnsafePointer].
 //
 // If v's Kind is [Func], the returned pointer is an underlying
 // code pointer, but not necessarily enough to identify a
@@ -2209,6 +2210,9 @@ func (v Value) UnsafeAddr() uintptr {
 // If v's Kind is [Slice], the returned pointer is to the first
 // element of the slice. If the slice is nil the returned value
 // is nil.  If the slice is empty but non-nil the return value is non-nil.
+//
+// If v's Kind is [String], the returned pointer is to the first
+// element of the underlying bytes of string.
 func (v Value) UnsafePointer() unsafe.Pointer {
 	k := v.kind()
 	switch k {
@@ -2242,9 +2246,10 @@ func (v Value) UnsafePointer() unsafe.Pointer {
 			p = *(*unsafe.Pointer)(p)
 		}
 		return p
-
 	case Slice:
 		return (*unsafeheader.Slice)(v.ptr).Data
+	case String:
+		return (*unsafeheader.String)(v.ptr).Data
 	}
 	panic(&ValueError{"reflect.Value.UnsafePointer", v.kind()})
 }
@@ -2479,7 +2484,7 @@ const (
 // then the case is ignored, and the field Send will also be ignored and may be either zero
 // or non-zero.
 //
-// If Dir is SelectRecv, the case represents a receive operation.
+// If Dir is [SelectRecv], the case represents a receive operation.
 // Normally Chan's underlying value must be a channel and Send must be a zero Value.
 // If Chan is a zero Value, then the case is ignored, but Send must still be a zero Value.
 // When a receive operation is selected, the received Value is returned by Select.
@@ -2621,6 +2626,16 @@ func MakeSlice(typ Type, len, cap int) Value {
 	return Value{typ.(*rtype), unsafe.Pointer(&s), flagIndir | flag(Slice)}
 }
 
+// SliceAt returns a [Value] representing a slice whose underlying
+// data starts at p, with length and capacity equal to n.
+//
+// This is like [unsafe.Slice].
+func SliceAt(typ Type, p unsafe.Pointer, n int) Value {
+	unsafeslice(typ.common(), p, n)
+	s := unsafeheader.Slice{Data: p, Len: n, Cap: n}
+	return Value{SliceOf(typ).common(), unsafe.Pointer(&s), flagIndir | flag(Slice)}
+}
+
 // MakeChan creates a new channel with the specified type and buffer size.
 func MakeChan(typ Type, buffer int) Value {
 	if typ.Kind() != Chan {
@@ -2710,7 +2725,7 @@ const maxZero = 1024
 var zeroVal [maxZero]byte
 
 // New returns a Value representing a pointer to a new zero value
-// for the specified type. That is, the returned Value's Type is PointerTo(typ).
+// for the specified type. That is, the returned Value's Type is [PointerTo](typ).
 func New(typ Type) Value {
 	if typ == nil {
 		panic("reflect: New(nil)")
@@ -2835,7 +2850,7 @@ func (v Value) Comparable() bool {
 		return v.Type().Comparable()
 
 	case Interface:
-		return v.Elem().Comparable()
+		return v.IsNil() || v.Elem().Comparable()
 
 	case Struct:
 		for i := 0; i < v.NumField(); i++ {
@@ -3346,6 +3361,9 @@ func verifyNotInHeapPtr(p uintptr) bool
 
 //go:noescape
 func growslice(t *rtype, old unsafeheader.Slice, num int) unsafeheader.Slice
+
+//go:noescape
+func unsafeslice(t *abi.Type, ptr unsafe.Pointer, len int)
 
 // Dummy annotation marking that the value x escapes,
 // for use in cases where the reflect code is so clever that

@@ -6,7 +6,7 @@ package runtime
 
 import (
 	"internal/goexperiment"
-	"runtime/internal/atomic"
+	"internal/runtime/atomic"
 	"unsafe"
 )
 
@@ -18,6 +18,16 @@ import (
 // atomicwb performs a write barrier before an atomic pointer write.
 // The caller should guard the call with "if writeBarrier.enabled".
 //
+// atomicwb should be an internal detail,
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/bytedance/gopkg
+//   - github.com/songzhibin97/gkit
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname atomicwb
 //go:nosplit
 func atomicwb(ptr *unsafe.Pointer, new unsafe.Pointer) {
 	slot := (*uintptr)(unsafe.Pointer(ptr))
@@ -43,7 +53,7 @@ func atomicstorep(ptr unsafe.Pointer, new unsafe.Pointer) {
 // (like StoreNoWB but with the write barrier).
 //
 //go:nosplit
-//go:linkname atomic_storePointer runtime_1internal_1atomic.storePointer
+//go:linkname atomic_storePointer internal_1runtime_1atomic.storePointer
 func atomic_storePointer(ptr *unsafe.Pointer, new unsafe.Pointer) {
 	atomicstorep(unsafe.Pointer(ptr), new)
 }
@@ -52,7 +62,7 @@ func atomic_storePointer(ptr *unsafe.Pointer, new unsafe.Pointer) {
 // (like CompareAndSwapNoWB but with the write barrier).
 //
 //go:nosplit
-//go:linkname atomic_casPointer runtime_1internal_1atomic.casPointer
+//go:linkname atomic_casPointer internal_1runtime_1atomic.casPointer
 func atomic_casPointer(ptr *unsafe.Pointer, old, new unsafe.Pointer) bool {
 	if writeBarrier.enabled {
 		atomicwb(ptr, new)

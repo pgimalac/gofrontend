@@ -502,11 +502,11 @@ type g struct {
 	timer      *timer         // cached timer for time.Sleep
 	selectDone atomic.Uint32  // are we participating in a select and did someone win the race?
 
-	coroarg *coro // argument during coroutine transfers
-
 	// goroutineProfiled indicates the status of this goroutine's stack for the
 	// current in-progress goroutine profile
 	goroutineProfiled goroutineProfileStateHolder
+
+	coroarg *coro // argument during coroutine transfers
 
 	// Per-G tracer state.
 	trace gTraceState
@@ -643,6 +643,7 @@ type m struct {
 	nextwaitm   muintptr     // next m waiting for lock
 
 	mLockProfile mLockProfile // fields relating to runtime.lock contention
+	profStack    []uintptr    // used for memory/block/mutex stack traces
 
 	// wait* are used to carry arguments from gopark into park_m, because
 	// there's no stack to put them on. That is their sole purpose.
@@ -771,16 +772,6 @@ type p struct {
 
 	palloc persistentAlloc // per-P to avoid mutex
 
-	// The when field of the first entry on the timer heap.
-	// This is 0 if the timer heap is empty.
-	timer0When atomic.Int64
-
-	// The earliest known nextwhen field of a timer with
-	// timerModifiedEarlier status. Because the timer may have been
-	// modified again, there need not be any timer with this value.
-	// This is 0 if there are no timerModifiedEarlier timers.
-	timerModifiedEarliest atomic.Int64
-
 	// Per-P GC state
 	gcAssistTime         int64 // Nanoseconds in assistAlloc
 	gcFractionalMarkTime int64 // Nanoseconds in fractional mark worker (atomic)
@@ -850,10 +841,8 @@ type p struct {
 	// scheduler ASAP (regardless of what G is running on it).
 	preempt bool
 
-	// pageTraceBuf is a buffer for writing out page allocation/free/scavenge traces.
-	//
-	// Used only if GOEXPERIMENT=pagetrace.
-	pageTraceBuf pageTraceBuf
+	// gcStopTime is the nanotime timestamp that this P last entered _Pgcstop.
+	gcStopTime int64
 
 	// Padding is no longer needed. False sharing is now not a worry because p is large enough
 	// that its size class is an integer multiple of the cache line size (for any of our architectures).
@@ -1215,6 +1204,29 @@ func (w waitReason) isMutexWait() bool {
 		w == waitReasonSyncRWMutexLock
 }
 
+func (w waitReason) isWaitingForGC() bool {
+	return isWaitingForGC[w]
+}
+
+// isWaitingForGC indicates that a goroutine is only entering _Gwaiting and
+// setting a waitReason because it needs to be able to let the GC take ownership
+// of its stack. The G is always actually executing on the system stack, in
+// these cases.
+//
+// TODO(mknyszek): Consider replacing this with a new dedicated G status.
+var isWaitingForGC = [len(waitReasonStrings)]bool{
+	waitReasonStoppingTheWorld:      true,
+	waitReasonGCMarkTermination:     true,
+	waitReasonGarbageCollection:     true,
+	waitReasonGarbageCollectionScan: true,
+	waitReasonTraceGoroutineStatus:  true,
+	waitReasonTraceProcStatus:       true,
+	waitReasonPageTraceFlush:        true,
+	waitReasonGCAssistMarking:       true,
+	waitReasonGCWorkerActive:        true,
+	waitReasonFlushProcCaches:       true,
+}
+
 var (
 	allm       *m
 	gomaxprocs int32
@@ -1222,13 +1234,17 @@ var (
 	forcegc    forcegcstate
 	sched      schedt
 	newprocs   int32
+)
 
+var (
 	// allpLock protects P-less reads and size changes of allp, idlepMask,
 	// and timerpMask, and all writes to allp.
 	allpLock mutex
+
 	// len(allp) == gomaxprocs; may change at safe points, otherwise
 	// immutable.
 	allp []*p
+
 	// Bitmask of Ps in _Pidle list, one bit per P. Reads and writes must
 	// be atomic. Length may change at safe points.
 	//
@@ -1240,10 +1256,41 @@ var (
 	//
 	// N.B., procresize takes ownership of all Ps in stopTheWorldWithSema.
 	idlepMask pMask
+
 	// Bitmask of Ps that may have a timer, one bit per P. Reads and writes
 	// must be atomic. Length may change at safe points.
+	//
+	// Ideally, the timer mask would be kept immediately consistent on any timer
+	// operations. Unfortunately, updating a shared global data structure in the
+	// timer hot path adds too much overhead in applications frequently switching
+	// between no timers and some timers.
+	//
+	// As a compromise, the timer mask is updated only on pidleget / pidleput. A
+	// running P (returned by pidleget) may add a timer at any time, so its mask
+	// must be set. An idle P (passed to pidleput) cannot add new timers while
+	// idle, so if it has no timers at that time, its mask may be cleared.
+	//
+	// Thus, we get the following effects on timer-stealing in findrunnable:
+	//
+	//   - Idle Ps with no timers when they go idle are never checked in findrunnable
+	//     (for work- or timer-stealing; this is the ideal case).
+	//   - Running Ps must always be checked.
+	//   - Idle Ps whose timers are stolen must continue to be checked until they run
+	//     again, even after timer expiration.
+	//
+	// When the P starts running again, the mask should be set, as a timer may be
+	// added at any time.
+	//
+	// TODO(prattmic): Additional targeted updates may improve the above cases.
+	// e.g., updating the mask when stealing a timer.
 	timerpMask pMask
+)
 
+// goarmsoftfp is used by runtime/cgo assembly.
+//
+//go:linkname goarmsoftfp
+
+var (
 	// Pool of GC parked background workers. Entries are type
 	// *gcBgMarkWorkerNode.
 	gcBgMarkWorkerPool lfstack

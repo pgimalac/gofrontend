@@ -227,6 +227,28 @@ type Type interface {
 	// It panics if i is not in the range [0, NumOut()).
 	Out(i int) Type
 
+	// OverflowComplex reports whether the complex128 x cannot be represented by type t.
+	// It panics if t's Kind is not Complex64 or Complex128.
+	OverflowComplex(x complex128) bool
+
+	// OverflowFloat reports whether the float64 x cannot be represented by type t.
+	// It panics if t's Kind is not Float32 or Float64.
+	OverflowFloat(x float64) bool
+
+	// OverflowInt reports whether the int64 x cannot be represented by type t.
+	// It panics if t's Kind is not Int, Int8, Int16, Int32, or Int64.
+	OverflowInt(x int64) bool
+
+	// OverflowUint reports whether the uint64 x cannot be represented by type t.
+	// It panics if t's Kind is not Uint, Uintptr, Uint8, Uint16, Uint32, or Uint64.
+	OverflowUint(x uint64) bool
+
+	// CanSeq reports whether a [Value] with this type can be iterated over using [Value.Seq].
+	CanSeq() bool
+
+	// CanSeq2 reports whether a [Value] with this type can be iterated over using [Value.Seq2].
+	CanSeq2() bool
+
 	common() *rtype
 	uncommon() *uncommonType
 }
@@ -456,12 +478,6 @@ type Method struct {
 func (m Method) IsExported() bool {
 	return m.PkgPath == ""
 }
-
-const (
-	kindDirectIface = 1 << 5
-	kindGCProg      = 1 << 6 // Type.gc points to GC program
-	kindMask        = (1 << 5) - 1
-)
 
 // String returns the name of k.
 func (k Kind) String() string {
@@ -793,6 +809,106 @@ func (t *rtype) Out(i int) Type {
 	return toType(tt.out[i])
 }
 
+func (t *rtype) OverflowComplex(x complex128) bool {
+	k := t.Kind()
+	switch k {
+	case Complex64:
+		return overflowFloat32(real(x)) || overflowFloat32(imag(x))
+	case Complex128:
+		return false
+	}
+	panic("reflect: OverflowComplex of non-complex type " + t.String())
+}
+
+func (t *rtype) OverflowFloat(x float64) bool {
+	k := t.Kind()
+	switch k {
+	case Float32:
+		return overflowFloat32(x)
+	case Float64:
+		return false
+	}
+	panic("reflect: OverflowFloat of non-float type " + t.String())
+}
+
+func (t *rtype) OverflowInt(x int64) bool {
+	k := t.Kind()
+	switch k {
+	case Int, Int8, Int16, Int32, Int64:
+		bitSize := t.Size() * 8
+		trunc := (x << (64 - bitSize)) >> (64 - bitSize)
+		return x != trunc
+	}
+	panic("reflect: OverflowInt of non-int type " + t.String())
+}
+
+func (t *rtype) OverflowUint(x uint64) bool {
+	k := t.Kind()
+	switch k {
+	case Uint, Uintptr, Uint8, Uint16, Uint32, Uint64:
+		bitSize := t.Size() * 8
+		trunc := (x << (64 - bitSize)) >> (64 - bitSize)
+		return x != trunc
+	}
+	panic("reflect: OverflowUint of non-uint type " + t.String())
+}
+
+func (t *rtype) CanSeq() bool {
+	switch t.Kind() {
+	case Int8, Int16, Int32, Int64, Int, Uint8, Uint16, Uint32, Uint64, Uint, Uintptr, Array, Slice, Chan, String, Map:
+		return true
+	case Func:
+		return canRangeFunc(&t.t)
+	case Pointer:
+		return t.Elem().Kind() == Array
+	}
+	return false
+}
+
+func canRangeFunc(t *abi.Type) bool {
+	if t.Kind() != abi.Func {
+		return false
+	}
+	f := t.FuncType()
+	if f.InCount != 1 || f.OutCount != 0 {
+		return false
+	}
+	y := f.In(0)
+	if y.Kind() != abi.Func {
+		return false
+	}
+	yield := y.FuncType()
+	return yield.InCount == 1 && yield.OutCount == 1 && yield.Out(0).Kind() == abi.Bool
+}
+
+func (t *rtype) CanSeq2() bool {
+	switch t.Kind() {
+	case Array, Slice, String, Map:
+		return true
+	case Func:
+		return canRangeFunc2(&t.t)
+	case Pointer:
+		return t.Elem().Kind() == Array
+	}
+	return false
+}
+
+func canRangeFunc2(t *abi.Type) bool {
+	if t.Kind() != abi.Func {
+		return false
+	}
+	f := t.FuncType()
+	if f.InCount != 1 || f.OutCount != 0 {
+		return false
+	}
+	y := f.In(0)
+	if y.Kind() != abi.Func {
+		return false
+	}
+	yield := y.FuncType()
+	return yield.InCount == 2 && yield.OutCount == 1 && yield.Out(0).Kind() == abi.Bool
+}
+
 // add returns p+x.
 //
 // The whySafe string is ignored, so that the function still inlines
@@ -800,6 +916,17 @@ func (t *rtype) Out(i int) Type {
 // record why the addition is safe, which is to say why the addition
 // does not cause x to advance to the very end of p's allocation
 // and therefore point incorrectly at the next block in memory.
+//
+// add should be an internal detail (and is trivially copyable),
+// but widely used packages access it using linkname.
+// Notable members of the hall of shame include:
+//   - github.com/pinpoint-apm/pinpoint-go-agent
+//   - github.com/vmware/govmomi
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+//go:linkname add
 func add(p unsafe.Pointer, x uintptr, whySafe string) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(p) + x)
 }
@@ -885,7 +1012,7 @@ type StructTag string
 // If there is no such key in the tag, Get returns the empty string.
 // If the tag does not have the conventional format, the value
 // returned by Get is unspecified. To determine whether a tag is
-// explicitly set to the empty string, use Lookup.
+// explicitly set to the empty string, use [StructTag.Lookup].
 func (tag StructTag) Get(key string) string {
 	v, _ := tag.Lookup(key)
 	return v
@@ -2028,6 +2155,51 @@ func isValidFieldName(fieldName string) bool {
 	return len(fieldName) > 0
 }
 
+// This must match cmd/compile/internal/compare.IsRegularMemory
+func isRegularMemory(t Type) bool {
+	switch t.Kind() {
+	case Array:
+		elem := t.Elem()
+		if isRegularMemory(elem) {
+			return true
+		}
+		return elem.Comparable() && t.Len() == 0
+	case Int8, Int16, Int32, Int64, Int, Uint8, Uint16, Uint32, Uint64, Uint, Uintptr, Chan, Pointer, Bool, UnsafePointer:
+		return true
+	case Struct:
+		num := t.NumField()
+		switch num {
+		case 0:
+			return true
+		case 1:
+			field := t.Field(0)
+			if field.Name == "_" {
+				return false
+			}
+			return isRegularMemory(field.Type)
+		default:
+			for i := range num {
+				field := t.Field(i)
+				if field.Name == "_" || !isRegularMemory(field.Type) || isPaddedField(t, i) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// isPaddedField reports whether the i'th field of struct type t is followed
+// by padding.
+func isPaddedField(t Type, i int) bool {
+	field := t.Field(i)
+	if i+1 < t.NumField() {
+		return field.Offset+field.Type.Size() != t.Field(i+1).Offset
+	}
+	return field.Offset+field.Type.Size() != t.Size()
+}
+
 // StructOf returns the struct type containing fields.
 // The Offset and Index fields are ignored and computed as they would be
 // by the compiler.
@@ -2383,9 +2555,6 @@ func typeptrdata(t *rtype) uintptr {
 	}
 }
 
-// See cmd/compile/internal/reflectdata/reflect.go for derivation of constant.
-const maxPtrmaskBytes = 2048
-
 // ArrayOf returns the array type with the given length and element type.
 // For example, if t represents int, ArrayOf(5, t) represents [5]int.
 //
@@ -2518,7 +2687,7 @@ func ArrayOf(length int, elem Type) Type {
 	}
 
 	switch {
-	case length == 1 && !ifaceIndir(typ):
+	case length == 1 && !typ.IfaceIndir():
 		// array of 1 direct iface type can be direct
 		array.kind |= kindDirectIface
 	default:
@@ -2574,14 +2743,14 @@ func addTypeBits(bv *bitVector, offset uintptr, t *rtype) {
 	switch Kind(t.kind & kindMask) {
 	case Chan, Func, Map, Pointer, Slice, String, UnsafePointer:
 		// 1 pointer at start of representation
-		for bv.n < uint32(offset/uintptr(goarch.PtrSize)) {
+		for bv.n < uint32(offset/goarch.PtrSize) {
 			bv.append(0)
 		}
 		bv.append(1)
 
 	case Interface:
 		// 2 pointers
-		for bv.n < uint32(offset/uintptr(goarch.PtrSize)) {
+		for bv.n < uint32(offset/goarch.PtrSize) {
 			bv.append(0)
 		}
 		bv.append(1)
@@ -2606,5 +2775,9 @@ func addTypeBits(bv *bitVector, offset uintptr, t *rtype) {
 
 // TypeFor returns the [Type] that represents the type argument T.
 func TypeFor[T any]() Type {
-	return TypeOf((*T)(nil)).Elem()
+	var v T
+	if t := TypeOf(v); t != nil {
+		return t // optimize for T being a non-interface kind
+	}
+	return TypeOf((*T)(nil)).Elem() // only for an interface kind
 }

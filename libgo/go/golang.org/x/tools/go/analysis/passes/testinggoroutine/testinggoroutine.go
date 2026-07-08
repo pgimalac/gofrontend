@@ -16,6 +16,7 @@ import (
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
+	"golang.org/x/tools/internal/aliases"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -290,7 +291,7 @@ func forbiddenMethod(info *types.Info, call *ast.CallExpr) (*types.Var, *types.S
 func formatMethod(sel *types.Selection, fn *types.Func) string {
 	var ptr string
 	rtype := sel.Recv()
-	if p, ok := rtype.(*types.Pointer); ok {
+	if p, ok := aliases.Unalias(rtype).(*types.Pointer); ok {
 		ptr = "*"
 		rtype = p.Elem()
 	}

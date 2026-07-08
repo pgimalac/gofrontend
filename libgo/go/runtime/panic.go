@@ -362,15 +362,6 @@ func newdefer() *_defer {
 	return d
 }
 
-// Free the given defer.
-// The defer cannot be used after this call.
-//
-// This is nosplit because the incoming defer is in a perilous state.
-// It's not on any defer list, so stack copying won't adjust stack
-// pointers in it (namely, d.link). Hence, if we were to copy the
-// stack, d could then contain a stale pointer.
-//
-//go:nosplit
 func freedefer(d *_defer) {
 	d.link = nil
 	// After this point we can copy the stack.
@@ -686,7 +677,7 @@ func printpanics(p *_panic) {
 		return
 	}
 	print("panic: ")
-	printany(p.arg)
+	printpanicval(p.arg)
 	if p.recovered {
 		print(" [recovered]")
 	}
@@ -726,20 +717,20 @@ func gopanic(e any) {
 	gp := getg()
 	if gp.m.curg != gp {
 		print("panic: ")
-		printany(e)
+		printpanicval(e)
 		print("\n")
 		throw("panic on system stack")
 	}
 
 	if gp.m.mallocing != 0 {
 		print("panic: ")
-		printany(e)
+		printpanicval(e)
 		print("\n")
 		throw("panic during malloc")
 	}
 	if gp.m.preemptoff != "" {
 		print("panic: ")
-		printany(e)
+		printpanicval(e)
 		print("\n")
 		print("preempt off reason: ")
 		print(gp.m.preemptoff)
@@ -748,7 +739,7 @@ func gopanic(e any) {
 	}
 	if gp.m.locks != 0 {
 		print("panic: ")
-		printany(e)
+		printpanicval(e)
 		print("\n")
 		throw("panic holding locks")
 	}

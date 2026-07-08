@@ -7,6 +7,8 @@
 package syscall
 
 import (
+	"internal/asan"
+	"internal/msan"
 	"internal/race"
 	"runtime"
 	"sync"
@@ -127,7 +129,7 @@ func errnoErr(e Errno) error {
 }
 
 // A Signal is a number describing a process signal.
-// It implements the os.Signal interface.
+// It implements the [os.Signal] interface.
 type Signal int
 
 func (s Signal) Signal() {}
@@ -148,11 +150,11 @@ func Read(fd int, p []byte) (n int, err error) {
 			race.Acquire(unsafe.Pointer(&ioSync))
 		}
 	}
-	if msanenabled && n > 0 {
-		msanWrite(unsafe.Pointer(&p[0]), n)
+	if msan.Enabled && n > 0 {
+		msan.Write(unsafe.Pointer(&p[0]), uintptr(n))
 	}
-	if asanenabled && n > 0 {
-		asanWrite(unsafe.Pointer(&p[0]), n)
+	if asan.Enabled && n > 0 {
+		asan.Write(unsafe.Pointer(&p[0]), uintptr(n))
 	}
 	return
 }
@@ -172,11 +174,11 @@ func Write(fd int, p []byte) (n int, err error) {
 	if race.Enabled && n > 0 {
 		race.ReadRange(unsafe.Pointer(&p[0]), n)
 	}
-	if msanenabled && n > 0 {
-		msanRead(unsafe.Pointer(&p[0]), n)
+	if msan.Enabled && n > 0 {
+		msan.Read(unsafe.Pointer(&p[0]), uintptr(n))
 	}
-	if asanenabled && n > 0 {
-		asanRead(unsafe.Pointer(&p[0]), n)
+	if asan.Enabled && n > 0 {
+		asan.Read(unsafe.Pointer(&p[0]), uintptr(n))
 	}
 	return
 }

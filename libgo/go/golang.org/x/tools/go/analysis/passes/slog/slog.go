@@ -19,6 +19,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
+	"golang.org/x/tools/internal/typesinternal"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -69,6 +70,7 @@ const (
 )
 
 func run(pass *analysis.Pass) (any, error) {
+	var attrType types.Type // The type of slog.Attr
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	nodeFilter := []ast.Node{
 		(*ast.CallExpr)(nil),
@@ -87,6 +89,11 @@ func run(pass *analysis.Pass) (any, error) {
 			// Not a slog function that takes key-value pairs.
 			return
 		}
+		// Here we know that fn.Pkg() is "log/slog".
+		if attrType == nil {
+			attrType = fn.Pkg().Scope().Lookup("Attr").Type()
+		}
+
 		if isMethodExpr(pass.TypesInfo, call) {
 			// Call is to a method value. Skip the first argument.
 			skipArgs++
@@ -112,8 +119,19 @@ func run(pass *analysis.Pass) (any, error) {
 					pos = key
 				case types.IsInterface(t):
 					// As we do not do dataflow, we do not know what the dynamic type is.
-					// It could be a string or an Attr so we don't know what to expect next.
-					pos = unknown
+					// But we might be able to learn enough to make a decision.
+					if types.AssignableTo(stringType, t) {
+						// t must be an empty interface. So it can also be an Attr.
+						// We don't know enough to make an assumption.
+						pos = unknown
+						continue
+					} else if attrType != nil && types.AssignableTo(attrType, t) {
+						// Assume it is an Attr.
+						pos = key
+						continue
+					}
+					// Can't be either a string or Attr. Definitely an error.
+					fallthrough
 				default:
 					if unknownArg == nil {
 						pass.ReportRangef(arg, "%s arg %q should be a string or a slog.Attr (possible missing key or value)",
@@ -171,14 +189,10 @@ func isAttr(t types.Type) bool {
 func shortName(fn *types.Func) string {
 	var r string
 	if recv := fn.Type().(*types.Signature).Recv(); recv != nil {
-		t := recv.Type()
-		if pt, ok := t.(*types.Pointer); ok {
-			t = pt.Elem()
-		}
-		if nt, ok := t.(*types.Named); ok {
-			r = nt.Obj().Name()
+		if _, named := typesinternal.ReceiverNamed(recv); named != nil {
+			r = named.Obj().Name()
 		} else {
-			r = recv.Type().String()
+			r = recv.Type().String() // anon struct/interface
 		}
 		r += "."
 	}
@@ -194,17 +208,12 @@ func kvFuncSkipArgs(fn *types.Func) (int, bool) {
 		return 0, false
 	}
 	var recvName string // by default a slog package function
-	recv := fn.Type().(*types.Signature).Recv()
-	if recv != nil {
-		t := recv.Type()
-		if pt, ok := t.(*types.Pointer); ok {
-			t = pt.Elem()
+	if recv := fn.Type().(*types.Signature).Recv(); recv != nil {
+		_, named := typesinternal.ReceiverNamed(recv)
+		if named == nil {
+			return 0, false // anon struct/interface
 		}
-		if nt, ok := t.(*types.Named); !ok {
-			return 0, false
-		} else {
-			recvName = nt.Obj().Name()
-		}
+		recvName = named.Obj().Name()
 	}
 	skip, ok := kvFuncs[recvName][fn.Name()]
 	return skip, ok
