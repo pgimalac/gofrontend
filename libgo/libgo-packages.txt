@@ -3,6 +3,10 @@ archive/zip
 bufio
 bytes
 cmd/go/internal/mmap
+cmd/go/internal/telemetrycmd
+cmd/go/internal/telemetrystats
+cmd/internal/telemetry
+cmd/internal/telemetry/counter
 cmp
 compress/bzip2
 compress/flate
