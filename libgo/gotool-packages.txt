@@ -51,6 +51,7 @@ cmd/internal/browser
 cmd/internal/buildid
 cmd/internal/codesign
 cmd/internal/cov/covcmd
+cmd/internal/doc
 cmd/internal/edit
 cmd/internal/hash
 cmd/internal/macho

@@ -4,11 +4,10 @@
 
 package cgroup
 
-import (
-	_ "unsafe" // for linkname
-)
-
 // Functions below pushed from runtime.
+// gccgo: the runtime pushes throw via a 2-arg //go:linkname
+// (runtime.cgroup_throw -> internal/runtime/cgroup.throw), so here it is a
+// plain bodyless declaration with no //go:linkname, matching how
+// internal/sync declares the runtime-provided throw/fatal.
 
-//go:linkname throw
 func throw(s string)

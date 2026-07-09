@@ -4,8 +4,6 @@
 
 package abi
 
-import "internal/goarch"
-
 type InterfaceSwitch struct {
 	Cache  *InterfaceSwitchCache
 	NCases int
@@ -29,11 +27,16 @@ type InterfaceSwitchCacheEntry struct {
 	Itab uintptr
 }
 
-func UseInterfaceSwitchCache(arch goarch.ArchFamilyType) bool {
+const go122InterfaceSwitchCache = true
+
+func UseInterfaceSwitchCache(goarch string) bool {
+	if !go122InterfaceSwitchCache {
+		return false
+	}
 	// We need an atomic load instruction to make the cache multithreaded-safe.
 	// (AtomicLoadPtr needs to be implemented in cmd/compile/internal/ssa/_gen/ARCH.rules.)
-	switch arch {
-	case goarch.AMD64, goarch.ARM64, goarch.LOONG64, goarch.MIPS, goarch.MIPS64, goarch.PPC64, goarch.RISCV64, goarch.S390X:
+	switch goarch {
+	case "amd64", "arm64", "loong64", "mips", "mipsle", "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x":
 		return true
 	default:
 		return false

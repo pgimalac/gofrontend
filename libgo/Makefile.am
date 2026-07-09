@@ -1068,6 +1068,10 @@ runtime_internal_atomic_lo_GOCFLAGS = -fgo-compiling-runtime
 runtime_internal_atomic_lo_check_GOCFLAGS = -fgo-compiling-runtime
 internal_runtime_sys_lo_GOCFLAGS = -fgo-compiling-runtime
 internal_runtime_sys_lo_check_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_cgroup_lo_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_cgroup_lo_check_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_syscall_lo_GOCFLAGS = -fgo-compiling-runtime
+internal_runtime_syscall_lo_check_GOCFLAGS = -fgo-compiling-runtime
 
 # If libffi is supported (the normal case) use the ffi build tag for
 # the runtime package.
