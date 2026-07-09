@@ -4,8 +4,6 @@
 
 package fips140
 
-import _ "unsafe" // for go:linkname
-
 // The service indicator lets users of the module query whether invoked services
 // are approved. Three states are stored in a per-goroutine value by the
 // runtime. The indicator starts at indicatorUnset after a reset. Invoking an
@@ -16,10 +14,11 @@ import _ "unsafe" // for go:linkname
 // negative. Finally, we expose indicatorUnset as negative to the user, so that
 // we don't need to explicitly annotate fully non-approved services.
 
-//go:linkname getIndicator crypto/internal/fips140.getIndicator
+// getIndicator and setIndicator are implemented in the runtime package
+// (see runtime.fips_getIndicator / fips_setIndicator, linknamed as
+// crypto/internal/fips140.getIndicator / setIndicator).
 func getIndicator() uint8
 
-//go:linkname setIndicator crypto/internal/fips140.setIndicator
 func setIndicator(uint8)
 
 const (

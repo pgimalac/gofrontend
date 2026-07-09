@@ -86,7 +86,7 @@ func MustHaveGoBuild(t testing.TB) {
 	}
 	if !HasGoBuild() {
 		t.Helper()
-		t.Skipf("skipping test: 'go build' unavailable: %v", tryGoBuild())
+		t.Skipf("skipping test: 'go build' unavailable: %v", goBuildErr)
 	}
 }
 

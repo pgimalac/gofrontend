@@ -2237,6 +2237,7 @@ func StructOf(fields []StructField) Type {
 		size       uintptr
 		typalign   uint8
 		comparable = true
+		hasGCProg  = false
 
 		fs   = make([]structField, len(fields))
 		repr = make([]byte, 0, 64)

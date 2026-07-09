@@ -8,6 +8,7 @@ package unix
 
 import (
 	"syscall"
+	"unsafe"
 )
 
 //extern unlinkat

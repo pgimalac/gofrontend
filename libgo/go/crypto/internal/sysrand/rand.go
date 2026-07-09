@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	_ "unsafe"
 )
 
 var firstUse atomic.Bool
@@ -20,9 +19,9 @@ func warnBlocked() {
 	println("crypto/rand: blocked for 60 seconds waiting to read random data from the kernel")
 }
 
-// fatal is [runtime.fatal], pushed via linkname.
-//
-//go:linkname fatal
+// fatal is [runtime.fatal]. The implementation is provided by the runtime
+// package (see runtime.sysrand_fatal, linknamed as
+// crypto/internal/sysrand.fatal).
 func fatal(string)
 
 var testingOnlyFailRead bool

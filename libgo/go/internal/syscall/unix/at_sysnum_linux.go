@@ -4,6 +4,8 @@
 
 package unix
 
+import "syscall"
+
 const (
 	AT_EACCESS          = 0x200
 	AT_FDCWD            = -0x64
@@ -11,4 +13,7 @@ const (
 	AT_SYMLINK_NOFOLLOW = 0x100
 
 	UTIME_OMIT = 0x3ffffffe
+
+	readlinkatTrap uintptr = syscall.SYS_READLINKAT
+	mkdiratTrap    uintptr = syscall.SYS_MKDIRAT
 )

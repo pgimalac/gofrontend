@@ -8,12 +8,11 @@ import (
 	"crypto/internal/fips140deps/godebug"
 	"errors"
 	"strings"
-	_ "unsafe" // for go:linkname
 )
 
-// fatal is [runtime.fatal], pushed via linkname.
-//
-//go:linkname fatal crypto/internal/fips140.fatal
+// fatal is [runtime.fatal]. The implementation is provided by the runtime
+// package (see runtime.fips_fatal, linknamed as
+// crypto/internal/fips140.fatal).
 func fatal(string)
 
 // failfipscast is a GODEBUG key allowing simulation of a CAST or PCT failure,

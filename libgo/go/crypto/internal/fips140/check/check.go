@@ -29,7 +29,11 @@ var Verified bool
 // Linkinfo holds the go:fipsinfo symbol prepared by the linker.
 // See cmd/link/internal/ld/fips.go for details.
 //
-//go:linkname Linkinfo go:fipsinfo
+// gccgo has no linker support for the go:fipsinfo symbol.  FIPS mode is
+// never enabled under gccgo (fips140.Enabled is false), so init below
+// returns before Linkinfo is ever read; it is left as an ordinary
+// zero-valued variable here (the go:linkname is dropped, as gccgo only
+// supports go:linkname on functions).
 var Linkinfo struct {
 	Magic [16]byte
 	Sum   [32]byte

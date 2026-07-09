@@ -101,7 +101,14 @@ type SHA3 struct {
 	s sha3.Digest
 }
 
-//go:linkname fips140hash_sha3Unwrap crypto/internal/fips140hash.sha3Unwrap
+// fips140hash (which imports this package) calls sha3Unwrap to reach the
+// unexported inner Digest.  gccgo cannot emit a linkname whose external name
+// contains a slash-bearing import path (the assembler treats "/" as an
+// operator), so the target is written in gccgo's mangled symbol form
+// (crypto/internal/fips140hash -> crypto_1internal_1fips140hash), matching the
+// symbol gccgo generates for fips140hash.sha3Unwrap.
+//
+//go:linkname fips140hash_sha3Unwrap crypto_1internal_1fips140hash.sha3Unwrap
 func fips140hash_sha3Unwrap(sha3 *SHA3) *sha3.Digest {
 	return &sha3.s
 }

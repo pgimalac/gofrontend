@@ -12,7 +12,6 @@ import (
 	"crypto/internal/fips140/drbg"
 	"crypto/internal/sysrand"
 	"io"
-	_ "unsafe"
 )
 
 // Reader is a global, shared instance of a cryptographically
@@ -52,9 +51,8 @@ func (r *reader) Read(b []byte) (n int, err error) {
 	return len(b), nil
 }
 
-// fatal is [runtime.fatal], pushed via linkname.
-//
-//go:linkname fatal
+// fatal is [runtime.fatal]. The implementation is provided by the runtime
+// package (see runtime.rand_fatal, linknamed as crypto/rand.fatal).
 func fatal(string)
 
 // Read fills b with cryptographically secure random bytes. It never returns an

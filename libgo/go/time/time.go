@@ -1316,13 +1316,15 @@ func now() (sec int64, nsec int32, mono int64)
 // runtimeNow returns the current time.
 // When called within a synctest.Run bubble, it returns the group's fake clock.
 //
-//go:linkname runtimeNow
+// The implementation is provided by the runtime package
+// (see runtime.time_runtimeNow, linknamed as time.runtimeNow).
 func runtimeNow() (sec int64, nsec int32, mono int64)
 
 // runtimeNano returns the current value of the runtime clock in nanoseconds.
 // When called within a synctest.Run bubble, it returns the group's fake clock.
 //
-//go:linkname runtimeNano
+// The implementation is provided by the runtime package
+// (see runtime.time_runtimeNano, linknamed as time.runtimeNano).
 func runtimeNano() int64
 
 // Monotonic times are reported as offsets from startNano.

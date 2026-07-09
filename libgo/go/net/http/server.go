@@ -3840,7 +3840,13 @@ func (h *timeoutHandler) ServeHTTP(w ResponseWriter, r *Request) {
 		tw.mu.Lock()
 		defer tw.mu.Unlock()
 		dst := w.Header()
-		maps.Copy(dst, tw.h)
+		// Note: gccgo's generic type inference intermittently mis-resolves
+		// the "maps" qualifier of a maps.Copy(dst, tw.h) call in this context
+		// (reporting an "unexpected reference to package"), so copy the header
+		// entries explicitly here.  Equivalent to maps.Copy(dst, tw.h).
+		for k, v := range tw.h {
+			dst[k] = v
+		}
 		if !tw.wroteHeader {
 			tw.code = StatusOK
 		}

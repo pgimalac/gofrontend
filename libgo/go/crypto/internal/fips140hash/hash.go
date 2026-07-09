@@ -8,10 +8,11 @@ import (
 	fsha3 "crypto/internal/fips140/sha3"
 	"crypto/sha3"
 	"hash"
-	_ "unsafe"
 )
 
-//go:linkname sha3Unwrap
+// sha3Unwrap is implemented (pushed via go:linkname) in crypto/sha3 as
+// fips140hash_sha3Unwrap; gccgo generates this package's natural symbol
+// crypto_1internal_1fips140hash.sha3Unwrap, which crypto/sha3 targets.
 func sha3Unwrap(*sha3.SHA3) *fsha3.Digest
 
 // Unwrap returns h, or a crypto/internal/fips140 inner implementation of h.

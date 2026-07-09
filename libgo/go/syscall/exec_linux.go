@@ -9,6 +9,7 @@ package syscall
 import (
 	errpkg "errors"
 	"internal/itoa"
+	"runtime"
 	"unsafe"
 )
 
@@ -76,6 +77,10 @@ type SysProcAttr struct {
 	// users this should be set to false for mappings work.
 	GidMappingsEnableSetgroups bool
 	AmbientCaps                []uintptr // Ambient capabilities (Linux only)
+	// PidFD, if not nil, is used to store the child process's file descriptor
+	// obtained via the CLONE_PIDFD clone flag. On success, the value of *PidFD
+	// will be the file descriptor of the child process, otherwise it will be -1.
+	PidFD *int
 }
 
 var (
@@ -709,9 +714,9 @@ func doCheckClonePidfd(pidfd *int32) (pid uintptr, errno Errno) {
 	flags := uintptr(CLONE_VFORK | CLONE_VM | CLONE_PIDFD | SIGCHLD)
 	if runtime.GOARCH == "s390x" {
 		// On Linux/s390, the first two arguments of clone(2) are swapped.
-		pid, errno = rawVforkSyscall(SYS_CLONE, 0, flags, uintptr(unsafe.Pointer(pidfd)))
+		pid, _, errno = RawSyscall6(SYS_CLONE, 0, flags, uintptr(unsafe.Pointer(pidfd)), 0, 0, 0)
 	} else {
-		pid, errno = rawVforkSyscall(SYS_CLONE, flags, 0, uintptr(unsafe.Pointer(pidfd)))
+		pid, _, errno = RawSyscall6(SYS_CLONE, flags, 0, uintptr(unsafe.Pointer(pidfd)), 0, 0, 0)
 	}
 	if errno != 0 || pid != 0 {
 		// If we're in the parent, we must return immediately
