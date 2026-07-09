@@ -850,13 +850,12 @@ go_import_generics(Import* imp, Gogo* gogo, Package* package)
 
 // Generics: read the "geninsts" section written by Export::write_generic_
 // instances and stamp each imported generic instance type with its
-// package-independent canonical id.  This id is what makes the imported
-// instance compare identical (Type::are_identical) to a locally-created
-// instance of the same generic with the same type arguments, so cross-package
-// uses type-check even though each package has its own instance object.  The
-// imported object is deliberately NOT added to the canonical-instance reuse
-// registry: methods may only be defined on a local type, so a local use must
-// create its own local instance (with methods) rather than reuse this one.
+// package-independent canonical id.  Register imported instances in the
+// compilation-global canonical-instance table as well, so a later local use
+// of the same imported generic instance reuses this Named_object instead of
+// creating a second identical local instance with a duplicate unnamed
+// underlying type.  If the local package later needs methods on the reused
+// instance, instantiate_generic_type handles that at the reuse site.
 
 void
 go_import_generic_instances(Import* imp, Gogo* gogo)
@@ -875,7 +874,11 @@ go_import_generic_instances(Import* imp, Gogo* gogo)
 	continue;
       Named_type* nt = type->named_type();
       if (nt != NULL && nt->named_object() != NULL && !id.empty())
-	nt->set_generic_canonical_id(id);
+	{
+	  nt->set_generic_canonical_id(id);
+	  if (gogo->lookup_canonical_generic_instance(id) == NULL)
+	    gogo->add_canonical_generic_instance(id, nt->named_object());
+	}
     }
 }
 
@@ -4553,14 +4556,41 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 	this->gogo_->lookup_canonical_generic_instance(canon_id);
       if (cno != NULL)
 	{
-	  if (imported)
-	    this->gogo_->pop_instantiation_package();
-	  this->gogo_->pop_instantiation_context();
-	  // Share under this template's local token key too (fast path).
-	  info->add_instance(key, cno, type_args);
-	  if (cno->is_type_declaration())
-	    return Type::make_forward_declaration(cno);
-	  return cno->type_value();
+	  // Decide whether we can reuse this canonical instance directly.  A
+	  // canonical instance imported from another package (package() != NULL)
+	  // that carries methods must NOT be reused here: we cannot attach this
+	  // package's method instantiations to a non-local type ("may not define
+	  // methods on non-local type"), and a local use needs a local instance
+	  // that owns its own method set.  In that case fall through and build a
+	  // fresh local instance, which overwrites the canonical registration for
+	  // the rest of this compilation.  Method-less instances (func-type or
+	  // plain type-alias instances) are always safe to reuse, and MUST be
+	  // reused so we do not needlessly emit a second structurally-identical
+	  // unnamed underlying type (the export-time Sort_types alias-identity
+	  // check tolerates any residual duplicates) when both the imported and a
+	  // local instance are reachable from the export set.  Reusing here keeps
+	  // the common func-type/alias case down to one instance.  The method
+	  // check is reliable here:
+	  // instantiation runs while parsing this package's source, after all
+	  // imports (and their late finalize_methods()) have completed.
+	  bool can_reuse = true;
+	  if (!cno->is_type_declaration() && cno->package() != NULL)
+	    {
+	      Named_type* cnt = cno->type_value()->named_type();
+	      if (cnt != NULL && cnt->has_any_methods())
+		can_reuse = false;
+	    }
+	  if (can_reuse)
+	    {
+	      // Share under this template's local token key too (fast path).
+	      info->add_instance(key, cno, type_args);
+	      if (imported)
+		this->gogo_->pop_instantiation_package();
+	      this->gogo_->pop_instantiation_context();
+	      if (cno->is_type_declaration())
+		return Type::make_forward_declaration(cno);
+	      return cno->type_value();
+	    }
 	}
     }
 

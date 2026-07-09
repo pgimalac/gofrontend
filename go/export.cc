@@ -645,7 +645,20 @@ struct Sort_types
 
     Sort_types sort;
     Type_alias_identical identical;
-    go_assert(!identical(t1, t2));
+
+    // Two DISTINCT type objects can be alias-identical with the same backend
+    // name.  This happens when a forward-referenced generic instance produced
+    // a placeholder alias ("$pendinggenN") that resolves to the same instance
+    // as a direct instantiation: e.g. "*inst" and "*placeholder-alias" are
+    // distinct pointer objects over one underlying type, and a func/struct
+    // referencing either likewise differs only by that alias.  They are the
+    // same type semantically -- unalias() collapses them and they share a
+    // single (COMDAT) type descriptor and backend name -- so treat them as
+    // equivalent in the sort rather than asserting they never coexist.  (The
+    // structural traversal below remains for genuinely-different types that
+    // merely share a backend name because they differ only by alias-ness.)
+    if (identical(t1, t2))
+      return false;
 
     switch (t1->classification())
       {
