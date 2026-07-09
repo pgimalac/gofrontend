@@ -1221,7 +1221,7 @@ func subMono(t, u int64) Duration {
 // Since returns the time elapsed since t.
 // It is shorthand for time.Now().Sub(t).
 func Since(t Time) Duration {
-	if t.wall&hasMonotonic != 0 {
+	if t.wall&hasMonotonic != 0 && !runtimeIsBubbled() {
 		// Common case optimization: if t has monotonic time, then Sub will use only it.
 		return subMono(runtimeNano()-startNano, t.ext)
 	}
@@ -1231,7 +1231,7 @@ func Since(t Time) Duration {
 // Until returns the duration until t.
 // It is shorthand for t.Sub(time.Now()).
 func Until(t Time) Duration {
-	if t.wall&hasMonotonic != 0 {
+	if t.wall&hasMonotonic != 0 && !runtimeIsBubbled() {
 		// Common case optimization: if t has monotonic time, then Sub will use only it.
 		return subMono(t.ext, runtimeNano()-startNano)
 	}
@@ -1326,6 +1326,9 @@ func runtimeNow() (sec int64, nsec int32, mono int64)
 // The implementation is provided by the runtime package
 // (see runtime.time_runtimeNano, linknamed as time.runtimeNano).
 func runtimeNano() int64
+
+//go:linkname runtimeIsBubbled
+func runtimeIsBubbled() bool
 
 // Monotonic times are reported as offsets from startNano.
 // We initialize startNano to runtimeNano() - 1 so that on systems where

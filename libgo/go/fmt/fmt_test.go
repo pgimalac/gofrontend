@@ -2004,3 +2004,10 @@ func TestAppendln(t *testing.T) {
 		t.Fatalf("Appendln allocated a new slice")
 	}
 }
+
+// noliteral prevents escape analysis from recognizing a literal value.
+//
+//go:noinline
+func noliteral[T any](t T) T {
+	return t
+}

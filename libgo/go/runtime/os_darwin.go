@@ -142,7 +142,7 @@ func osinit() {
 	// pthread_create delayed until end of goenvs so that we
 	// can look at the environment first.
 
-	ncpu = getncpu()
+	numCPUStartup = getCPUCount()
 	physPageSize = getPageSize()
 
 	osinit_hack()

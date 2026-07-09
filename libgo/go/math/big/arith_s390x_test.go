@@ -7,27 +7,14 @@
 
 package big
 
-import (
-	"testing"
-)
+import "testing"
 
-// Tests whether the non vector routines are working, even when the tests are run on a
-// vector-capable machine
+func TestAddVVNoVec(t *testing.T) {
+	setDuringTest(t, &hasVX, false)
+	TestAddVV(t)
+}
 
-func TestFunVVnovec(t *testing.T) {
-	if hasVX {
-		for _, a := range sumVV {
-			arg := a
-			testFunVV(t, "addVV_novec", addVV_novec, arg)
-
-			arg = argVV{a.z, a.y, a.x, a.c}
-			testFunVV(t, "addVV_novec symmetric", addVV_novec, arg)
-
-			arg = argVV{a.x, a.z, a.y, a.c}
-			testFunVV(t, "subVV_novec", subVV_novec, arg)
-
-			arg = argVV{a.y, a.z, a.x, a.c}
-			testFunVV(t, "subVV_novec symmetric", subVV_novec, arg)
-		}
-	}
+func TestSubVVNoVec(t *testing.T) {
+	setDuringTest(t, &hasVX, false)
+	TestSubVV(t)
 }

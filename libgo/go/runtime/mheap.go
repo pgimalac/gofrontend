@@ -12,6 +12,7 @@ import (
 	"internal/cpu"
 	"internal/goarch"
 	"internal/runtime/atomic"
+	"internal/runtime/gc"
 	"unsafe"
 )
 
@@ -113,9 +114,9 @@ type mheap struct {
 
 	// Page reclaimer state
 
-	// reclaimIndex is the page index in allArenas of next page to
+	// reclaimIndex is the page index in heapArenas of next page to
 	// reclaim. Specifically, it refers to page (i %
-	// pagesPerArena) of arena allArenas[i / pagesPerArena].
+	// pagesPerArena) of arena heapArenas[i / pagesPerArena].
 	//
 	// If this is >= 1<<63, the page reclaimer is done scanning
 	// the page marks.
@@ -170,22 +171,31 @@ type mheap struct {
 	// (the actual arenas). This is only used on 32-bit.
 	arena linearAlloc
 
-	// allArenas is the arenaIndex of every mapped arena. This can
-	// be used to iterate through the address space.
+	// heapArenas is the arenaIndex of every mapped arena mapped for the heap.
+	// This can be used to iterate through the heap address space.
 	//
 	// Access is protected by mheap_.lock. However, since this is
 	// append-only and old backing arrays are never freed, it is
 	// safe to acquire mheap_.lock, copy the slice header, and
 	// then release mheap_.lock.
-	allArenas []arenaIdx
+	heapArenas []arenaIdx
 
-	// sweepArenas is a snapshot of allArenas taken at the
+	// userArenaArenas is the arenaIndex of every mapped arena mapped for
+	// user arenas.
+	//
+	// Access is protected by mheap_.lock. However, since this is
+	// append-only and old backing arrays are never freed, it is
+	// safe to acquire mheap_.lock, copy the slice header, and
+	// then release mheap_.lock.
+	userArenaArenas []arenaIdx
+
+	// sweepArenas is a snapshot of heapArenas taken at the
 	// beginning of the sweep cycle. This can be read safely by
 	// simply blocking GC (by disabling preemption).
 	sweepArenas []arenaIdx
 
-	// markArenas is a snapshot of allArenas taken at the beginning
-	// of the mark cycle. Because allArenas is append-only, neither
+	// markArenas is a snapshot of heapArenas taken at the beginning
+	// of the mark cycle. Because heapArenas is append-only, neither
 	// this slice nor its contents will change during the mark, so
 	// it can be read safely.
 	markArenas []arenaIdx
@@ -279,7 +289,7 @@ type heapArena struct {
 	pageSpecials [pagesPerArena / 8]uint8
 
 	// checkmarks stores the debug.gccheckmark state. It is only
-	// used if debug.gccheckmark > 0.
+	// used if debug.gccheckmark > 0 or debug.checkfinalizers > 0.
 	checkmarks *checkmarksMap
 
 	// zeroedBase marks the first byte of the first page in this
@@ -397,12 +407,12 @@ type mspan struct {
 	// indicating a free object. freeindex is then adjusted so that subsequent scans begin
 	// just past the newly discovered free object.
 	//
-	// If freeindex == nelem, this span has no free objects.
+	// If freeindex == nelems, this span has no free objects.
 	//
 	// allocBits is a bitmap of objects in this span.
 	// If n >= freeindex and allocBits[n/8] & (1<<(n%8)) is 0
 	// then object n is free;
-	// otherwise, object n is allocated. Bits starting at nelem are
+	// otherwise, object n is allocated. Bits starting at nelems are
 	// undefined and should never be referenced.
 	//
 	// Object n starts at address n*elemsize + (start << pageShift).
@@ -478,7 +488,7 @@ func (s *mspan) base() uintptr {
 }
 
 func (s *mspan) layout() (size, n, total uintptr) {
-	total = s.npages << _PageShift
+	total = s.npages << gc.PageShift
 	size = s.elemsize
 	if size > 0 {
 		n = total / size
@@ -540,7 +550,7 @@ func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 type spanClass uint8
 
 const (
-	numSpanClasses = _NumSizeClasses << 1
+	numSpanClasses = gc.NumSizeClasses << 1
 	tinySpanClass  = spanClass(tinySizeClass<<1 | 1)
 )
 
@@ -706,6 +716,27 @@ func pageIndexOf(p uintptr) (arena *heapArena, pageIdx uintptr, pageMask uint8) 
 	pageIdx = ((p / pageSize) / 8) % uintptr(len(arena.pageInUse))
 	pageMask = byte(1 << ((p / pageSize) % 8))
 	return
+}
+
+// heapArenaOf returns the heap arena for p, if one exists.
+func heapArenaOf(p uintptr) *heapArena {
+	ri := arenaIndex(p)
+	if arenaL1Bits == 0 {
+		// If there's no L1, then ri.l1() can't be out of bounds but ri.l2() can.
+		if ri.l2() >= uint(len(mheap_.arenas[0])) {
+			return nil
+		}
+	} else {
+		// If there's an L1, then ri.l1() can be out of bounds but ri.l2() can't.
+		if ri.l1() >= uint(len(mheap_.arenas)) {
+			return nil
+		}
+	}
+	l2 := mheap_.arenas[ri.l1()]
+	if arenaL1Bits != 0 && l2 == nil { // Should never happen if there's no L1.
+		return nil
+	}
+	return l2[ri.l2()]
 }
 
 // Initialize the heap.
@@ -903,10 +934,9 @@ func (h *mheap) reclaimChunk(arenas []arenaIdx, pageIdx, n uintptr) uintptr {
 type spanAllocType uint8
 
 const (
-	spanAllocHeap          spanAllocType = iota // heap span
-	spanAllocStack                              // stack span
-	spanAllocPtrScalarBits                      // unrolled GC prog bitmap span
-	spanAllocWorkBuf                            // work buf span
+	spanAllocHeap    spanAllocType = iota // heap span
+	spanAllocStack                        // stack span
+	spanAllocWorkBuf                      // work buf span
 )
 
 // manual returns true if the span allocation is manually managed.
@@ -1252,9 +1282,9 @@ HaveSpan:
 			s.nelems = 1
 			s.divMul = 0
 		} else {
-			s.elemsize = uintptr(class_to_size[sizeclass])
+			s.elemsize = uintptr(gc.SizeClassToSize[sizeclass])
 			s.nelems = nbytes / s.elemsize
-			s.divMul = class_to_divmagic[sizeclass]
+			s.divMul = gc.SizeClassToDivMagic[sizeclass]
 		}
 
 		// Initialize mark and allocation structures.
@@ -1299,7 +1329,7 @@ HaveSpan:
 		// that we expect to page in.
 		inuse := gcController.mappedReady.Load()
 		// Be careful about overflow, especially with uintptrs. Even on 32-bit platforms
-		// someone can set a really big memory limit that isn't maxInt64.
+		// someone can set a really big memory limit that isn't math.MaxInt64.
 		if uint64(scav)+inuse > uint64(limit) {
 			bytesToScavenge = uintptr(uint64(scav) + inuse - uint64(limit))
 			forceScavenge = true
@@ -1376,8 +1406,6 @@ HaveSpan:
 		atomic.Xaddint64(&stats.inHeap, int64(nbytes))
 	case spanAllocStack:
 		atomic.Xaddint64(&stats.inStacks, int64(nbytes))
-	case spanAllocPtrScalarBits:
-		atomic.Xaddint64(&stats.inPtrScalarBits, int64(nbytes))
 	case spanAllocWorkBuf:
 		atomic.Xaddint64(&stats.inWorkBufs, int64(nbytes))
 	}
@@ -1454,7 +1482,7 @@ func (h *mheap) grow(npage uintptr) (uintptr, bool) {
 				// Transition this space from Reserved to Prepared and mark it
 				// as released since we'll be able to start using it after updating
 				// the page allocator and releasing the lock at any time.
-				sysMap(unsafe.Pointer(h.curArena.base), size, &gcController.heapReleased)
+				sysMap(unsafe.Pointer(h.curArena.base), size, &gcController.heapReleased, "heap")
 				// Update stats.
 				stats := memstats.heapStats.acquire()
 				atomic.Xaddint64(&stats.released, int64(size))
@@ -1485,7 +1513,7 @@ func (h *mheap) grow(npage uintptr) (uintptr, bool) {
 	// The allocation is always aligned to the heap arena
 	// size which is always > physPageSize, so its safe to
 	// just add directly to heapReleased.
-	sysMap(unsafe.Pointer(v), nBase-v, &gcController.heapReleased)
+	sysMap(unsafe.Pointer(v), nBase-v, &gcController.heapReleased, "heap")
 
 	// The memory just allocated counts as both released
 	// and idle, even though it's not yet backed by spans.
@@ -1507,14 +1535,18 @@ func (h *mheap) freeSpan(s *mspan) {
 		if msanenabled {
 			// Tell msan that this entire span is no longer in use.
 			base := unsafe.Pointer(s.base())
-			bytes := s.npages << _PageShift
+			bytes := s.npages << gc.PageShift
 			msanfree(base, bytes)
 		}
 		if asanenabled {
 			// Tell asan that this entire span is no longer in use.
 			base := unsafe.Pointer(s.base())
-			bytes := s.npages << _PageShift
+			bytes := s.npages << gc.PageShift
 			asanpoison(base, bytes)
+		}
+		if valgrindenabled {
+			base := s.base()
+			valgrindMempoolFree(unsafe.Pointer(arenaBase(arenaIndex(base))), unsafe.Pointer(base))
 		}
 		h.freeSpanLocked(s, spanAllocHeap)
 		unlock(&h.lock)
@@ -1535,6 +1567,10 @@ func (h *mheap) freeSpan(s *mspan) {
 func (h *mheap) freeManual(s *mspan, typ spanAllocType) {
 	s.needzero = 1
 	lock(&h.lock)
+	if valgrindenabled {
+		base := s.base()
+		valgrindMempoolFree(unsafe.Pointer(arenaBase(arenaIndex(base))), unsafe.Pointer(base))
+	}
 	h.freeSpanLocked(s, typ)
 	unlock(&h.lock)
 }
@@ -1576,8 +1612,6 @@ func (h *mheap) freeSpanLocked(s *mspan, typ spanAllocType) {
 		atomic.Xaddint64(&stats.inHeap, -int64(nbytes))
 	case spanAllocStack:
 		atomic.Xaddint64(&stats.inStacks, -int64(nbytes))
-	case spanAllocPtrScalarBits:
-		atomic.Xaddint64(&stats.inPtrScalarBits, -int64(nbytes))
 	case spanAllocWorkBuf:
 		atomic.Xaddint64(&stats.inWorkBufs, -int64(nbytes))
 	}
@@ -1629,6 +1663,7 @@ func (span *mspan) init(base uintptr, npages uintptr) {
 	span.list = nil
 	span.startAddr = base
 	span.npages = npages
+	span.limit = base + npages*gc.PageSize // see go.dev/issue/74288; adjusted later for heap spans
 	span.allocCount = 0
 	span.spanclass = 0
 	span.elemsize = 0
@@ -1736,6 +1771,86 @@ func (list *mSpanList) takeAll(other *mSpanList) {
 	}
 
 	other.first, other.last = nil, nil
+}
+
+// mSpanQueue is like an mSpanList but is FIFO instead of LIFO and may
+// be allocated on the stack. (mSpanList can be visible from the mspan
+// itself, so it is marked as not-in-heap).
+type mSpanQueue struct {
+	head, tail *mspan
+	n          int
+}
+
+// push adds s to the end of the queue.
+func (q *mSpanQueue) push(s *mspan) {
+	if s.next != nil {
+		throw("span already on list")
+	}
+	if q.tail == nil {
+		q.tail, q.head = s, s
+	} else {
+		q.tail.next = s
+		q.tail = s
+	}
+	q.n++
+}
+
+// pop removes a span from the head of the queue, if any.
+func (q *mSpanQueue) pop() *mspan {
+	if q.head == nil {
+		return nil
+	}
+	s := q.head
+	q.head = s.next
+	s.next = nil
+	if q.head == nil {
+		q.tail = nil
+	}
+	q.n--
+	return s
+}
+
+// takeAll removes all the spans from q2 and adds them to the end of q1, in order.
+func (q1 *mSpanQueue) takeAll(q2 *mSpanQueue) {
+	if q2.head == nil {
+		return
+	}
+	if q1.head == nil {
+		*q1 = *q2
+	} else {
+		q1.tail.next = q2.head
+		q1.tail = q2.tail
+		q1.n += q2.n
+	}
+	q2.tail = nil
+	q2.head = nil
+	q2.n = 0
+}
+
+// popN removes n spans from the head of the queue and returns them as a new queue.
+func (q *mSpanQueue) popN(n int) mSpanQueue {
+	var newQ mSpanQueue
+	if n <= 0 {
+		return newQ
+	}
+	if n >= q.n {
+		newQ = *q
+		q.tail = nil
+		q.head = nil
+		q.n = 0
+		return newQ
+	}
+	s := q.head
+	for range n - 1 {
+		s = s.next
+	}
+	q.n -= n
+	newQ.head = q.head
+	newQ.tail = s
+	newQ.n = n
+	q.head = s.next
+	s.next = nil
+	return newQ
 }
 
 const (
@@ -2184,7 +2299,7 @@ func newArenaMayUnlock() *gcBitsArena {
 	var result *gcBitsArena
 	if gcBitsArenas.free == nil {
 		unlock(&gcBitsArenas.lock)
-		result = (*gcBitsArena)(sysAlloc(gcBitsChunkBytes, &memstats.gcMiscSys))
+		result = (*gcBitsArena)(sysAlloc(gcBitsChunkBytes, &memstats.gcMiscSys, "gc bits"))
 		if result == nil {
 			throw("runtime: cannot allocate memory")
 		}

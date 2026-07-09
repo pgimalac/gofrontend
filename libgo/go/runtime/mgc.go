@@ -135,8 +135,7 @@ import (
 )
 
 const (
-	_DebugGC      = 0
-	_FinBlockSize = 4 * 1024
+	_DebugGC = 0
 
 	// concurrentSweep is a debug flag. Disabling this flag
 	// ensures all spans are swept while the world is stopped.
@@ -186,12 +185,18 @@ func gcinit() {
 	// Use the environment variable GOMEMLIMIT for the initial memoryLimit value.
 	gcController.init(readGOGC(), readGOMEMLIMIT())
 
+	// Set up the cleanup block ptr mask.
+	for i := range cleanupBlockPtrMask {
+		cleanupBlockPtrMask[i] = 0xff
+	}
+
 	work.startSema = 1
 	work.markDoneSema = 1
 	lockInit(&work.sweepWaiters.lock, lockRankSweepWaiters)
 	lockInit(&work.assistQueue.lock, lockRankAssistQueue)
 	lockInit(&work.strongFromWeak.lock, lockRankStrongFromWeakQueue)
 	lockInit(&work.wbufSpans.lock, lockRankWbufSpans)
+	lockInit(&gcCleanups.lock, lockRankCleanupQueue)
 }
 
 // gcenable is called after the bulk of the runtime initialization,
@@ -361,10 +366,10 @@ type workType struct {
 	tstart int64
 	nwait  uint32
 
-	// Number of roots of various root types. Set by gcMarkRootPrepare.
+	// Number of roots of various root types. Set by gcPrepareMarkRoots.
 	nDataRoots, nSpanRoots, nStackRoots int
 
-	// Base indexes of each root type. Set by gcMarkRootPrepare.
+	// Base indexes of each root type. Set by gcPrepareMarkRoots.
 	baseData, baseSpans, baseStacks, baseEnd uint32
 
 	// stackRoots is a snapshot of all of the Gs that existed
@@ -638,14 +643,14 @@ func gcStart(trigger gcTrigger) {
 	releasem(mp)
 	mp = nil
 
-	if gp := getg(); gp.syncGroup != nil {
+	if gp := getg(); gp.bubble != nil {
 		// Disassociate the G from its synctest bubble while allocating.
 		// This is less elegant than incrementing the group's active count,
 		// but avoids any contamination between GC and synctest.
-		sg := gp.syncGroup
-		gp.syncGroup = nil
+		bubble := gp.bubble
+		gp.bubble = nil
 		defer func() {
-			gp.syncGroup = sg
+			gp.bubble = bubble
 		}()
 	}
 
@@ -709,10 +714,10 @@ func gcStart(trigger gcTrigger) {
 	systemstack(gcResetMarkState)
 
 	work.stwprocs, work.maxprocs = gomaxprocs, gomaxprocs
-	if work.stwprocs > ncpu {
-		// This is used to compute CPU time of the STW phases,
-		// so it can't be more than ncpu, even if GOMAXPROCS is.
-		work.stwprocs = ncpu
+	if work.stwprocs > numCPUStartup {
+		// This is used to compute CPU time of the STW phases, so it
+		// can't be more than the CPU count, even if GOMAXPROCS is.
+		work.stwprocs = numCPUStartup
 	}
 	work.heap0 = gcController.heapLive.Load()
 	work.pauseNS = 0
@@ -766,7 +771,7 @@ func gcStart(trigger gcTrigger) {
 	setGCPhase(_GCmark)
 
 	gcBgMarkPrepare() // Must happen before assists are enabled.
-	gcMarkRootPrepare()
+	gcPrepareMarkRoots()
 
 	// Mark all active tinyalloc blocks. Since we're
 	// allocating from these, they need to be black like
@@ -1015,7 +1020,7 @@ func gcMarkTermination(stw worldStop) {
 	// N.B. The execution tracer is not aware of this status
 	// transition and handles it specially based on the
 	// wait reason.
-	casGToWaiting(curgp, _Grunning, waitReasonGarbageCollection)
+	casGToWaitingForSuspendG(curgp, _Grunning, waitReasonGarbageCollection)
 
 	// Run gc on the g0 stack. We do this so that the g stack
 	// we're currently running on will no longer change. Cuts
@@ -1037,17 +1042,10 @@ func gcMarkTermination(stw worldStop) {
 	systemstack(func() {
 		work.heap2 = work.bytesMarked
 		if debug.gccheckmark > 0 {
-			// Run a full non-parallel, stop-the-world
-			// mark using checkmark bits, to check that we
-			// didn't forget to mark anything during the
-			// concurrent mark process.
-			startCheckmarks()
-			gcResetMarkState()
-			gcw := &getg().m.p.ptr().gcw
-			gcDrain(gcw, 0)
-			wbBufFlush1(getg().m.p.ptr())
-			gcw.dispose()
-			endCheckmarks()
+			runCheckmark(func(_ *gcWork) { gcPrepareMarkRoots() })
+		}
+		if debug.checkfinalizers > 0 {
+			checkFinalizersAndCleanups()
 		}
 
 		// marking is complete so we can turn the write barrier off
@@ -1326,6 +1324,12 @@ type gcBgMarkWorkerNode struct {
 	// gcBgMarkWorker().
 	m muintptr
 }
+type gcBgMarkWorkerNodePadded struct {
+	gcBgMarkWorkerNode
+	pad [tagAlign - unsafe.Sizeof(gcBgMarkWorkerNode{}) - gcBgMarkWorkerNodeRedZoneSize]byte
+}
+
+const gcBgMarkWorkerNodeRedZoneSize = (16 << 2) * asanenabledBit // redZoneSize(512)
 
 func gcBgMarkWorker() {
 	setSystemGoroutine()
@@ -1336,7 +1340,7 @@ func gcBgMarkWorker() {
 	// the stack (see gopark). Prevent deadlock from recursively
 	// starting GC by disabling preemption.
 	gp.m.preemptoff = "GC worker init"
-	node := new(gcBgMarkWorkerNode)
+	node := &new(gcBgMarkWorkerNodePadded).gcBgMarkWorkerNode // TODO: technically not allowed in the heap. See comment in tagptr.go.
 	gp.m.preemptoff = ""
 
 	node.gp.set(gp)
@@ -1425,7 +1429,8 @@ func gcBgMarkWorker() {
 
 		systemstack(func() {
 			// Mark our goroutine preemptible so its stack
-			// can be scanned. This lets two mark workers
+			// can be scanned or observed by the execution
+			// tracer. This, for example, lets two mark workers
 			// scan each other (otherwise, they would
 			// deadlock). We must not modify anything on
 			// the G stack. However, stack shrinking is
@@ -1435,7 +1440,7 @@ func gcBgMarkWorker() {
 			// N.B. The execution tracer is not aware of this status
 			// transition and handles it specially based on the
 			// wait reason.
-			casGToWaiting(gp, _Grunning, waitReasonGCWorkerActive)
+			casGToWaitingForSuspendG(gp, _Grunning, waitReasonGCWorkerActive)
 			switch pp.gcMarkWorkerMode {
 			default:
 				throw("gcBgMarkWorker: unexpected gcMarkWorkerMode")
@@ -1447,9 +1452,9 @@ func gcBgMarkWorker() {
 					// everything out of the run
 					// queue so it can run
 					// somewhere else.
-					if drainQ, n := runqdrain(pp); n > 0 {
+					if drainQ := runqdrain(pp); !drainQ.empty() {
 						lock(&sched.lock)
-						globrunqputbatch(&drainQ, int32(n))
+						globrunqputbatch(&drainQ)
 						unlock(&sched.lock)
 					}
 				}
@@ -1487,7 +1492,7 @@ func gcBgMarkWorker() {
 		// We'll releasem after this point and thus this P may run
 		// something else. We must clear the worker mode to avoid
 		// attributing the mode to a different (non-worker) G in
-		// traceGoStart.
+		// tracev2.GoStart.
 		pp.gcMarkWorkerMode = gcMarkWorkerNotWorker
 
 		// If this worker reached a background mark completion
@@ -1631,7 +1636,7 @@ func gcSweep(mode gcMode) bool {
 	mheap_.sweepgen += 2
 	sweep.active.reset()
 	mheap_.pagesSwept.Store(0)
-	mheap_.sweepArenas = mheap_.allArenas
+	mheap_.sweepArenas = mheap_.heapArenas
 	mheap_.reclaimIndex.Store(0)
 	mheap_.reclaimCredit.Store(0)
 	unlock(&mheap_.lock)
@@ -1694,7 +1699,7 @@ func gcResetMarkState() {
 	// Clear page marks. This is just 1MB per 64GB of heap, so the
 	// time here is pretty trivial.
 	lock(&mheap_.lock)
-	arenas := mheap_.allArenas
+	arenas := mheap_.heapArenas
 	unlock(&mheap_.lock)
 	for _, ai := range arenas {
 		ha := mheap_.arenas[ai.l1()][ai.l2()]

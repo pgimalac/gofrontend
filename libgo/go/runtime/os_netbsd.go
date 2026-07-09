@@ -44,7 +44,7 @@ func sysctlInt(mib []uint32) (int32, bool) {
 	return out, true
 }
 
-func getncpu() int32 {
+func getCPUCount() int32 {
 	if n, ok := sysctlInt([]uint32{_CTL_HW, _HW_NCPUONLINE}); ok {
 		return int32(n)
 	}
@@ -127,7 +127,7 @@ func semawakeup(mp *m) {
 }
 
 func osinit() {
-	ncpu = getncpu()
+	numCPUStartup = getCPUCount()
 	if physPageSize == 0 {
 		physPageSize = getPageSize()
 	}

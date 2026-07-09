@@ -4,11 +4,13 @@
 
 package sys
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"internal/goarch"
+)
 
-// ArchFamily represents a family of one or more related architectures.
-// For example, ppc64 and ppc64le are both members of the PPC64 family.
-type ArchFamily byte
+// TODO: just use goarch.ArchFamilyType directly
+type ArchFamily = goarch.ArchFamilyType
 
 const (
 	NoArch ArchFamily = iota
@@ -144,7 +146,7 @@ var ArchLoong64 = &Arch{
 	RegSize:        8,
 	MinLC:          4,
 	Alignment:      8, // Unaligned accesses are not guaranteed to be fast
-	CanMergeLoads:  false,
+	CanMergeLoads:  true,
 	HasLR:          true,
 	FixedFrameSize: 8, // LR
 }
@@ -209,7 +211,7 @@ var ArchPPC64 = &Arch{
 	RegSize:       8,
 	MinLC:         4,
 	Alignment:     1,
-	CanMergeLoads: false,
+	CanMergeLoads: true,
 	HasLR:         true,
 	// PIC code on ppc64le requires 32 bytes of stack, and it's
 	// easier to just use that much stack always.

@@ -15,6 +15,8 @@ import (
 	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
+	"golang.org/x/tools/internal/analysisinternal"
+	"golang.org/x/tools/internal/typesinternal"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -55,10 +57,10 @@ var Analyzer = &analysis.Analyzer{
 	Run:      run,
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
-	if !analysisutil.Imports(pass.Pkg, "testing") {
+	if !analysisinternal.Imports(pass.Pkg, "testing") {
 		return nil, nil
 	}
 
@@ -205,7 +207,7 @@ func goAsyncCall(info *types.Info, goStmt *ast.GoStmt, toDecl func(*types.Func) 
 	call := goStmt.Call
 
 	fun := ast.Unparen(call.Fun)
-	if id := funcIdent(fun); id != nil {
+	if id := typesinternal.UsedIdent(info, fun); id != nil {
 		if lit := funcLitInScope(id); lit != nil {
 			return &asyncCall{region: lit, async: goStmt, scope: nil, fun: fun}
 		}
@@ -236,7 +238,7 @@ func tRunAsyncCall(info *types.Info, call *ast.CallExpr) *asyncCall {
 		return &asyncCall{region: lit, async: call, scope: lit, fun: fun}
 	}
 
-	if id := funcIdent(fun); id != nil {
+	if id := typesinternal.UsedIdent(info, fun); id != nil {
 		if lit := funcLitInScope(id); lit != nil { // function lit in variable?
 			return &asyncCall{region: lit, async: call, scope: lit, fun: fun}
 		}

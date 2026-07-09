@@ -24,7 +24,7 @@ func sys_umtx_wakeup(addr *uint32, val int32) int32
 //extern sysctl
 func sysctl(*uint32, uint32, *byte, *uintptr, *byte, uintptr) int32
 
-func getncpu() int32 {
+func getCPUCount() int32 {
 	mib := [2]uint32{_CTL_HW, _HW_NCPU}
 	out := uint32(0)
 	nout := uintptr(unsafe.Sizeof(out))
@@ -90,7 +90,7 @@ func futexwakeup(addr *uint32, cnt uint32) {
 }
 
 func osinit() {
-	ncpu = getncpu()
+	numCPUStartup = getCPUCount()
 	if physPageSize == 0 {
 		physPageSize = getPageSize()
 	}

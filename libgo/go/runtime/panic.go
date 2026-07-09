@@ -91,7 +91,7 @@ func panicCheck1(pc uintptr, msg string) {
 		throw(msg)
 	}
 	// TODO: is this redundant? How could we be in malloc
-	// but not in the runtime? runtime/internal/*, maybe?
+	// but not in the runtime? internal/runtime/*, maybe?
 	gp := getg()
 	if gp != nil && gp.m != nil && gp.m.mallocing != 0 {
 		throw(msg)
@@ -656,6 +656,13 @@ func preprintpanics(p *_panic) {
 		}
 	}()
 	for p != nil {
+		if p.link != nil && *efaceOf(&p.link.arg) == *efaceOf(&p.arg) {
+			// This panic contains the same value as the next one in the chain.
+			// Mark it as repanicked. We will skip printing it twice in a row.
+			p.link.repanicked = true
+			p = p.link
+			continue
+		}
 		switch v := p.arg.(type) {
 		case error:
 			p.arg = v.Error()
@@ -671,6 +678,9 @@ func preprintpanics(p *_panic) {
 func printpanics(p *_panic) {
 	if p.link != nil {
 		printpanics(p.link)
+		if p.link.repanicked {
+			return
+		}
 		if !p.link.goexit {
 			print("\t")
 		}
@@ -680,7 +690,9 @@ func printpanics(p *_panic) {
 	}
 	print("panic: ")
 	printpanicval(p.arg)
-	if p.recovered {
+	if p.repanicked {
+		print(" [recovered, repanicked]")
+	} else if p.recovered {
 		print(" [recovered]")
 	}
 	print("\n")
@@ -1145,6 +1157,11 @@ func internal_sync_fatal(s string) {
 	fatal(s)
 }
 
+//go:linkname cgroup_throw internal/runtime/cgroup.throw
+func cgroup_throw(s string) {
+	throw(s)
+}
+
 // throw triggers a fatal error that dumps a stack trace and exits.
 //
 // throw should be used for runtime-internal fatal errors where Go itself,
@@ -1209,7 +1226,10 @@ func fatalthrow(t throwType) {
 
 	startpanic_m()
 
-	if dopanic_m(gp, pc, sp) {
+	if dopanic_m(gp, pc, sp, nil) {
+		// crash uses a decent amount of nosplit stack and we're already
+		// low on stack in throw, so crash on the system stack (unlike
+		// fatalpanic).
 		crash()
 	}
 
@@ -1241,7 +1261,16 @@ func fatalpanic(msgs *_panic) {
 		printpanics(msgs)
 	}
 
-	docrash = dopanic_m(gp, pc, sp)
+	// If this panic is the result of a synctest bubble deadlock,
+	// print stacks for the goroutines in the bubble.
+	var bubble *synctestBubble
+	if msgs != nil {
+		if de, ok := msgs.arg.(synctestDeadlockError); ok {
+			bubble = de.bubble
+		}
+	}
+
+	docrash = dopanic_m(gp, pc, sp, bubble)
 
 	if docrash {
 		// By crashing outside the above systemstack call, debuggers
@@ -1322,7 +1351,8 @@ var deadlock mutex
 
 // gp is the crashing g running on this M, but may be a user G, while getg() is
 // always g0.
-func dopanic_m(gp *g, pc, sp uintptr) bool {
+// If bubble is non-nil, print the stacks for goroutines in this group as well.
+func dopanic_m(gp *g, pc, sp uintptr, bubble *synctestBubble) bool {
 	if gp.sig != 0 {
 		signame := signame(gp.sig)
 		if signame != "" {
@@ -1346,10 +1376,19 @@ func dopanic_m(gp *g, pc, sp uintptr) bool {
 			print("\nruntime stack:\n")
 			traceback(0)
 		}
-		if !didothers && all {
-			didothers = true
-			tracebackothers(gp)
+		if !didothers {
+			if all {
+				didothers = true
+				tracebackothers(gp)
+			} else if bubble != nil {
+				// This panic is caused by a synctest bubble deadlock.
+				// Print stacks for goroutines in the deadlocked bubble.
+				tracebacksomeothers(gp, func(other *g) bool {
+					return bubble == other.bubble
+				})
+			}
 		}
+
 	}
 	unlock(&paniclk)
 

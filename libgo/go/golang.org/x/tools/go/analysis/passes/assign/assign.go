@@ -18,6 +18,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/internal/analysisinternal"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -44,7 +45,7 @@ var Analyzer = &analysis.Analyzer{
 	Run:      run,
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
@@ -69,15 +70,17 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			if reflect.TypeOf(lhs) != reflect.TypeOf(rhs) {
 				continue // short-circuit the heavy-weight gofmt check
 			}
-			le := analysisutil.Format(pass.Fset, lhs)
-			re := analysisutil.Format(pass.Fset, rhs)
+			le := analysisinternal.Format(pass.Fset, lhs)
+			re := analysisinternal.Format(pass.Fset, rhs)
 			if le == re {
 				pass.Report(analysis.Diagnostic{
 					Pos: stmt.Pos(), Message: fmt.Sprintf("self-assignment of %s to %s", re, le),
-					SuggestedFixes: []analysis.SuggestedFix{
-						{Message: "Remove", TextEdits: []analysis.TextEdit{
-							{Pos: stmt.Pos(), End: stmt.End(), NewText: []byte{}},
-						}},
+					SuggestedFixes: []analysis.SuggestedFix{{
+						Message: "Remove self-assignment",
+						TextEdits: []analysis.TextEdit{{
+							Pos: stmt.Pos(),
+							End: stmt.End(),
+						}}},
 					},
 				})
 			}

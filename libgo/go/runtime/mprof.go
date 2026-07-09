@@ -323,7 +323,7 @@ func stkbucket(typ bucketType, size uintptr, skip int, stk []uintptr, alloc bool
 		// check again under the lock
 		bh = (*buckhashArray)(buckhash.Load())
 		if bh == nil {
-			bh = (*buckhashArray)(sysAlloc(unsafe.Sizeof(buckhashArray{}), &memstats.buckhash_sys))
+			bh = (*buckhashArray)(sysAlloc(unsafe.Sizeof(buckhashArray{}), &memstats.buckhash_sys, "profiler hash buckets"))
 			if bh == nil {
 				throw("runtime: cannot allocate memory")
 			}
@@ -1567,7 +1567,7 @@ func goroutineProfileWithLabelsConcurrent(p []profilerecord.StackRecord, labels 
 	// with what we'd get from isSystemGoroutine, we need special handling for
 	// goroutines that can vary between user and system to ensure that the count
 	// doesn't change during the collection. So, check the finalizer goroutine
-	// in particular.
+	// and cleanup goroutines in particular.
 	n = int(gcount())
 	// gccgo tracks the finalizer goroutine's system-ness via
 	// fing.isSystemGoroutine (toggled off while it runs a finalizer, see
@@ -1575,6 +1575,7 @@ func goroutineProfileWithLabelsConcurrent(p []profilerecord.StackRecord, labels 
 	if fing != nil && !fing.isSystemGoroutine {
 		n++
 	}
+	n += int(gcCleanups.running.Load())
 
 	if n > len(p) {
 		// There's not enough space in p to store the whole profile, so (per the
@@ -1603,15 +1604,6 @@ func goroutineProfileWithLabelsConcurrent(p []profilerecord.StackRecord, labels 
 	goroutineProfile.active = true
 	goroutineProfile.records = p
 	goroutineProfile.labels = labels
-	// The finalizer goroutine needs special handling because it can vary over
-	// time between being a user goroutine (eligible for this profile) and a
-	// system goroutine (to be excluded). Pick one before restarting the world.
-	if fing != nil {
-		fing.goroutineProfiled.Store(goroutineProfileSatisfied)
-		if readgstatus(fing) != _Gdead && !isSystemGoroutine(fing, false) {
-			doRecordGoroutineProfile(fing, pcbuf)
-		}
-	}
 	startTheWorld(stw)
 
 	// Visit each goroutine that existed as of the startTheWorld call above.
@@ -1684,11 +1676,6 @@ func tryRecordGoroutineProfile(gp1 *g, pcbuf []uintptr, yield func()) {
 		// so here we check _Gdead first.
 		return
 	}
-	if isSystemGoroutine(gp1, true) {
-		// System goroutines should not appear in the profile. (The finalizer
-		// goroutine is marked as "already profiled".)
-		return
-	}
 
 	for {
 		prev := gp1.goroutineProfiled.Load()
@@ -1726,6 +1713,17 @@ func tryRecordGoroutineProfile(gp1 *g, pcbuf []uintptr, yield func()) {
 // stack), or from the scheduler in preparation to execute gp1 (running on the
 // system stack).
 func doRecordGoroutineProfile(gp1 *g, pcbuf []uintptr) {
+	if isSystemGoroutine(gp1, false) {
+		// System goroutines should not appear in the profile.
+		// Check this here and not in tryRecordGoroutineProfile because isSystemGoroutine
+		// may change on a goroutine while it is executing, so while the scheduler might
+		// see a system goroutine, goroutineProfileWithLabelsConcurrent might not, and
+		// this inconsistency could cause invariants to be violated, such as trying to
+		// record the stack of a running goroutine below. In short, we still want system
+		// goroutines to participate in the same state machine on gp1.goroutineProfiled as
+		// everything else, we just don't record the stack in the profile.
+		return
+	}
 	if readgstatus(gp1) == _Grunning {
 		print("doRecordGoroutineProfile gp1=", gp1.goid, "\n")
 		throw("cannot read stack of running goroutine")

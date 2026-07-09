@@ -13,6 +13,7 @@ package runtime
 
 import (
 	"internal/goarch"
+	"internal/runtime/gc"
 	"unsafe"
 )
 
@@ -347,7 +348,7 @@ func dumproots() {
 
 // Bit vector of free marks.
 // Needs to be as big as the largest number of objects per span.
-var freemark [_PageSize / 8]bool
+var freemark [pageSize / 8]bool
 
 func dumpobjs() {
 	// To protect mheap_.allspans.
@@ -359,7 +360,7 @@ func dumpobjs() {
 		}
 		p := s.base()
 		size := s.elemsize
-		n := (s.npages << _PageShift) / size
+		n := (s.npages << gc.PageShift) / size
 		if n > uintptr(len(freemark)) {
 			throw("freemark array doesn't have enough entries")
 		}
@@ -411,7 +412,7 @@ func dumpparams() {
 	dumpint(uint64(arenaEnd))
 	dumpstr(goarch.GOARCH)
 	dumpstr(buildVersion)
-	dumpint(uint64(ncpu))
+	dumpint(uint64(numCPUStartup))
 }
 
 func dumpms() {
@@ -586,7 +587,7 @@ func makeheapobjbv(p uintptr, size uintptr) bitvector {
 			sysFree(unsafe.Pointer(&tmpbuf[0]), uintptr(len(tmpbuf)), &memstats.other_sys)
 		}
 		n := nptr/8 + 1
-		p := sysAlloc(n, &memstats.other_sys)
+		p := sysAlloc(n, &memstats.other_sys, "heapdump")
 		if p == nil {
 			throw("heapdump: out of memory")
 		}

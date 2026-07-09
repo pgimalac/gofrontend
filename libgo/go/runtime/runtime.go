@@ -92,6 +92,7 @@ func godebug_setNewIncNonDefault(newIncNonDefault func(string) func()) {
 	p := new(func(string) func())
 	*p = newIncNonDefault
 	godebugNewIncNonDefault.Store(p)
+	defaultGOMAXPROCSUpdateGODEBUG()
 }
 
 // A godebugInc provides access to internal/godebug's IncNonDefault function
@@ -231,8 +232,8 @@ func setCrashFD(fd uintptr) uintptr {
 }
 
 // auxv is populated on relevant platforms but defined here for all platforms
-// so x/sys/cpu can assume the getAuxv symbol exists without keeping its list
-// of auxv-using GOOS build tags in sync.
+// so x/sys/cpu and x/sys/unix can assume the getAuxv symbol exists without
+// keeping its list of auxv-using GOOS build tags in sync.
 //
 // It contains an even number of elements, (tag, value) pairs.
 var auxv []uintptr

@@ -1,3 +1,5 @@
+[short] skip 'runs test'
+
 env GO111MODULE=on
 
 # gccgo doesn't support vet on the standard library

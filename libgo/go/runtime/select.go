@@ -149,6 +149,7 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 
 	// generate permuted order
 	norder := 0
+	allSynctest := true
 	for i := range scases {
 		cas := &scases[i]
 
@@ -158,8 +159,16 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 			continue
 		}
 
+		if cas.c.bubble != nil {
+			if getg().bubble != cas.c.bubble {
+				panic(plainError("select on synctest channel from outside bubble"))
+			}
+		} else {
+			allSynctest = false
+		}
+
 		if cas.c.timer != nil {
-			cas.c.timer.maybeRunChan()
+			cas.c.timer.maybeRunChan(cas.c)
 		}
 
 		j := cheaprandn(uint32(norder + 1))
@@ -169,6 +178,13 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 	}
 	pollorder = pollorder[:norder]
 	lockorder = lockorder[:norder]
+
+	waitReason := waitReasonSelect
+	if gp.bubble != nil && allSynctest {
+		// Every channel selected on is in a synctest bubble,
+		// so this goroutine will count as idle while selecting.
+		waitReason = waitReasonSynctestSelect
+	}
 
 	// sort the cases by Hchan address to get the locking order.
 	// simple heap sort, to guarantee n log n time and constant stack footprint.
@@ -314,7 +330,7 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
 	gp.parkingOnChan.Store(true)
-	gopark(selparkcommit, nil, waitReasonSelect, traceBlockSelect, 1)
+	gopark(selparkcommit, nil, waitReason, traceBlockSelect, 1)
 	gp.activeStackChans = false
 
 	sellock(scases, lockorder)

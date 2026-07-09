@@ -358,8 +358,14 @@ func isAsyncSafePoint(gp *g, pc uintptr) (bool, uintptr) {
 		// include: various points in the scheduler ("don't
 		// preempt between here and here"), much of the defer
 		// implementation (untyped info on stack), bulk write
-		// barriers (write barrier check),
-		// reflect.{makeFuncStub,methodValueCall}.
+		// barriers (write barrier check), atomic functions in
+		// internal/runtime/atomic, reflect.{makeFuncStub,methodValueCall}.
+		//
+		// Note that this is a subset of the runtimePkgs in pkgspecial.go
+		// and these checks are theoretically redundant because the compiler
+		// marks "all points" in runtime functions as unsafe for async preemption.
+		// But for some reason, we can't eliminate these checks until https://go.dev/issue/72031
+		// is resolved.
 		//
 		// TODO(austin): We should improve this, or opt things
 		// in incrementally.

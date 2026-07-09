@@ -43,12 +43,18 @@ type PkgSpecial struct {
 }
 
 var runtimePkgs = []string{
+	// TODO(panjf2000): consider syncing the list inside the
+	// 	isAsyncSafePoint in preempt.go based on this list?
+
 	"runtime",
 
 	"internal/runtime/atomic",
+	"internal/runtime/cgroup",
 	"internal/runtime/exithook",
+	"internal/runtime/gc",
 	"internal/runtime/maps",
 	"internal/runtime/math",
+	"internal/runtime/strconv",
 	"internal/runtime/sys",
 	"internal/runtime/syscall",
 
@@ -89,7 +95,7 @@ var allowAsmABIPkgs = []string{
 	"internal/bytealg",
 	"internal/chacha8rand",
 	"internal/runtime/syscall",
-	"runtime/internal/startlinetest",
+	"internal/runtime/startlinetest",
 }
 
 // LookupPkgSpecial returns special build properties for the given package path.
