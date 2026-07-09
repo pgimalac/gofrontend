@@ -4911,7 +4911,12 @@ Parse::pending_generic_type_instantiation(const std::string& name,
   // Consume "]".
   this->advance_token();
 
-  return this->make_pending_generic_type(name, type_args, location);
+  std::map<std::string, std::string> pkg_bindings;
+  for (size_t i = 0; i < type_args.size(); ++i)
+    this->note_token_package_usage(type_args[i], &pkg_bindings);
+
+  return this->make_pending_generic_type(name, type_args, location,
+					 &pkg_bindings);
 }
 
 // Generics: create a placeholder type and record a pending instantiation
@@ -4922,7 +4927,9 @@ Parse::pending_generic_type_instantiation(const std::string& name,
 Type*
 Parse::make_pending_generic_type(const std::string& name,
 				 const std::vector<std::vector<Token> >& type_args,
-				 Location location)
+				 Location location,
+				 const std::map<std::string, std::string>*
+				   pkg_bindings)
 {
   static unsigned int count;
   char buf[64];
@@ -4958,6 +4965,8 @@ Parse::make_pending_generic_type(const std::string& name,
   p->generic_name = gname;
   p->info = NULL;
   p->type_args = type_args;
+  if (pkg_bindings != NULL)
+    p->pkg_bindings = *pkg_bindings;
   p->location = location;
   this->gogo_->add_pending_generic_type(p);
 
@@ -4998,6 +5007,14 @@ Parse::resolve_pending_generic_types()
 	  Named_type* alias = Type::make_named_type(p->placeholder, inst,
 						    p->location);
 	  alias->set_is_alias();
+	  Named_type* inst_nt = inst->named_type();
+	  if (inst_nt != NULL)
+	    {
+	      if (!inst_nt->generic_canonical_id().empty())
+		alias->set_generic_canonical_id(inst_nt->generic_canonical_id());
+	      if (!inst_nt->generic_type_args().empty())
+		alias->set_generic_type_args(inst_nt->generic_type_args());
+	    }
 	  std::string base_name = Gogo::unpack_hidden_name(p->info->name());
 	  alias->set_generic_base_name(base_name);
 	  if (!Lex::is_exported_name(base_name))
@@ -5040,6 +5057,9 @@ Parse::resolve_pending_generic_types()
       std::map<std::string, std::string> bindings;
       for (size_t k = 0; k < targs.size(); ++k)
 	this->note_token_package_usage(targs[k], &bindings);
+      for (std::map<std::string, std::string>::const_iterator b =
+	     p->pkg_bindings.begin(); b != p->pkg_bindings.end(); ++b)
+	bindings[b->first] = b->second;
       this->canonicalize_type_args(targs, bindings, p->location);
       Type* inst = this->instantiate_generic_type(info, targs,
 						  p->location, &bindings);
@@ -5047,6 +5067,14 @@ Parse::resolve_pending_generic_types()
       Named_type* alias = Type::make_named_type(p->placeholder, inst,
 						p->location);
       alias->set_is_alias();
+      Named_type* inst_nt = inst->named_type();
+      if (inst_nt != NULL)
+	{
+	  if (!inst_nt->generic_canonical_id().empty())
+	    alias->set_generic_canonical_id(inst_nt->generic_canonical_id());
+	  if (!inst_nt->generic_type_args().empty())
+	    alias->set_generic_type_args(inst_nt->generic_type_args());
+	}
       // If this instance is used as an embedded struct field before the
       // generic type is declared ("type S struct{ box[int] }" with box
       // declared later), the field name is derived from the alias by

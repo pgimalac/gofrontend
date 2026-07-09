@@ -471,7 +471,9 @@ class Parse
   Type* pending_generic_type_instantiation(const std::string& name, Location);
   Type* make_pending_generic_type(const std::string& name,
 				   const std::vector<std::vector<Token> >& type_args,
-				   Location);
+				   Location,
+				   const std::map<std::string, std::string>*
+				     pkg_bindings = NULL);
   std::string package_alias_for_local_type(Type* lt, Location);
   void localize_local_type_args(std::vector<std::vector<Token> >& type_args);
   Typed_identifier* receiver();
