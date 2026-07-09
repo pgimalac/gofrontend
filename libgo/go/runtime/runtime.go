@@ -159,6 +159,17 @@ func syscall_runtimeUnsetenv(key string) {
 	}
 }
 
+// syscall_runtimeClearenv is called by syscall.Clearenv (new in Go 1.26) so
+// the runtime's C environment stays in sync.  gccgo does not use clearenv(3);
+// emulate it by unsetting every known variable (matching gc's noclearenv path).
+//
+//go:linkname syscall_runtimeClearenv syscall.runtimeClearenv
+func syscall_runtimeClearenv(env map[string]int) {
+	for k := range env {
+		syscall_runtimeUnsetenv(k)
+	}
+}
+
 // writeErrStr writes a string to descriptor 2.
 // If SetCrashOutput(f) was called, it also writes to f.
 //
