@@ -1302,8 +1302,16 @@ func TypeOf(i any) Type {
 }
 
 // TypeFor returns the [Type] that represents the type argument T.
+//
+// gccgo: gccgo's reflect uses its own *rtype descriptor rather than
+// *abi.Type, so the gc implementation toType(abi.TypeFor[T]()) does not
+// apply. Obtain the type via a value of T (and via *T for interface kinds).
 func TypeFor[T any]() Type {
-	return toType(abi.TypeFor[T]())
+	var v T
+	if t := TypeOf(v); t != nil {
+		return t // optimize for T being a non-interface kind
+	}
+	return TypeOf((*T)(nil)).Elem() // only for an interface kind
 }
 
 // rtypeOf directly extracts the *rtype of the provided value.
