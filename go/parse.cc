@@ -1318,6 +1318,17 @@ Parse::type_name(bool issue_error)
 	  if (ip != NULL && ip->pkgpath() != this->gogo_->pkgpath())
 	    {
 	      Named_object* ino = ip->bindings()->lookup(name);
+	      if (ino == NULL)
+		{
+		  std::string bare = Gogo::unpack_hidden_name(name);
+		  if (!bare.empty())
+		    {
+		      ino = ip->bindings()->lookup(bare);
+		      if (ino == NULL)
+			ino = ip->bindings()->lookup('.' + ip->pkgpath()
+						     + '.' + bare);
+		    }
+		}
 	      if (ino != NULL
 		  && (ino->is_type() || ino->is_type_declaration()))
 		named_object = ino;
@@ -7034,7 +7045,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		for (size_t s = 0; s < nparams; ++s)
 		  if (solved[s] != NULL)
 		    ++before;
-		unify_marker(this->gogo_, core, solved[i], solved, 0);
+		// A constraint-derived solution from an already-solved typed
+		// parameter should override an earlier tentative solution that
+		// came only from an untyped constant argument.
+		unify_marker(this->gogo_, core, solved[i], solved, 0,
+			     /*from_untyped=*/false, &solved_untyped);
 		size_t after = 0;
 		for (size_t s = 0; s < nparams; ++s)
 		  if (solved[s] != NULL)
