@@ -1319,31 +1319,7 @@ Parse::type_name(bool issue_error)
 	  // resolver.Address as an argument to iter.Seq2 inside a method of
 	  // resolver.AddressMapV2[T]) must resolve against that outer package
 	  // even though a nested generic (iter) is currently on top of stack.
-	  const std::vector<Package*>& ips =
-	    this->gogo_->instantiation_packages();
-	  for (std::vector<Package*>::const_reverse_iterator pi = ips.rbegin();
-	       pi != ips.rend() && named_object == NULL;
-	       ++pi)
-	    {
-	      Package* ip = *pi;
-	      if (ip == NULL || ip->pkgpath() == this->gogo_->pkgpath())
-		continue;
-	      Named_object* ino = ip->bindings()->lookup(name);
-	      if (ino == NULL)
-		{
-		  std::string bare = Gogo::unpack_hidden_name(name);
-		  if (!bare.empty())
-		    {
-		      ino = ip->bindings()->lookup(bare);
-		      if (ino == NULL)
-			ino = ip->bindings()->lookup('.' + ip->pkgpath()
-						     + '.' + bare);
-		    }
-		}
-	      if (ino != NULL
-		  && (ino->is_type() || ino->is_type_declaration()))
-		named_object = ino;
-	    }
+	  named_object = this->lookup_type_in_instantiation_packages(name);
 	}
       if (named_object == NULL)
 	named_object = this->gogo_->lookup(name, NULL);
@@ -2124,6 +2100,13 @@ Parse::parameter_list(bool* is_varargs)
 			  && (g->is_type() || g->is_type_declaration()))
 			no = g;
 		    }
+		  // Generics: the bare type name may belong to a template whose
+		  // instantiation is in progress (e.g. an unnamed parameter type
+		  // "Address" in "func(Address, T) bool" while instantiating
+		  // iter.Seq2[resolver.Address, T]); resolve it against the
+		  // instantiation-package stack, as type_name does.
+		  if (no == NULL && this->replay_tokens_ != NULL)
+		    no = this->lookup_type_in_instantiation_packages(p->name());
 		  Type* type;
 		  if (no == NULL)
 		    no = this->gogo_->add_unknown_name(p->name(),
@@ -7493,6 +7476,46 @@ Parse::register_local_type_aliases(Type* t, Location loc, int depth)
 	  this->register_local_type_aliases(pr->type(), loc, depth + 1);
       return;
     }
+}
+
+// Generics: while re-parsing an instantiated template (replay), a bare type
+// name may belong to one of the templates whose instantiation is currently in
+// progress rather than to the package being compiled.  Walk the whole
+// instantiation-package stack (innermost first, skipping the current package)
+// and resolve the name against each such package's bindings.  Returns the
+// resolved type Named_object, or NULL if not found in any of them.  Used both
+// for a bare type-argument name in type_name and for a bare unnamed-parameter
+// type in parameter_list (e.g. resolver.Address as an argument to iter.Seq2
+// inside a method of resolver.AddressMapV2[T], where the nested iter template
+// is on top of the stack but Address belongs to the outer resolver package).
+
+Named_object*
+Parse::lookup_type_in_instantiation_packages(const std::string& name)
+{
+  Named_object* result = NULL;
+  const std::vector<Package*>& ips = this->gogo_->instantiation_packages();
+  for (std::vector<Package*>::const_reverse_iterator pi = ips.rbegin();
+       pi != ips.rend() && result == NULL;
+       ++pi)
+    {
+      Package* ip = *pi;
+      if (ip == NULL || ip->pkgpath() == this->gogo_->pkgpath())
+	continue;
+      Named_object* ino = ip->bindings()->lookup(name);
+      if (ino == NULL)
+	{
+	  std::string bare = Gogo::unpack_hidden_name(name);
+	  if (!bare.empty())
+	    {
+	      ino = ip->bindings()->lookup(bare);
+	      if (ino == NULL)
+		ino = ip->bindings()->lookup('.' + ip->pkgpath() + '.' + bare);
+	    }
+	}
+      if (ino != NULL && (ino->is_type() || ino->is_type_declaration()))
+	result = ino;
+    }
+  return result;
 }
 
 // Generics: a generic instance is re-parsed at package scope, so a type
