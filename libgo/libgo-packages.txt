@@ -223,7 +223,6 @@ internal/runtime/cgroup
 internal/runtime/exithook
 internal/runtime/gc
 internal/runtime/math
-internal/runtime/startlinetest
 internal/runtime/strconv
 internal/runtime/sys
 internal/runtime/syscall

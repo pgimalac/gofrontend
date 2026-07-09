@@ -106,7 +106,10 @@ func traceTimeNow(freq frequency) eventTime {
 	return freq.mul(timestamp(runtime_traceClockNow()))
 }
 
-//go:linkname runtime_traceClockNow runtime.traceClockNow
+// gccgo: runtime.traceClockNow is a small //go:nosplit function that gccgo
+// inlines and does not emit as a standalone symbol, so it cannot be pulled
+// directly. The runtime pushes it (as runtime_1trace.runtime__traceClockNow)
+// via a wrapper in runtime/trace.go, matching the other runtime/trace shims.
 func runtime_traceClockNow() uint64
 
 // frequency is nanoseconds per timestamp unit.

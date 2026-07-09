@@ -625,6 +625,11 @@ func trace_runtimeTraceAdvance(stopTrace bool) {
 	_ = stopTrace
 }
 
+//go:linkname trace_runtimeTraceClockNow runtime_1trace.runtime__traceClockNow
+func trace_runtimeTraceClockNow() uint64 {
+	return uint64(traceClockNow())
+}
+
 //go:linkname trace_runtimeTraceClockUnitsPerSecond runtime_1trace.runtime__traceClockUnitsPerSecond
 func trace_runtimeTraceClockUnitsPerSecond() uint64 {
 	startTicks := cputicks()
