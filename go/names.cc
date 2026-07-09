@@ -634,6 +634,21 @@ Type::backend_name(Gogo* gogo, Backend_name* bname) const
   const Named_type* nt = this->unalias()->named_type();
   if (nt != NULL && !nt->is_builtin())
     {
+      // A generics inference marker ("$infermarkerN") is a synthetic type used
+      // only to shape a template signature for type-argument unification.  A
+      // transient generic instance built with a marker argument (e.g.
+      // "Curve[$infermarker0]") can still reach the backend, and the marker is
+      // resolved through distinct Named_type objects in different contexts --
+      // one carrying a package (giving a package-qualified descriptor name) and
+      // one not (giving a bare name) -- so the two spellings fail to link.
+      // Emit every marker under one fixed, package-independent non-identifier
+      // name so all references and the (common) definition coincide.
+      if (Gogo::is_infer_marker_name(nt->named_object()->name()))
+	{
+	  bname->add(nt->named_object()->name());
+	  bname->set_is_non_identifier();
+	  return;
+	}
       unsigned int index;
       if (nt->in_function(&index) == NULL)
 	{

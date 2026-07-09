@@ -2657,6 +2657,24 @@ Gogo::infer_marker_type(size_t i)
   return this->infer_markers_[i];
 }
 
+// Whether NAME is the reserved spelling of a generics inference marker
+// ("$infermarkerN", N a decimal index).  Markers are synthetic types used
+// only to shape a template signature for type-argument unification; their
+// name is chosen to be collision-free with source identifiers.
+
+bool
+Gogo::is_infer_marker_name(const std::string& name)
+{
+  static const char prefix[] = "$infermarker";
+  const size_t plen = sizeof(prefix) - 1;
+  if (name.compare(0, plen, prefix) != 0 || name.size() <= plen)
+    return false;
+  for (size_t k = plen; k < name.size(); ++k)
+    if (name[k] < '0' || name[k] > '9')
+      return false;
+  return true;
+}
+
 // If TYPE is one of the inference markers, return its index, else -1.
 
 int

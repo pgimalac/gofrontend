@@ -1425,8 +1425,12 @@ Type::make_type_descriptor_var(Gogo* gogo)
       // We create the descriptor for a builtin type whenever we need
       // it.  A generic instance is likewise emitted in every package that
       // uses it, under a package-independent canonical name, so it must be
-      // common for the linker to keep a single copy.
-      is_common = nt->is_builtin() || !nt->generic_canonical_id().empty();
+      // common for the linker to keep a single copy.  A generics inference
+      // marker leaks into transient marker-argument instances under one fixed
+      // name across packages and objects, so it too must be common.
+      is_common = (nt->is_builtin()
+		   || !nt->generic_canonical_id().empty()
+		   || Gogo::is_infer_marker_name(nt->named_object()->name()));
     }
   else
     {

@@ -752,6 +752,11 @@ class Gogo
   int
   infer_marker_index(const Type*) const;
 
+  // Whether NAME is the reserved spelling of a generics inference marker
+  // ("$infermarkerN").
+  static bool
+  is_infer_marker_name(const std::string& name);
+
   // While instantiating a generic function we must build the new
   // function at the top level, not nested inside whatever function is
   // currently being parsed.  These save and restore the stack of
