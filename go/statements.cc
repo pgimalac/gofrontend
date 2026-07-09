@@ -7696,9 +7696,13 @@ int
 Rangefunc_body_rewrite::expression(Expression** pexpr)
 {
   Expression* e = *pexpr;
-  Var_expression* ve = e->var_expression();
-  if (ve != NULL)
-    this->maybe_capture(ve->named_object());
+  Named_object* no = NULL;
+  if (e->var_expression() != NULL)
+    no = e->var_expression()->named_object();
+  else if (e->enclosed_var_expression() != NULL)
+    no = e->enclosed_var_expression()->variable();
+  if (no != NULL)
+    this->maybe_capture(no);
   return TRAVERSE_CONTINUE;
 }
 
@@ -7768,10 +7772,13 @@ class Rangefunc_expr_rewrite : public Traverse
   expression(Expression** pexpr)
   {
     Expression* e = *pexpr;
-    Var_expression* ve = e->var_expression();
-    if (ve != NULL)
+    Named_object* no = NULL;
+    if (e->var_expression() != NULL)
+      no = e->var_expression()->named_object();
+    else if (e->enclosed_var_expression() != NULL)
+      no = e->enclosed_var_expression()->variable();
+    if (no != NULL)
       {
-	Named_object* no = ve->named_object();
 	Unordered_map(Named_object*, unsigned int)::const_iterator p =
 	  this->field_index_->find(no);
 	if (p != this->field_index_->end())
@@ -7791,9 +7798,10 @@ Rangefunc_capture_rewrite::expression(Expression** pexpr)
 {
   Expression* e = *pexpr;
   Named_object* no = NULL;
-  Var_expression* ve = e->var_expression();
-  if (ve != NULL)
-    no = ve->named_object();
+  if (e->var_expression() != NULL)
+    no = e->var_expression()->named_object();
+  else if (e->enclosed_var_expression() != NULL)
+    no = e->enclosed_var_expression()->variable();
   if (no != NULL)
     {
       Unordered_map(Named_object*, unsigned int)::const_iterator p =
