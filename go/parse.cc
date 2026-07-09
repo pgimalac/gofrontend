@@ -7057,9 +7057,13 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	      {
 		// Use this solved parameter's constraint core type to solve
 		// the other parameters appearing in it.
+		std::vector<Type*> core_solved(solved);
+		for (size_t s = 0; s < core_solved.size(); ++s)
+		  if (s != i && solved_untyped[s])
+		    core_solved[s] = NULL;
 		Type* core =
 		  this->constraint_core_type_with_markers(
-		    cons[i], info->type_param_names(), &solved,
+		    cons[i], info->type_param_names(), &core_solved,
 		    &info->package_aliases());
 		if (core == NULL || core->is_error_type())
 		  continue;
