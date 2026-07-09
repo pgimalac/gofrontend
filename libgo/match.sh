@@ -109,6 +109,13 @@ esac
 gobuild() {
     line=$(echo "$1" | sed -e 's|//go:build ||')
     line=$(echo "$line" | sed -e 's/go1\.[0-9][0-9]*/1/g' -e 's/goexperiment\./goexperiment/')
+    # GOFIPS140 version build tags (fips140v1.0, fips140v1.26, ...) contain a
+    # dot, which is invalid in the $(( )) arithmetic below and would abort the
+    # evaluation.  gccgo does not select a FIPS-140 module version (GOFIPS140 is
+    # unset), so no fips140vX.Y tag is set: map them all to 0 (false).  This
+    # makes "//go:build fips140v1.0" files excluded and "!fips140v1.0" files
+    # (the current/latest variant, e.g. crypto/internal/rand) included.
+    line=$(echo "$line" | sed -e 's/fips140v[0-9][0-9.]*/0/g')
     line=" $line "
     wrap='[ ()!&|]'
     for ones in $goarch $goos $cgotag $cmdlinetag $unixtag gccgo goexperimentfieldtrack; do

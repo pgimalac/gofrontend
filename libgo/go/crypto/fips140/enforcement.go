@@ -6,7 +6,6 @@ package fips140
 
 import (
 	"internal/godebug"
-	_ "unsafe" // for linkname
 )
 
 // WithoutEnforcement disables strict FIPS 140-3 enforcement while executing f.
@@ -37,11 +36,10 @@ func Enforced() bool {
 	return enabled && !isBypassed()
 }
 
-//go:linkname setBypass
-func setBypass()
-
-//go:linkname isBypassed
-func isBypassed() bool
-
-//go:linkname unsetBypass
-func unsetBypass()
+// gccgo has no runtime FIPS-140 bypass machinery (the gc runtime tracks a
+// per-goroutine bypass flag via these linknamed functions).  gccgo does not
+// support strict FIPS-140-only enforcement, so these are no-ops and the bypass
+// is never active.
+func setBypass()       {}
+func isBypassed() bool { return false }
+func unsetBypass()     {}
