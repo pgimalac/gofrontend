@@ -7469,7 +7469,7 @@ class Rangefunc_body_rewrite : public Traverse
  public:
   Rangefunc_body_rewrite(const Unordered_set(Named_object*)& locals)
     : Traverse(traverse_expressions),
-      locals_(locals), captured_(), captured_set_()
+      locals_(locals), captured_(), captured_set_(), capture_refs_()
   { }
 
   // The ordered list of captured variables.
@@ -7477,10 +7477,23 @@ class Rangefunc_body_rewrite : public Traverse
   captured() const
   { return this->captured_; }
 
+  // If NO is already captured by the enclosing function, return an lvalue
+  // expression that reaches it through the enclosing closure so a nested
+  // rangefunc yield closure can re-capture the same storage.
+  Expression*
+  capture_reference(Named_object* no) const
+  {
+    Unordered_map(Named_object*, Expression*)::const_iterator p =
+      this->capture_refs_.find(no);
+    if (p == this->capture_refs_.end())
+      return NULL;
+    return p->second;
+  }
+
   // Record a variable as captured, if it belongs to an enclosing
   // function and has not already been recorded.
   void
-  maybe_capture(Named_object* no);
+  maybe_capture(Named_object* no, Expression* ref = NULL);
 
   int
   expression(Expression**);
@@ -7492,10 +7505,13 @@ class Rangefunc_body_rewrite : public Traverse
   std::vector<Named_object*> captured_;
   // The set of captured variables, for deduplication.
   Unordered_set(Named_object*) captured_set_;
+  // For a variable already captured by the enclosing function, an lvalue
+  // expression that refers to the existing closure slot.
+  Unordered_map(Named_object*, Expression*) capture_refs_;
 };
 
 void
-Rangefunc_body_rewrite::maybe_capture(Named_object* no)
+Rangefunc_body_rewrite::maybe_capture(Named_object* no, Expression* ref)
 {
   if (no == NULL)
     return;
@@ -7509,6 +7525,8 @@ Rangefunc_body_rewrite::maybe_capture(Named_object* no)
     return;
   this->captured_set_.insert(no);
   this->captured_.push_back(no);
+  if (ref != NULL)
+    this->capture_refs_[no] = ref;
 }
 
 // Detect control-flow transfers in a range-over-func body that would
@@ -7696,13 +7714,17 @@ int
 Rangefunc_body_rewrite::expression(Expression** pexpr)
 {
   Expression* e = *pexpr;
-  Named_object* no = NULL;
+  Enclosed_var_expression* eve = e->enclosed_var_expression();
   if (e->var_expression() != NULL)
-    no = e->var_expression()->named_object();
-  else if (e->enclosed_var_expression() != NULL)
-    no = e->enclosed_var_expression()->variable();
-  if (no != NULL)
-    this->maybe_capture(no);
+    this->maybe_capture(e->var_expression()->named_object());
+  else if (eve != NULL)
+    {
+      Expression* ref =
+	Expression::make_enclosing_var_reference(eve->reference()->copy(),
+						 eve->variable(),
+						 e->location());
+      this->maybe_capture(eve->variable(), ref);
+    }
   return TRAVERSE_CONTINUE;
 }
 
@@ -8301,7 +8323,9 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
   for (size_t i = 0; i < all_captured.size(); ++i)
     {
       Named_object* cv = all_captured[i];
-      Expression* ref = Expression::make_var_reference(cv, loc);
+      Expression* ref = rewrite.capture_reference(cv);
+      if (ref == NULL)
+	ref = Expression::make_var_reference(cv, loc);
       ref = Expression::make_unary(OPERATOR_AND, ref, loc);
       cvals->push_back(ref);
     }
