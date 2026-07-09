@@ -4739,15 +4739,8 @@ Parse::instantiate_instance_methods(Generic_function_info* info,
       std::vector<Token> msubst;
       substitute_type_params(mt.tokens, mt.recv_type_param_names, type_args,
 			     msubst);
-      Named_object* mno = this->instantiate_generic_method(msubst, location,
-							   &info->package_aliases());
-      // If this instantiation happens after the early passes (during
-      // inference), the new method needs the per-instance fixups.
-      if (mno != NULL && this->gogo_->parsing_complete())
-	{
-	  this->gogo_->resolve_global_names();
-	  this->gogo_->lower_builtin_calls_for(mno);
-	}
+      this->instantiate_generic_method(msubst, location,
+				       &info->package_aliases());
     }
 
   // When the type is instantiated during a late pass (e.g. type-argument
@@ -6113,17 +6106,11 @@ Parse::generic_method_decl(const std::vector<Token>& recv, Location location,
 	  bool imported = info->defining_package() != NULL;
 	  if (imported)
 	    this->gogo_->push_instantiation_package(info->defining_package());
-	  Named_object* mno =
-	    this->instantiate_generic_method(msubst, location,
-					     &info->package_aliases());
+	  this->instantiate_generic_method(msubst, location,
+					   &info->package_aliases());
 	  if (imported)
 	    this->gogo_->pop_instantiation_package();
 	  this->gogo_->pop_instantiation_context();
-	  if (mno != NULL && this->gogo_->parsing_complete())
-	    {
-	      this->gogo_->resolve_global_names();
-	      this->gogo_->lower_builtin_calls_for(mno);
-	    }
 	  Named_type* nt = (insts[i].first->is_type()
 			    ? insts[i].first->type_value()->named_type()
 			    : NULL);
@@ -6148,6 +6135,8 @@ Named_object*
 Parse::instantiate_generic_method(std::vector<Token>& toks, Location location,
 				  const std::map<std::string, std::string>* aliases)
 {
+  size_t defs_mark = this->gogo_->package_definitions_mark();
+
   Parse mp(this->lex_, this->gogo_);
   mp.set_replay_tokens(&toks);
   mp.set_replay_pkg_aliases(aliases);
@@ -6171,6 +6160,13 @@ Parse::instantiate_generic_method(std::vector<Token>& toks, Location location,
 						  location);
   mp.block();
   this->gogo_->finish_function(location);
+
+  if (this->gogo_->parsing_complete())
+    {
+      this->gogo_->resolve_global_names();
+      this->gogo_->lower_builtin_calls_since(defs_mark);
+    }
+
   return mno;
 }
 
@@ -6497,6 +6493,8 @@ unify_marker(Gogo* gogo, Type* pt, Type* at, std::vector<Type*>& solved,
   Interface_type* ait = at->interface_type();
   if (pit != NULL && ait != NULL)
     {
+      pit->finalize_methods();
+      ait->finalize_methods();
       const Typed_identifier_list* pm = pit->methods();
       const Typed_identifier_list* am = ait->methods();
       if (pm != NULL && am != NULL)
@@ -6728,6 +6726,7 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc,
   Interface_type* it = t->interface_type();
   if (it != NULL)
     {
+      it->finalize_methods();
       if (it->methods() != NULL && !it->methods()->empty())
 	return false;
       out.push_back(Token::make_keyword_token(KEYWORD_INTERFACE, loc));

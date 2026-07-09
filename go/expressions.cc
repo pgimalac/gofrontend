@@ -9141,7 +9141,10 @@ Selector_expression::lower_method_expression(Gogo* gogo)
     {
       Interface_type* it = type->interface_type();
       if (it != NULL)
-	imethod = it->find_method(name);
+	{
+	  it->finalize_methods();
+	  imethod = it->find_method(name);
+	}
     }
 
   if ((method == NULL && imethod == NULL)
@@ -16587,6 +16590,7 @@ Interface_field_reference_expression::do_type()
   if (interface_type == NULL)
     return Type::make_error_type();
 
+  interface_type->finalize_methods();
   const Typed_identifier* method = interface_type->find_method(this->name_);
   if (method == NULL)
     return Type::make_error_type();
@@ -16622,6 +16626,7 @@ Interface_field_reference_expression::do_check_types(Gogo*)
     }
   else
     {
+      interface_type->finalize_methods();
       const Typed_identifier* method =
 	interface_type->find_method(this->name_);
       if (method == NULL)
@@ -16671,6 +16676,7 @@ Interface_field_reference_expression::create_thunk(Gogo* gogo,
 
   Location loc = type->location();
 
+  type->finalize_methods();
   const Typed_identifier* method_id = type->find_method(name);
   if (method_id == NULL)
     return Named_object::make_erroneous_name(gogo->thunk_name());

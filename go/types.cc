@@ -703,6 +703,13 @@ Type::are_assignable(const Type* lhs, const Type* rhs, std::string* reason)
   lhs = lhs->unalias();
   rhs = rhs->unalias();
 
+  // A generic instantiation may reconstruct an alias-bearing type through a
+  // different spelling (for example, one path reaches a predeclared alias
+  // name while another reaches the underlying predeclared type).  After
+  // stripping aliases, identical types are assignable.
+  if (Type::are_identical(lhs, rhs, Type::COMPARE_TAGS, NULL))
+    return true;
+
   // The types are assignable if they have identical underlying types
   // and either LHS or RHS is not a named type.
   if (((lhs->named_type() != NULL && rhs->named_type() == NULL)
@@ -9394,7 +9401,8 @@ Type::make_channel_type(bool send, bool receive, Type* element_type)
 const Typed_identifier_list*
 Interface_type::methods() const
 {
-  go_assert(this->methods_are_finalized_ || saw_errors());
+  if (!this->methods_are_finalized_)
+    const_cast<Interface_type*>(this)->finalize_methods();
   return this->all_methods_;
 }
 
@@ -9403,7 +9411,8 @@ Interface_type::methods() const
 size_t
 Interface_type::method_count() const
 {
-  go_assert(this->methods_are_finalized_ || saw_errors());
+  if (!this->methods_are_finalized_)
+    const_cast<Interface_type*>(this)->finalize_methods();
   return this->all_methods_ == NULL ? 0 : this->all_methods_->size();
 }
 
@@ -9586,7 +9595,8 @@ Interface_type::finalize_methods()
 const Typed_identifier*
 Interface_type::find_method(const std::string& name) const
 {
-  go_assert(this->methods_are_finalized_);
+  if (!this->methods_are_finalized_)
+    const_cast<Interface_type*>(this)->finalize_methods();
   if (this->all_methods_ == NULL)
     return NULL;
   for (Typed_identifier_list::const_iterator p = this->all_methods_->begin();
@@ -9602,7 +9612,9 @@ Interface_type::find_method(const std::string& name) const
 size_t
 Interface_type::method_index(const std::string& name) const
 {
-  go_assert(this->methods_are_finalized_ && this->all_methods_ != NULL);
+  if (!this->methods_are_finalized_)
+    const_cast<Interface_type*>(this)->finalize_methods();
+  go_assert(this->all_methods_ != NULL);
   size_t ret = 0;
   for (Typed_identifier_list::const_iterator p = this->all_methods_->begin();
        p != this->all_methods_->end();
@@ -12772,12 +12784,20 @@ Type::bind_field_or_method(Gogo* gogo, const Type* type, Expression* expr,
               return Expression::make_error(location);
             }
 	}
-      else if (it != NULL && it->find_method(name) != NULL)
-	ret = Expression::make_interface_field_reference(expr, name,
-							 location);
       else
 	{
 	  Method* m;
+	  if (it != NULL)
+	    {
+	      const_cast<Interface_type*>(it)->finalize_methods();
+	      if (it->find_method(name) != NULL)
+		{
+		  ret = Expression::make_interface_field_reference(expr, name,
+								   location);
+		  go_assert(ret != NULL);
+		  return ret;
+		}
+	    }
 	  if (nt != NULL)
 	    m = nt->method_function(name, NULL);
 	  else if (st != NULL)
@@ -12811,10 +12831,41 @@ Type::bind_field_or_method(Gogo* gogo, const Type* type, Expression* expr,
 		    ambig2.c_str());
       else if (found_pointer_method)
 	go_error_at(location, "method requires a pointer receiver");
-      else if (it != NULL && it->is_empty())
-	go_error_at(location,
-		    "reference to method %qs in interface with no methods",
-		    Gogo::message_name(name).c_str());
+      else if (it != NULL)
+	{
+	  const_cast<Interface_type*>(it)->finalize_methods();
+	  if (it->is_empty())
+	    go_error_at(location,
+			"reference to method %qs in interface with no methods",
+			Gogo::message_name(name).c_str());
+	  else
+	    {
+	      bool is_unexported;
+	      // The test for 'a' and 'z' is to handle builtin names,
+	      // which are not hidden.
+	      if (!Gogo::is_hidden_name(name)
+		  && (name[0] < 'a' || name[0] > 'z'))
+		is_unexported = false;
+	      else
+		{
+		  std::string unpacked = Gogo::unpack_hidden_name(name);
+		  seen.clear();
+		  is_unexported = Type::is_unexported_field_or_method(gogo,
+								      type,
+								      unpacked,
+								      &seen);
+		}
+	      if (is_unexported)
+		go_error_at(location,
+			    "reference to unexported field or method %qs",
+			    Gogo::message_name(name).c_str());
+	      else
+		go_error_at(location,
+			    "reference to undefined field or method %qs",
+			    Gogo::message_name(name).c_str());
+	      return Expression::make_error(location);
+	    }
+	}
       else if (it == NULL && type->deref()->interface_type() != NULL)
 	go_error_at(location,
 		    ("reference to method %qs in type that is "
@@ -12920,10 +12971,14 @@ Type::find_field_or_method(const Type* type,
 
   // Interface types can have methods.
   const Interface_type* it = type->interface_type();
-  if (it != NULL && it->find_method(name) != NULL)
+  if (it != NULL)
     {
-      *is_method = true;
-      return true;
+      const_cast<Interface_type*>(it)->finalize_methods();
+      if (it->find_method(name) != NULL)
+	{
+	  *is_method = true;
+	  return true;
+	}
     }
 
   // Struct types can have fields.  They can also inherit fields and
