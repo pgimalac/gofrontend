@@ -4,6 +4,8 @@
 
 package constanttime
 
+import "unsafe"
+
 // The functions in this package are compiler intrinsics for constant-time
 // operations. They are exposed by crypto/subtle and used directly by the
 // FIPS 140-3 module.
@@ -35,8 +37,11 @@ func LessOrEq(x, y int) int {
 	return int(boolToUint8(x <= y))
 }
 
-// boolToUint8 is a compiler intrinsic.
+// boolToUint8 is a compiler intrinsic on gc.  gccgo does not intrinsify it, so
+// provide a branchless (constant-time) implementation: a Go bool occupies one
+// byte holding 0 or 1, so reading that byte yields the desired 0/1 without a
+// conditional branch.
 // It returns 1 for true and 0 for false.
 func boolToUint8(b bool) uint8 {
-	panic("unreachable; must be intrinsicified")
+	return *(*uint8)(unsafe.Pointer(&b))
 }
