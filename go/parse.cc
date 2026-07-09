@@ -7021,6 +7021,16 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	    solved[i] = pt;
 	}
 
+  // Alias any function-local types appearing in the already-solved arguments
+  // before constraint type inference derives constraint cores from them:
+  // deriving a core spells its solved parameters via type_to_tokens, and a
+  // bare function-local name emitted there would create an orphan package-
+  // scope forward declaration that later warns "use of undefined type".
+  // Registering the aliases first makes the core spell the alias instead.
+  for (size_t i = 0; i < nparams; ++i)
+    if (solved[i] != NULL)
+      this->register_local_type_aliases(solved[i], location, 0);
+
   // Constraint type inference: a type parameter may appear only in the
   // constraint of another parameter (e.g. K and V in
   // "[M ~map[K]V, K comparable, V any]"), or a parameter may be determined
@@ -7154,6 +7164,11 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 	      continue;
 	    }
 	}
+      // The solved type may instead be a composite (e.g. "[]le") nesting a
+      // function-local named type; alias each embedded local type so
+      // type_to_tokens emits the alias where the local type appears.
+      if (solved[i] != NULL)
+	this->register_local_type_aliases(solved[i], location, 0);
       // If the solved type still contains an inference marker, the argument
       // it came from was itself a not-yet-resolved instance (e.g. an outer
       // template's parameter standing in as "$infermarkerK" while building a
@@ -7392,6 +7407,92 @@ Parse::package_alias_for_local_type(Type* lt, Location location)
     this->gogo_->pop_instantiation_context();
 
   return syn;
+}
+
+// Generics: a solved type argument may be a composite (e.g. "[]le" or
+// "map[k]le") that nests a function-local named type.  Such an embedded
+// local type is invisible at the package scope where the instance is
+// re-parsed, so walk the type and, for every function-local named type
+// found, create a package-scope alias and record it in the instance-spelling
+// map keyed by the local type's Named_object.  type_to_tokens consults that
+// map and emits the alias wherever the local type appears (bare or nested).
+// The walk descends only into composite structure, never into a named type's
+// own definition, so self-referential types cannot cause it to loop; the
+// depth cap is a further backstop.
+
+void
+Parse::register_local_type_aliases(Type* t, Location loc, int depth)
+{
+  if (t == NULL || depth > 64)
+    return;
+  t = t->forwarded();
+  Named_type* nt = t->named_type();
+  if (nt != NULL)
+    {
+      unsigned int idx;
+      if (nt->in_function(&idx) != NULL)
+	{
+	  const Named_object* no = nt->named_object();
+	  if (generic_instance_spelling.find(no)
+	      == generic_instance_spelling.end())
+	    {
+	      std::string syn = this->package_alias_for_local_type(t, loc);
+	      std::vector<Token> toks;
+	      toks.push_back(Token::make_identifier_token(syn, false, loc));
+	      generic_instance_spelling[no] = toks;
+	    }
+	}
+      return;
+    }
+  if (t->points_to() != NULL)
+    {
+      this->register_local_type_aliases(t->points_to(), loc, depth + 1);
+      return;
+    }
+  Array_type* at = t->array_type();
+  if (at != NULL)
+    {
+      this->register_local_type_aliases(at->element_type(), loc, depth + 1);
+      return;
+    }
+  Map_type* mt = t->map_type();
+  if (mt != NULL)
+    {
+      this->register_local_type_aliases(mt->key_type(), loc, depth + 1);
+      this->register_local_type_aliases(mt->val_type(), loc, depth + 1);
+      return;
+    }
+  Channel_type* ct = t->channel_type();
+  if (ct != NULL)
+    {
+      this->register_local_type_aliases(ct->element_type(), loc, depth + 1);
+      return;
+    }
+  Struct_type* st = t->struct_type();
+  if (st != NULL)
+    {
+      const Struct_field_list* fields = st->fields();
+      if (fields != NULL)
+	for (Struct_field_list::const_iterator pf = fields->begin();
+	     pf != fields->end(); ++pf)
+	  this->register_local_type_aliases(pf->type(), loc, depth + 1);
+      return;
+    }
+  Function_type* ft = t->function_type();
+  if (ft != NULL)
+    {
+      const Typed_identifier_list* params = ft->parameters();
+      if (params != NULL)
+	for (Typed_identifier_list::const_iterator pp = params->begin();
+	     pp != params->end(); ++pp)
+	  this->register_local_type_aliases(pp->type(), loc, depth + 1);
+      const Typed_identifier_list* results = ft->results();
+      if (results != NULL)
+	for (Typed_identifier_list::const_iterator pr = results->begin();
+	     pr != results->end(); ++pr)
+	  this->register_local_type_aliases(pr->type(), loc, depth + 1);
+      return;
+    }
 }
 
 // Generics: a generic instance is re-parsed at package scope, so a type
