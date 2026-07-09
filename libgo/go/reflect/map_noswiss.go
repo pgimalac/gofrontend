@@ -2,21 +2,34 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !goexperiment.swissmap && !gccgo
+
 package reflect
 
 import (
 	"internal/abi"
-	"internal/race"
-	"internal/runtime/maps"
-	"internal/runtime/sys"
+	"internal/goarch"
 	"unsafe"
 )
+
+// mapType represents a map type.
+type mapType struct {
+	abi.OldMapType
+}
+
+// Pushed from runtime.
+
+//go:noescape
+func mapiterinit(t *abi.Type, m unsafe.Pointer, it *hiter)
+
+//go:noescape
+func mapiternext(it *hiter)
 
 func (t *rtype) Key() Type {
 	if t.Kind() != Map {
 		panic("reflect: Key of non-map type " + t.String())
 	}
-	tt := (*abi.MapType)(unsafe.Pointer(t))
+	tt := (*mapType)(unsafe.Pointer(t))
 	return toType(tt.Key)
 }
 
@@ -43,44 +56,49 @@ func MapOf(key, elem Type) Type {
 	// Look in known types.
 	s := "map[" + stringFor(ktyp) + "]" + stringFor(etyp)
 	for _, tt := range typesByString(s) {
-		mt := (*abi.MapType)(unsafe.Pointer(tt))
+		mt := (*mapType)(unsafe.Pointer(tt))
 		if mt.Key == ktyp && mt.Elem == etyp {
 			ti, _ := lookupCache.LoadOrStore(ckey, toRType(tt))
 			return ti.(Type)
 		}
 	}
 
-	group, slot := groupAndSlotOf(key, elem)
-
 	// Make a map type.
 	// Note: flag values must match those used in the TMAP case
 	// in ../cmd/compile/internal/reflectdata/reflect.go:writeType.
 	var imap any = (map[unsafe.Pointer]unsafe.Pointer)(nil)
-	mt := **(**abi.MapType)(unsafe.Pointer(&imap))
+	mt := **(**mapType)(unsafe.Pointer(&imap))
 	mt.Str = resolveReflectName(newName(s, "", false, false))
-	mt.TFlag = abi.TFlagDirectIface
+	mt.TFlag = 0
 	mt.Hash = fnv1(etyp.Hash, 'm', byte(ktyp.Hash>>24), byte(ktyp.Hash>>16), byte(ktyp.Hash>>8), byte(ktyp.Hash))
 	mt.Key = ktyp
 	mt.Elem = etyp
-	mt.Group = group.common()
+	mt.Bucket = bucketOf(ktyp, etyp)
 	mt.Hasher = func(p unsafe.Pointer, seed uintptr) uintptr {
 		return typehash(ktyp, p, seed)
 	}
-	mt.GroupSize = mt.Group.Size()
-	mt.SlotSize = slot.Size()
-	mt.ElemOff = slot.Field(1).Offset
 	mt.Flags = 0
+	if ktyp.Size_ > abi.OldMapMaxKeyBytes {
+		mt.KeySize = uint8(goarch.PtrSize)
+		mt.Flags |= 1 // indirect key
+	} else {
+		mt.KeySize = uint8(ktyp.Size_)
+	}
+	if etyp.Size_ > abi.OldMapMaxElemBytes {
+		mt.ValueSize = uint8(goarch.PtrSize)
+		mt.Flags |= 2 // indirect value
+	} else {
+		mt.ValueSize = uint8(etyp.Size_)
+	}
+	mt.BucketSize = uint16(mt.Bucket.Size_)
+	if isReflexive(ktyp) {
+		mt.Flags |= 4
+	}
 	if needKeyUpdate(ktyp) {
-		mt.Flags |= abi.MapNeedKeyUpdate
+		mt.Flags |= 8
 	}
 	if hashMightPanic(ktyp) {
-		mt.Flags |= abi.MapHashMightPanic
-	}
-	if ktyp.Size_ > abi.MapMaxKeyBytes {
-		mt.Flags |= abi.MapIndirectKey
-	}
-	if etyp.Size_ > abi.MapMaxKeyBytes {
-		mt.Flags |= abi.MapIndirectElem
+		mt.Flags |= 16
 	}
 	mt.PtrToThis = 0
 
@@ -88,46 +106,67 @@ func MapOf(key, elem Type) Type {
 	return ti.(Type)
 }
 
-func groupAndSlotOf(ktyp, etyp Type) (Type, Type) {
-	// type group struct {
-	//     ctrl uint64
-	//     slots [abi.MapGroupSlots]struct {
-	//         key  keyType
-	//         elem elemType
-	//     }
-	// }
-
-	if ktyp.Size() > abi.MapMaxKeyBytes {
-		ktyp = PointerTo(ktyp)
+func bucketOf(ktyp, etyp *abi.Type) *abi.Type {
+	if ktyp.Size_ > abi.OldMapMaxKeyBytes {
+		ktyp = ptrTo(ktyp)
 	}
-	if etyp.Size() > abi.MapMaxElemBytes {
-		etyp = PointerTo(etyp)
+	if etyp.Size_ > abi.OldMapMaxElemBytes {
+		etyp = ptrTo(etyp)
 	}
 
-	fields := []StructField{
-		{
-			Name: "Key",
-			Type: ktyp,
-		},
-		{
-			Name: "Elem",
-			Type: etyp,
-		},
-	}
-	slot := StructOf(fields)
+	// Prepare GC data if any.
+	// A bucket is at most bucketSize*(1+maxKeySize+maxValSize)+ptrSize bytes,
+	// or 2064 bytes, or 258 pointer-size words, or 33 bytes of pointer bitmap.
+	// Note that since the key and value are known to be <= 128 bytes,
+	// they're guaranteed to have bitmaps instead of GC programs.
+	var gcdata *byte
+	var ptrdata uintptr
 
-	fields = []StructField{
-		{
-			Name: "Ctrl",
-			Type: TypeFor[uint64](),
-		},
-		{
-			Name: "Slots",
-			Type: ArrayOf(abi.MapGroupSlots, slot),
-		},
+	size := abi.OldMapBucketCount*(1+ktyp.Size_+etyp.Size_) + goarch.PtrSize
+	if size&uintptr(ktyp.Align_-1) != 0 || size&uintptr(etyp.Align_-1) != 0 {
+		panic("reflect: bad size computation in MapOf")
 	}
-	group := StructOf(fields)
-	return group, slot
+
+	if ktyp.Pointers() || etyp.Pointers() {
+		nptr := (abi.OldMapBucketCount*(1+ktyp.Size_+etyp.Size_) + goarch.PtrSize) / goarch.PtrSize
+		n := (nptr + 7) / 8
+
+		// Runtime needs pointer masks to be a multiple of uintptr in size.
+		n = (n + goarch.PtrSize - 1) &^ (goarch.PtrSize - 1)
+		mask := make([]byte, n)
+		base := uintptr(abi.OldMapBucketCount / goarch.PtrSize)
+
+		if ktyp.Pointers() {
+			emitGCMask(mask, base, ktyp, abi.OldMapBucketCount)
+		}
+		base += abi.OldMapBucketCount * ktyp.Size_ / goarch.PtrSize
+
+		if etyp.Pointers() {
+			emitGCMask(mask, base, etyp, abi.OldMapBucketCount)
+		}
+		base += abi.OldMapBucketCount * etyp.Size_ / goarch.PtrSize
+
+		word := base
+		mask[word/8] |= 1 << (word % 8)
+		gcdata = &mask[0]
+		ptrdata = (word + 1) * goarch.PtrSize
+
+		// overflow word must be last
+		if ptrdata != size {
+			panic("reflect: bad layout computation in MapOf")
+		}
+	}
+
+	b := &abi.Type{
+		Align_:   goarch.PtrSize,
+		Size_:    size,
+		Kind_:    abi.Struct,
+		PtrBytes: ptrdata,
+		GCData:   gcdata,
+	}
+	s := "bucket(" + stringFor(ktyp) + "," + stringFor(etyp) + ")"
+	b.Str = resolveReflectName(newName(s, "", false, false))
+	return b
 }
 
 var stringType = rtypeOf("")
@@ -138,7 +177,7 @@ var stringType = rtypeOf("")
 // As in Go, the key's value must be assignable to the map's key type.
 func (v Value) MapIndex(key Value) Value {
 	v.mustBe(Map)
-	tt := (*abi.MapType)(unsafe.Pointer(v.typ()))
+	tt := (*mapType)(unsafe.Pointer(v.typ()))
 
 	// Do not require key to be exported, so that DeepEqual
 	// and other programs can use all the keys returned by
@@ -149,7 +188,7 @@ func (v Value) MapIndex(key Value) Value {
 	// of unexported fields.
 
 	var e unsafe.Pointer
-	if (tt.Key == stringType || key.kind() == String) && tt.Key == key.typ() && tt.Elem.Size() <= abi.MapMaxElemBytes {
+	if (tt.Key == stringType || key.kind() == String) && tt.Key == key.typ() && tt.Elem.Size() <= abi.OldMapMaxElemBytes {
 		k := *(*string)(key.ptr)
 		e = mapaccess_faststr(v.typ(), v.pointer(), k)
 	} else {
@@ -171,57 +210,28 @@ func (v Value) MapIndex(key Value) Value {
 	return copyVal(typ, fl, e)
 }
 
-// Equivalent to runtime.mapIterStart.
-//
-//go:noinline
-func mapIterStart(t *abi.MapType, m *maps.Map, it *maps.Iter) {
-	if race.Enabled && m != nil {
-		callerpc := sys.GetCallerPC()
-		race.ReadPC(unsafe.Pointer(m), callerpc, abi.FuncPCABIInternal(mapIterStart))
-	}
-
-	it.Init(t, m)
-	it.Next()
-}
-
-// Equivalent to runtime.mapIterNext.
-//
-//go:noinline
-func mapIterNext(it *maps.Iter) {
-	if race.Enabled {
-		callerpc := sys.GetCallerPC()
-		race.ReadPC(unsafe.Pointer(it.Map()), callerpc, abi.FuncPCABIInternal(mapIterNext))
-	}
-
-	it.Next()
-}
-
 // MapKeys returns a slice containing all the keys present in the map,
 // in unspecified order.
 // It panics if v's Kind is not [Map].
 // It returns an empty slice if v represents a nil map.
 func (v Value) MapKeys() []Value {
 	v.mustBe(Map)
-	tt := (*abi.MapType)(unsafe.Pointer(v.typ()))
+	tt := (*mapType)(unsafe.Pointer(v.typ()))
 	keyType := tt.Key
 
 	fl := v.flag.ro() | flag(keyType.Kind())
 
-	// Escape analysis can't see that the map doesn't escape. It sees an
-	// escape from maps.IterStart, via assignment into it, even though it
-	// doesn't escape this function.
-	mptr := abi.NoEscape(v.pointer())
-	m := (*maps.Map)(mptr)
+	m := v.pointer()
 	mlen := int(0)
 	if m != nil {
-		mlen = maplen(mptr)
+		mlen = maplen(m)
 	}
-	var it maps.Iter
-	mapIterStart(tt, m, &it)
+	var it hiter
+	mapiterinit(v.typ(), m, &it)
 	a := make([]Value, mlen)
 	var i int
 	for i = 0; i < len(a); i++ {
-		key := it.Key()
+		key := it.key
 		if key == nil {
 			// Someone deleted an entry from the map since we
 			// called maplen above. It's a data race, but nothing
@@ -229,29 +239,56 @@ func (v Value) MapKeys() []Value {
 			break
 		}
 		a[i] = copyVal(keyType, fl, key)
-		mapIterNext(&it)
+		mapiternext(&it)
 	}
 	return a[:i]
+}
+
+// hiter's structure matches runtime.hiter's structure.
+// Having a clone here allows us to embed a map iterator
+// inside type MapIter so that MapIters can be re-used
+// without doing any allocations.
+type hiter struct {
+	key         unsafe.Pointer
+	elem        unsafe.Pointer
+	t           unsafe.Pointer
+	h           unsafe.Pointer
+	buckets     unsafe.Pointer
+	bptr        unsafe.Pointer
+	overflow    *[]unsafe.Pointer
+	oldoverflow *[]unsafe.Pointer
+	startBucket uintptr
+	offset      uint8
+	wrapped     bool
+	B           uint8
+	i           uint8
+	bucket      uintptr
+	checkBucket uintptr
+	clearSeq    uint64
+}
+
+func (h *hiter) initialized() bool {
+	return h.t != nil
 }
 
 // A MapIter is an iterator for ranging over a map.
 // See [Value.MapRange].
 type MapIter struct {
 	m     Value
-	hiter maps.Iter
+	hiter hiter
 }
 
 // Key returns the key of iter's current map entry.
 func (iter *MapIter) Key() Value {
-	if !iter.hiter.Initialized() {
+	if !iter.hiter.initialized() {
 		panic("MapIter.Key called before Next")
 	}
-	iterkey := iter.hiter.Key()
+	iterkey := iter.hiter.key
 	if iterkey == nil {
 		panic("MapIter.Key called on exhausted iterator")
 	}
 
-	t := (*abi.MapType)(unsafe.Pointer(iter.m.typ()))
+	t := (*mapType)(unsafe.Pointer(iter.m.typ()))
 	ktype := t.Key
 	return copyVal(ktype, iter.m.flag.ro()|flag(ktype.Kind()), iterkey)
 }
@@ -262,10 +299,10 @@ func (iter *MapIter) Key() Value {
 // must not be derived from an unexported field.
 // It panics if [Value.CanSet] returns false.
 func (v Value) SetIterKey(iter *MapIter) {
-	if !iter.hiter.Initialized() {
+	if !iter.hiter.initialized() {
 		panic("reflect: Value.SetIterKey called before Next")
 	}
-	iterkey := iter.hiter.Key()
+	iterkey := iter.hiter.key
 	if iterkey == nil {
 		panic("reflect: Value.SetIterKey called on exhausted iterator")
 	}
@@ -276,7 +313,7 @@ func (v Value) SetIterKey(iter *MapIter) {
 		target = v.ptr
 	}
 
-	t := (*abi.MapType)(unsafe.Pointer(iter.m.typ()))
+	t := (*mapType)(unsafe.Pointer(iter.m.typ()))
 	ktype := t.Key
 
 	iter.m.mustBeExported() // do not let unexported m leak
@@ -287,15 +324,15 @@ func (v Value) SetIterKey(iter *MapIter) {
 
 // Value returns the value of iter's current map entry.
 func (iter *MapIter) Value() Value {
-	if !iter.hiter.Initialized() {
+	if !iter.hiter.initialized() {
 		panic("MapIter.Value called before Next")
 	}
-	iterelem := iter.hiter.Elem()
+	iterelem := iter.hiter.elem
 	if iterelem == nil {
 		panic("MapIter.Value called on exhausted iterator")
 	}
 
-	t := (*abi.MapType)(unsafe.Pointer(iter.m.typ()))
+	t := (*mapType)(unsafe.Pointer(iter.m.typ()))
 	vtype := t.Elem
 	return copyVal(vtype, iter.m.flag.ro()|flag(vtype.Kind()), iterelem)
 }
@@ -306,10 +343,10 @@ func (iter *MapIter) Value() Value {
 // must not be derived from an unexported field.
 // It panics if [Value.CanSet] returns false.
 func (v Value) SetIterValue(iter *MapIter) {
-	if !iter.hiter.Initialized() {
+	if !iter.hiter.initialized() {
 		panic("reflect: Value.SetIterValue called before Next")
 	}
-	iterelem := iter.hiter.Elem()
+	iterelem := iter.hiter.elem
 	if iterelem == nil {
 		panic("reflect: Value.SetIterValue called on exhausted iterator")
 	}
@@ -320,7 +357,7 @@ func (v Value) SetIterValue(iter *MapIter) {
 		target = v.ptr
 	}
 
-	t := (*abi.MapType)(unsafe.Pointer(iter.m.typ()))
+	t := (*mapType)(unsafe.Pointer(iter.m.typ()))
 	vtype := t.Elem
 
 	iter.m.mustBeExported() // do not let unexported m leak
@@ -336,17 +373,15 @@ func (iter *MapIter) Next() bool {
 	if !iter.m.IsValid() {
 		panic("MapIter.Next called on an iterator that does not have an associated map Value")
 	}
-	if !iter.hiter.Initialized() {
-		t := (*abi.MapType)(unsafe.Pointer(iter.m.typ()))
-		m := (*maps.Map)(iter.m.pointer())
-		mapIterStart(t, m, &iter.hiter)
+	if !iter.hiter.initialized() {
+		mapiterinit(iter.m.typ(), iter.m.pointer(), &iter.hiter)
 	} else {
-		if iter.hiter.Key() == nil {
+		if iter.hiter.key == nil {
 			panic("MapIter.Next called on exhausted iterator")
 		}
-		mapIterNext(&iter.hiter)
+		mapiternext(&iter.hiter)
 	}
-	return iter.hiter.Key() != nil
+	return iter.hiter.key != nil
 }
 
 // Reset modifies iter to iterate over v.
@@ -358,7 +393,7 @@ func (iter *MapIter) Reset(v Value) {
 		v.mustBe(Map)
 	}
 	iter.m = v
-	iter.hiter = maps.Iter{}
+	iter.hiter = hiter{}
 }
 
 // MapRange returns a range iterator for a map.
@@ -397,9 +432,9 @@ func (v Value) SetMapIndex(key, elem Value) {
 	v.mustBe(Map)
 	v.mustBeExported()
 	key.mustBeExported()
-	tt := (*abi.MapType)(unsafe.Pointer(v.typ()))
+	tt := (*mapType)(unsafe.Pointer(v.typ()))
 
-	if (tt.Key == stringType || key.kind() == String) && tt.Key == key.typ() && tt.Elem.Size() <= abi.MapMaxElemBytes {
+	if (tt.Key == stringType || key.kind() == String) && tt.Key == key.typ() && tt.Elem.Size() <= abi.OldMapMaxElemBytes {
 		k := *(*string)(key.ptr)
 		if elem.typ() == nil {
 			mapdelete_faststr(v.typ(), v.pointer(), k)
