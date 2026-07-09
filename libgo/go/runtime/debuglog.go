@@ -175,7 +175,8 @@ const (
 	debugLogPtr
 	debugLogString
 	debugLogConstString
-	debugLogStringOverflow
+	debugLogHexdump
+	debugLogOverflow
 
 	debugLogPC
 	debugLogTraceback
@@ -324,7 +325,7 @@ func (l *dlogger) s(x string) *dlogger {
 		l.w.uvarint(uint64(len(b)))
 		l.w.bytes(b)
 		if len(b) != len(x) {
-			l.w.byte(debugLogStringOverflow)
+			l.w.byte(debugLogOverflow)
 			l.w.uvarint(uint64(len(x) - len(b)))
 		}
 	}
@@ -667,8 +668,29 @@ func (r *debugLogReader) printVal() bool {
 		s := *(*string)(unsafe.Pointer(&str))
 		print(s)
 
-	case debugLogStringOverflow:
+	case debugLogOverflow:
 		print("..(", r.uvarint(), " more bytes)..")
+
+	case debugLogHexdump:
+		p := uintptr(r.uvarint())
+		bl := r.uvarint()
+		if r.begin+bl > r.end {
+			r.begin = r.end
+			print("<hexdump length corrupted>")
+			break
+		}
+		println() // Start on a new line
+		hd := hexdumper{addr: p}
+		for bl > 0 {
+			b := r.data.b[r.begin%uint64(len(r.data.b)):]
+			if uint64(len(b)) > bl {
+				b = b[:bl]
+			}
+			r.begin += uint64(len(b))
+			bl -= uint64(len(b))
+			hd.write(b)
+		}
+		hd.close()
 
 	case debugLogPC:
 		printDebugLogPC(uintptr(r.uvarint()), false)

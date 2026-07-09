@@ -140,7 +140,7 @@ func Len64(x uint64) (n int) {
 		x >>= 8
 		n += 8
 	}
-	return n + int(len8tab[x])
+	return n + int(len8tab[uint8(x)])
 }
 
 // --- OnesCount ---

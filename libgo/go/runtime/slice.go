@@ -7,6 +7,7 @@ package runtime
 import (
 	"internal/abi"
 	"internal/goarch"
+	"internal/goexperiment"
 	"internal/runtime/math"
 	"internal/runtime/sys"
 	"unsafe"
@@ -256,6 +257,42 @@ func growslice(et *_type, oldarray unsafe.Pointer, oldlen, oldcap, cap int) slic
 	memmove(p, oldarray, lenmem)
 
 	return slice{p, cap, newcap}
+}
+
+// growsliceNoAlias is like growslice but only for the case where
+// we know that oldPtr is not aliased.
+//
+// In other words, the caller must know that there are no other references
+// to the backing memory of the slice being grown aside from the slice header
+// that will be updated with new backing memory when growsliceNoAlias
+// returns, and therefore oldPtr must be the only pointer to its referent
+// aside from the slice header updated by the returned slice.
+//
+// In addition, oldPtr must point to the start of the allocation and match
+// the pointer that was returned by mallocgc. In particular, oldPtr must not
+// be an interior pointer, such as after a reslice.
+//
+// See freegc for details.
+func growsliceNoAlias(oldPtr unsafe.Pointer, newLen, oldCap, num int, et *_type) slice {
+	s := growslice(oldPtr, newLen, oldCap, num, et)
+	if goexperiment.RuntimeFreegc && oldPtr != nil && oldPtr != s.array {
+		if gp := getg(); uintptr(oldPtr) < gp.stack.lo || gp.stack.hi <= uintptr(oldPtr) {
+			// oldPtr does not point into the current stack, and it is not
+			// the data pointer for s after the grow, so attempt to free it.
+			// (Note that freegc also verifies that oldPtr does not point into our stack,
+			// but checking here first is slightly cheaper for the case when
+			// oldPtr is on the stack and freegc would be a no-op.)
+			//
+			// TODO(thepudds): it may be that oldPtr==s.array only when elemsize==0,
+			// so perhaps we could prohibit growsliceNoAlias being called in that case
+			// and eliminate that check here, or alternatively, we could lean into
+			// freegc being a no-op for zero-sized allocations (that is, no check of
+			// oldPtr != s.array here and just let freegc return quickly).
+			noscan := !et.Pointers()
+			freegc(oldPtr, uintptr(oldCap)*et.Size_, noscan)
+		}
+	}
+	return s
 }
 
 // nextslicecap computes the next appropriate slice length.

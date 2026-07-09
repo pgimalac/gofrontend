@@ -6,7 +6,7 @@ package net
 
 import (
 	"errors"
-	"internal/itoa"
+	"internal/strconv"
 	"sync"
 	"time"
 	_ "unsafe"
@@ -28,7 +28,6 @@ import (
 //
 // Note: gccgo does not support //go:linkname on variables, so the pull
 // linkname gc uses here (for the "hall of shame" packages) is omitted.
-
 var (
 	errInvalidInterface         = errors.New("invalid network interface")
 	errInvalidInterfaceIndex    = errors.New("invalid network interface index")
@@ -247,7 +246,7 @@ func (zc *ipv6ZoneCache) name(index int) string {
 		zoneCache.RUnlock()
 	}
 	if !ok { // last resort
-		name = itoa.Uitoa(uint(index))
+		name = strconv.Itoa(index)
 	}
 	return name
 }

@@ -379,11 +379,11 @@ func parseByteCount(s string) (int64, bool) {
 	// Handle the easy non-suffix case.
 	last := s[len(s)-1]
 	if last >= '0' && last <= '9' {
-		n, ok := strconv.Atoi64(s)
-		if !ok || n < 0 {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n < 0 {
 			return 0, false
 		}
-		return n, ok
+		return n, true
 	}
 	// Failing a trailing digit, this must always end in 'B'.
 	// Also at this point there must be at least one digit before
@@ -394,11 +394,11 @@ func parseByteCount(s string) (int64, bool) {
 	// The one before that must always be a digit or 'i'.
 	if c := s[len(s)-2]; c >= '0' && c <= '9' {
 		// Trivial 'B' suffix.
-		n, ok := strconv.Atoi64(s[:len(s)-1])
-		if !ok || n < 0 {
+		n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil || n < 0 {
 			return 0, false
 		}
-		return n, ok
+		return n, true
 	} else if c != 'i' {
 		return 0, false
 	}
@@ -425,8 +425,8 @@ func parseByteCount(s string) (int64, bool) {
 	for i := 0; i < power; i++ {
 		m *= 1024
 	}
-	n, ok := strconv.Atoi64(s[:len(s)-3])
-	if !ok || n < 0 {
+	n, err := strconv.ParseInt(s[:len(s)-3], 10, 64)
+	if err != nil || n < 0 {
 		return 0, false
 	}
 	un := uint64(n)

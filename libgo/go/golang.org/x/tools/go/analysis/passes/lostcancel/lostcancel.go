@@ -12,11 +12,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/ctrlflow"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/cfg"
-	"golang.org/x/tools/internal/analysisinternal"
+	"golang.org/x/tools/internal/analysis/analyzerutil"
 	"golang.org/x/tools/internal/astutil"
+	"golang.org/x/tools/internal/typesinternal"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -39,7 +39,7 @@ package lostcancel
 
 var Analyzer = &analysis.Analyzer{
 	Name: "lostcancel",
-	Doc:  analysisutil.MustExtractDoc(doc, "lostcancel"),
+	Doc:  analyzerutil.MustExtractDoc(doc, "lostcancel"),
 	URL:  "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/lostcancel",
 	Run:  run,
 	Requires: []*analysis.Analyzer{
@@ -64,7 +64,7 @@ var contextPackage = "context"
 // checkLostCancel analyzes a single named or literal function.
 func run(pass *analysis.Pass) (any, error) {
 	// Fast path: bypass check if file doesn't use context.WithCancel.
-	if !analysisinternal.Imports(pass.Pkg, contextPackage) {
+	if !typesinternal.Imports(pass.Pkg, contextPackage) {
 		return nil, nil
 	}
 
@@ -330,8 +330,8 @@ outer:
 }
 
 func tupleContains(tuple *types.Tuple, v *types.Var) bool {
-	for i := 0; i < tuple.Len(); i++ {
-		if tuple.At(i) == v {
+	for v0 := range tuple.Variables() {
+		if v0 == v {
 			return true
 		}
 	}

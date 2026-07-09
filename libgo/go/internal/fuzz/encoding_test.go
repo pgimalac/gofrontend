@@ -261,7 +261,6 @@ func BenchmarkMarshalCorpusFile(b *testing.B) {
 	}
 
 	for sz := 1; sz <= len(buf); sz <<= 1 {
-		sz := sz
 		b.Run(strconv.Itoa(sz), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				b.SetBytes(int64(sz))
@@ -281,7 +280,6 @@ func BenchmarkUnmarshalCorpusFile(b *testing.B) {
 	}
 
 	for sz := 1; sz <= len(buf); sz <<= 1 {
-		sz := sz
 		data := marshalCorpusFile(buf[:sz])
 		b.Run(strconv.Itoa(sz), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {

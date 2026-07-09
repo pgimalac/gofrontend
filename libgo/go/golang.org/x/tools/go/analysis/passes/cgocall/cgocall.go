@@ -19,7 +19,7 @@ import (
 	"strconv"
 
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/internal/analysisinternal"
+	"golang.org/x/tools/internal/typesinternal"
 )
 
 const debug = false
@@ -42,7 +42,7 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	if runtime.Compiler != "gccgo" && !analysisinternal.Imports(pass.Pkg, "runtime/cgo") {
+	if runtime.Compiler != "gccgo" && !typesinternal.Imports(pass.Pkg, "runtime/cgo") {
 		return nil, nil // doesn't use cgo
 	}
 
@@ -351,8 +351,8 @@ func typeOKForCgoCall(t types.Type, m map[types.Type]bool) bool {
 	case *types.Array:
 		return typeOKForCgoCall(t.Elem(), m)
 	case *types.Struct:
-		for i := 0; i < t.NumFields(); i++ {
-			if !typeOKForCgoCall(t.Field(i).Type(), m) {
+		for field := range t.Fields() {
+			if !typeOKForCgoCall(field.Type(), m) {
 				return false
 			}
 		}

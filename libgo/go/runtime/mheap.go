@@ -44,7 +44,7 @@ const (
 	//
 	// Must be a multiple of the pageInUse bitmap element size and
 	// must also evenly divide pagesPerArena.
-	pagesPerReclaimerChunk = 512
+	pagesPerReclaimerChunk = min(512, pagesPerArena)
 
 	// physPageAlignedStacks indicates whether stack allocations must be
 	// physical page aligned. This is a requirement for MAP_STACK on
@@ -53,7 +53,7 @@ const (
 )
 
 // Main malloc heap.
-// The heap itself is the "free" and "scav" treaps,
+// The heap use pageAlloc to manage free and scavenged pages,
 // but all the other global data is here too.
 //
 // mheap must not be heap-allocated because it contains mSpanLists,
@@ -408,7 +408,7 @@ type mspan struct {
 	// indicating a free object. freeindex is then adjusted so that subsequent scans begin
 	// just past the newly discovered free object.
 	//
-	// If freeindex == nelems, this span has no free objects.
+	// If freeindex == nelems, this span has no free objects, though might have reusable objects.
 	//
 	// allocBits is a bitmap of objects in this span.
 	// If n >= freeindex and allocBits[n/8] & (1<<(n%8)) is 0
@@ -428,6 +428,7 @@ type mspan struct {
 	// initialized (see also the assignment of freeIndexForScan in
 	// mallocgc, and issue 54596).
 	freeIndexForScan uintptr
+
 
 	// Cache of the allocBits at freeindex. allocCache is shifted
 	// such that the lowest bit corresponds to the bit freeindex.
@@ -770,6 +771,8 @@ func (h *mheap) init() {
 	}
 
 	h.pages.init(&h.lock, &memstats.gcMiscSys, false)
+
+	xRegInitAlloc()
 }
 
 // reclaim sweeps and reclaims at least npage pages into the heap.
@@ -1780,86 +1783,6 @@ func (list *mSpanList) takeAll(other *mSpanList) {
 	other.first, other.last = nil, nil
 }
 
-// mSpanQueue is like an mSpanList but is FIFO instead of LIFO and may
-// be allocated on the stack. (mSpanList can be visible from the mspan
-// itself, so it is marked as not-in-heap).
-type mSpanQueue struct {
-	head, tail *mspan
-	n          int
-}
-
-// push adds s to the end of the queue.
-func (q *mSpanQueue) push(s *mspan) {
-	if s.next != nil {
-		throw("span already on list")
-	}
-	if q.tail == nil {
-		q.tail, q.head = s, s
-	} else {
-		q.tail.next = s
-		q.tail = s
-	}
-	q.n++
-}
-
-// pop removes a span from the head of the queue, if any.
-func (q *mSpanQueue) pop() *mspan {
-	if q.head == nil {
-		return nil
-	}
-	s := q.head
-	q.head = s.next
-	s.next = nil
-	if q.head == nil {
-		q.tail = nil
-	}
-	q.n--
-	return s
-}
-
-// takeAll removes all the spans from q2 and adds them to the end of q1, in order.
-func (q1 *mSpanQueue) takeAll(q2 *mSpanQueue) {
-	if q2.head == nil {
-		return
-	}
-	if q1.head == nil {
-		*q1 = *q2
-	} else {
-		q1.tail.next = q2.head
-		q1.tail = q2.tail
-		q1.n += q2.n
-	}
-	q2.tail = nil
-	q2.head = nil
-	q2.n = 0
-}
-
-// popN removes n spans from the head of the queue and returns them as a new queue.
-func (q *mSpanQueue) popN(n int) mSpanQueue {
-	var newQ mSpanQueue
-	if n <= 0 {
-		return newQ
-	}
-	if n >= q.n {
-		newQ = *q
-		q.tail = nil
-		q.head = nil
-		q.n = 0
-		return newQ
-	}
-	s := q.head
-	for range n - 1 {
-		s = s.next
-	}
-	q.n -= n
-	newQ.head = q.head
-	newQ.tail = s
-	newQ.n = n
-	q.head = s.next
-	s.next = nil
-	return newQ
-}
-
 const (
 	_KindSpecialFinalizer = 1
 	_KindSpecialProfile   = 2
@@ -1988,11 +1911,11 @@ func (span *mspan) specialFindSplicePoint(offset uintptr, kind byte) (**special,
 		if s == nil {
 			break
 		}
-		if offset == uintptr(s.offset) && kind == s.kind {
+		if offset == s.offset && kind == s.kind {
 			found = true
 			break
 		}
-		if offset < uintptr(s.offset) || (offset == uintptr(s.offset) && kind < s.kind) {
+		if offset < s.offset || (offset == s.offset && kind < s.kind) {
 			break
 		}
 		iter = &s.next
@@ -2123,6 +2046,12 @@ func (i *specialsIter) unlinkAndNext() *special {
 
 // freeSpecial performs any cleanup on special s and deallocates it.
 // s must already be unlinked from the specials list.
+// TODO(mknyszek): p and size together DO NOT represent a valid allocation.
+// size is the size of the allocation block in the span (mspan.elemsize), and p is
+// whatever pointer the special was attached to, which need not point to the
+// beginning of the block, though it may.
+// Consider passing the arguments differently to avoid giving the impression
+// that p and size together represent an address range.
 func freeSpecial(s *special, p unsafe.Pointer, size uintptr) {
 	switch s.kind {
 	case _KindSpecialFinalizer:

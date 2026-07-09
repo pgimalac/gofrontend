@@ -315,4 +315,4 @@ func runtime_procUnpin()
 func runtime_LoadAcquintptr(ptr *uintptr) uintptr
 
 //go:linkname runtime_StoreReluintptr internal_1runtime_1atomic.StoreReluintptr
-func runtime_StoreReluintptr(ptr *uintptr, val uintptr) uintptr
+func runtime_StoreReluintptr(ptr *uintptr, val uintptr)

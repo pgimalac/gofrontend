@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/internal/analysis/analyzerutil"
 	"golang.org/x/tools/internal/typeparams"
 )
 
@@ -43,7 +43,7 @@ package ifaceassert
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "ifaceassert",
-	Doc:      analysisutil.MustExtractDoc(doc, "ifaceassert"),
+	Doc:      analyzerutil.MustExtractDoc(doc, "ifaceassert"),
 	URL:      "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/ifaceassert",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,

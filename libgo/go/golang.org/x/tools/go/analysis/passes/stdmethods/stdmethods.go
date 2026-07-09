@@ -11,8 +11,8 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/analysis/passes/internal/analysisutil"
 	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/internal/analysis/analyzerutil"
 )
 
 var doc = `// Copyright 2023 The Go Authors. All rights reserved.
@@ -49,7 +49,7 @@ package stdmethods
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "stdmethods",
-	Doc:      analysisutil.MustExtractDoc(doc, "stdmethods"),
+	Doc:      analyzerutil.MustExtractDoc(doc, "stdmethods"),
 	URL:      "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/stdmethods",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
@@ -159,12 +159,12 @@ func canonicalMethod(pass *analysis.Pass, id *ast.Ident) {
 	}
 
 	// Do the =s (if any) all match?
-	if !matchParams(pass, expect.args, args, "=") || !matchParams(pass, expect.results, results, "=") {
+	if !matchParams(expect.args, args, "=") || !matchParams(expect.results, results, "=") {
 		return
 	}
 
 	// Everything must match.
-	if !matchParams(pass, expect.args, args, "") || !matchParams(pass, expect.results, results, "") {
+	if !matchParams(expect.args, args, "") || !matchParams(expect.results, results, "") {
 		expectFmt := id.Name + "(" + argjoin(expect.args) + ")"
 		if len(expect.results) == 1 {
 			expectFmt += " " + argjoin(expect.results)
@@ -196,7 +196,7 @@ func argjoin(x []string) string {
 }
 
 // Does each type in expect with the given prefix match the corresponding type in actual?
-func matchParams(pass *analysis.Pass, expect []string, actual *types.Tuple, prefix string) bool {
+func matchParams(expect []string, actual *types.Tuple, prefix string) bool {
 	for i, x := range expect {
 		if !strings.HasPrefix(x, prefix) {
 			continue

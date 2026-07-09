@@ -194,7 +194,6 @@ func main() {
 func TestGCSizes(t *testing.T) {
 	types.DefPredeclaredTestFuncs()
 	for _, tc := range gcSizesTests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			conf := types.Config{

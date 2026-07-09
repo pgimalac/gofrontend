@@ -65,13 +65,6 @@ func getPageSize() uintptr {
 	return 0
 }
 
-func getOSRev() int {
-	if osrev, ok := sysctlInt([]uint32{_CTL_KERN, _KERN_OSREV}); ok {
-		return int(osrev)
-	}
-	return 0
-}
-
 //go:nosplit
 func semacreate(mp *m) {
 }
@@ -131,7 +124,6 @@ func osinit() {
 	if physPageSize == 0 {
 		physPageSize = getPageSize()
 	}
-	needSysmonWorkaround = getOSRev() < 902000000 // NetBSD 9.2
 }
 
 func sysargs(argc int32, argv **byte) {

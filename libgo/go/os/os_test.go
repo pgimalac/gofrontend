@@ -838,8 +838,7 @@ func TestReaddirOfFile(t *testing.T) {
 	if err == nil {
 		t.Error("Readdirnames succeeded; want non-nil error")
 	}
-	var pe *PathError
-	if !errors.As(err, &pe) || pe.Path != f.Name() {
+	if pe, ok := errors.AsType[*PathError](err); !ok || pe.Path != f.Name() {
 		t.Errorf("Readdirnames returned %q; want a PathError with path %q", err, f.Name())
 	}
 	if len(names) > 0 {
@@ -1191,7 +1190,7 @@ func TestRenameCaseDifference(pt *testing.T) {
 			}
 
 			if dirNamesLen := len(dirNames); dirNamesLen != 1 {
-				t.Fatalf("unexpected dirNames len, got %q, want %q", dirNamesLen, 1)
+				t.Fatalf("unexpected dirNames len, got %d, want %d", dirNamesLen, 1)
 			}
 
 			if dirNames[0] != to {
@@ -3469,6 +3468,34 @@ func TestWriteStringAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Errorf("expected 0 allocs for File.WriteString, got %v", allocs)
 	}
+}
+
+// Test that it's OK to have parallel I/O and Close on a file.
+func TestFileIOCloseRace(t *testing.T) {
+	t.Parallel()
+	file, err := Create(filepath.Join(t.TempDir(), "test.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		var tmp [100]byte
+		if _, err := file.Write(tmp[:]); err != nil && !errors.Is(err, ErrClosed) {
+			t.Error(err)
+		}
+	})
+	wg.Go(func() {
+		var tmp [100]byte
+		if _, err := file.Read(tmp[:]); err != nil && err != io.EOF && !errors.Is(err, ErrClosed) {
+			t.Error(err)
+		}
+	})
+	wg.Go(func() {
+		if err := file.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	wg.Wait()
 }
 
 // Test that it's OK to have parallel I/O and Close on a pipe.
