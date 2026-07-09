@@ -646,6 +646,16 @@ class Gogo
 	    : this->instantiation_package_.back());
   }
 
+  // The full stack of defining packages of templates currently being
+  // instantiated (innermost/current last).  A nested instantiation (e.g. an
+  // iter.Seq2[resolver.Address, T] built while instantiating a method of
+  // resolver.AddressMapV2[T]) pushes the inner generic's package on top, but a
+  // bare type-argument name from an outer template's body must still resolve
+  // against that outer package, so name resolution walks this whole stack.
+  const std::vector<Package*>&
+  instantiation_packages() const
+  { return this->instantiation_package_; }
+
   // Generics: track whether the parser is currently replaying captured
   // tokens (re-parsing a generic template body, a type argument, or an
   // inferred type) rather than reading original source.  While re-parsing,

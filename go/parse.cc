@@ -1314,9 +1314,20 @@ Parse::type_name(bool issue_error)
       if (this->replay_tokens_ != NULL
 	  && name.compare(0, 12, "$infermarker") != 0)
 	{
-	  Package* ip = this->gogo_->current_instantiation_package();
-	  if (ip != NULL && ip->pkgpath() != this->gogo_->pkgpath())
+	  // Walk the whole instantiation-package stack (innermost first).  A
+	  // bare type-argument name captured in an OUTER template's body (e.g.
+	  // resolver.Address as an argument to iter.Seq2 inside a method of
+	  // resolver.AddressMapV2[T]) must resolve against that outer package
+	  // even though a nested generic (iter) is currently on top of stack.
+	  const std::vector<Package*>& ips =
+	    this->gogo_->instantiation_packages();
+	  for (std::vector<Package*>::const_reverse_iterator pi = ips.rbegin();
+	       pi != ips.rend() && named_object == NULL;
+	       ++pi)
 	    {
+	      Package* ip = *pi;
+	      if (ip == NULL || ip->pkgpath() == this->gogo_->pkgpath())
+		continue;
 	      Named_object* ino = ip->bindings()->lookup(name);
 	      if (ino == NULL)
 		{
@@ -4744,6 +4755,15 @@ Parse::instantiate_instance_methods(Generic_function_info* info,
   // Instantiate the type's methods: for each method template, substitute
   // the receiver's type parameter names with the type arguments and
   // re-parse it as an ordinary method on this instance.
+  //
+  // Push the template's defining package so that bare type names in a method
+  // body (and in type arguments to any nested generic instantiated by that
+  // body, e.g. Address in iter.Seq2[Address, T] inside a method of an imported
+  // resolver.AddressMapV2[T]) resolve against the defining package rather than
+  // being left as unresolved forward declarations in the importing package.
+  Package* method_defpkg = info->defining_package();
+  if (method_defpkg != NULL)
+    this->gogo_->push_instantiation_package(method_defpkg);
   for (size_t m = 0; !marker_arg && m < info->methods().size(); ++m)
     {
       Generic_method_template& mt = info->methods()[m];
@@ -4753,6 +4773,8 @@ Parse::instantiate_instance_methods(Generic_function_info* info,
       this->instantiate_generic_method(msubst, location,
 				       &info->package_aliases());
     }
+  if (method_defpkg != NULL)
+    this->gogo_->pop_instantiation_package();
 
   // When the type is instantiated during a late pass (e.g. type-argument
   // inference), the global finalize_methods pass has already run, so build
