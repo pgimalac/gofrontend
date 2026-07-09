@@ -26,3 +26,8 @@ const DefaultGOMIPS64 = defaultGOMIPS64
 const DefaultGOPPC64 = defaultGOPPC64
 const DefaultGORISCV64 = `rva20u64`
 const DefaultGOFIPS140 = `off`
+
+// DefaultCGO_ENABLED is generated into zbootstrap.go for the gc toolchain.
+// cmd/go/internal/cfg refers to it since Go 1.25. gccgo always ships with
+// cgo support, so default it to enabled.
+const DefaultCGO_ENABLED = `1`

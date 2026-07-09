@@ -20,3 +20,9 @@ import _ "unsafe"
 //go:linkname getsockopt
 
 //go:linkname setsockopt
+
+// gccgo: internal/syscall/unix.Utimensat (utimes.go, new in Go 1.25 for
+// os.Root) pulls syscall.utimensat. gccgo needs a matching push to keep the
+// generated utimensat wrapper accessible via the pull linkname.
+//
+//go:linkname utimensat

@@ -701,6 +701,25 @@ top:
 	return buf
 }
 
+// runtime/trace compatibility shims. gccgo leaves the consuming
+// declarations in runtime/trace plain and exports these symbols from the
+// runtime package instead.
+
+//go:linkname trace_runtimeReadTrace runtime_1trace.runtime__readTrace
+func trace_runtimeReadTrace() []byte {
+	return ReadTrace()
+}
+
+//go:linkname trace_runtimeTraceAdvance runtime_1trace.runtime__traceAdvance
+func trace_runtimeTraceAdvance(stopTrace bool) {
+	traceAdvance(stopTrace)
+}
+
+//go:linkname trace_runtimeTraceClockUnitsPerSecond runtime_1trace.runtime__traceClockUnitsPerSecond
+func trace_runtimeTraceClockUnitsPerSecond() uint64 {
+	return traceClockUnitsPerSecond()
+}
+
 // readTrace0 is ReadTrace's continuation on g0. This must run on the
 // system stack because it acquires trace.lock.
 //

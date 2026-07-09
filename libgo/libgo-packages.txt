@@ -100,13 +100,6 @@ encoding/csv
 encoding/gob
 encoding/hex
 encoding/json
-encoding/json/internal
-encoding/json/internal/jsonflags
-encoding/json/internal/jsonopts
-encoding/json/internal/jsontest
-encoding/json/internal/jsonwire
-encoding/json/jsontext
-encoding/json/v2
 encoding/pem
 encoding/xml
 errors

@@ -9,7 +9,6 @@ import (
 	"io"
 	"sync"
 	"time"
-	_ "unsafe" // added for go linkname usage
 )
 
 // FlightRecorder represents a single consumer of a Go execution
@@ -175,8 +174,10 @@ type FlightRecorderConfig struct {
 	MaxBytes uint64
 }
 
-//go:linkname runtime_traceClockUnitsPerSecond
+// Provided by the runtime via a push linkname; gccgo leaves the consuming
+// declaration plain.
 func runtime_traceClockUnitsPerSecond() uint64
 
-//go:linkname runtime_traceAdvance runtime.traceAdvance
+// Provided by the runtime via a push linkname; gccgo leaves the consuming
+// declaration plain.
 func runtime_traceAdvance(stopTrace bool)

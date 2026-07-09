@@ -832,6 +832,7 @@ libgo_go_objs = \
 	syscall/signame.lo \
 	syscall/wait.lo \
 	runtime/internal/syscall/errno.lo \
+	internal/runtime/syscall/errno.lo \
 	os/dir_gccgo_c.lo \
 	$(golangorg_x_net_lif_lo) \
 	$(golangorg_x_net_route_lo) \
@@ -1204,6 +1205,10 @@ syscall/wait.lo: go/syscall/wait.c runtime.inc
 runtime/internal/syscall/errno.lo: go/runtime/internal/syscall/errno.c runtime.inc
 	@$(MKDIR_P) runtime/internal/syscall
 	$(LTCOMPILE) -c -o $@ $(srcdir)/go/runtime/internal/syscall/errno.c
+
+internal/runtime/syscall/errno.lo: go/internal/runtime/syscall/errno.c runtime.inc
+	@$(MKDIR_P) internal/runtime/syscall
+	$(LTCOMPILE) -c -o $@ $(srcdir)/go/internal/runtime/syscall/errno.c
 
 # An os function is written in C.
 os/dir_gccgo_c.lo: go/os/dir_gccgo_c.c runtime.inc

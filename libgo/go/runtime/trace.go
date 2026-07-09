@@ -608,6 +608,46 @@ func ReadTrace() []byte {
 	return nil
 }
 
+// runtime/trace compatibility shims for gccgo's default v1 tracer.
+//
+// The newer runtime/trace package expects runtime/trace to be pushed from the
+// runtime package instead of using consuming-side //go:linkname directives.
+// The old tracer has no generation-advance operation, so traceAdvance is a
+// no-op on this path.
+
+//go:linkname trace_runtimeReadTrace runtime_1trace.runtime__readTrace
+func trace_runtimeReadTrace() []byte {
+	return ReadTrace()
+}
+
+//go:linkname trace_runtimeTraceAdvance runtime_1trace.runtime__traceAdvance
+func trace_runtimeTraceAdvance(stopTrace bool) {
+	_ = stopTrace
+}
+
+//go:linkname trace_runtimeTraceClockUnitsPerSecond runtime_1trace.runtime__traceClockUnitsPerSecond
+func trace_runtimeTraceClockUnitsPerSecond() uint64 {
+	startTicks := cputicks()
+	startTime := nanotime()
+	deadline := startTime + 1_000_000
+	for {
+		nowTime := nanotime()
+		if nowTime > startTime {
+			nowTicks := cputicks()
+			if nowTicks > startTicks {
+				freq := uint64(nowTicks-startTicks) * 1e9 / uint64(nowTime-startTime)
+				if freq != 0 {
+					return freq / traceTickDiv
+				}
+			}
+		}
+		if nowTime >= deadline {
+			break
+		}
+	}
+	return uint64(1e9 / traceTickDiv)
+}
+
 // traceReader returns the trace reader that should be woken up, if any.
 // Callers should first check that trace.enabled or trace.shutdown is set.
 func traceReader() *g {

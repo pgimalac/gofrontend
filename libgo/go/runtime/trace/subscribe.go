@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	_ "unsafe"
 )
 
 var tracing traceMultiplexer
@@ -201,5 +200,6 @@ func (t *traceMultiplexer) startLocked() error {
 	return nil
 }
 
-//go:linkname runtime_readTrace
+// Provided by the runtime via a push linkname; gccgo leaves the consuming
+// declaration plain.
 func runtime_readTrace() (buf []byte)
