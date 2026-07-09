@@ -5128,7 +5128,9 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks,
 Type*
 Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 					 const std::vector<std::string>& names,
-					 const std::vector<Type*>* solved)
+					 const std::vector<Type*>* solved,
+					 const std::map<std::string, std::string>*
+					   aliases)
 {
   if (c.empty())
     return NULL;
@@ -5199,7 +5201,7 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 		  is_type_param = true;
 	      if (!is_type_param)
 		{
-		  Type* pt = this->parse_type_from_tokens(p, NULL,
+		  Type* pt = this->parse_type_from_tokens(p, aliases,
 							  /*issue_error=*/false);
 		  // Only classify as an embedded interface if the name actually
 		  // resolved to a defined type.  A bare name from an imported
@@ -5290,7 +5292,8 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
 	      std::vector<Token> sub;
 	      substitute_type_params(gi->tokens(), gi->type_param_names(),
 				     gargs, sub);
-	      return this->constraint_core_type_with_markers(sub, names, solved);
+	      return this->constraint_core_type_with_markers(sub, names, solved,
+							      aliases);
 	    }
 	}
     }
@@ -5298,8 +5301,14 @@ Parse::constraint_core_type_with_markers(const std::vector<Token>& c,
   // Substitute type-parameter names with inference markers.
   std::vector<Token> subst;
   // Package bindings for any cross-package solved types emitted below, so the
-  // re-parse resolves their qualifiers to the exact package.
+  // re-parse resolves their qualifiers to the exact package.  Seed with the
+  // template's own package-qualifier aliases so that a constraint written with
+  // a package qualifier (e.g. "cmp.Ordered") resolves that qualifier to the
+  // package the template was defined against, rather than a same-named local
+  // object (e.g. a local "func cmp") in the instantiating package.
   std::map<std::string, std::string> pkg_bindings;
+  if (aliases != NULL)
+    pkg_bindings.insert(aliases->begin(), aliases->end());
   for (size_t i = k; i < elem.size(); ++i)
     {
       const Token& t = elem[i];
@@ -6960,7 +6969,8 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		// the other parameters appearing in it.
 		Type* core =
 		  this->constraint_core_type_with_markers(
-		    cons[i], info->type_param_names(), &solved);
+		    cons[i], info->type_param_names(), &solved,
+		    &info->package_aliases());
 		if (core == NULL || core->is_error_type())
 		  continue;
 		size_t before = 0;
@@ -6982,7 +6992,8 @@ Parse::instantiate_generic_with_inference(Generic_function_info* info,
 		// it mentions are solved).
 		Type* core =
 		  this->constraint_core_type_with_markers(
-		    cons[i], info->type_param_names(), &solved);
+		    cons[i], info->type_param_names(), &solved,
+		    &info->package_aliases());
 		if (core == NULL || core->is_error_type())
 		  continue;
 		if (!type_has_infer_marker(this->gogo_, core, 0))
@@ -7479,14 +7490,16 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	// package the template was defined against rather than an ambiguous
 	// same-named package imported elsewhere (mirrors qualified_ident).
 	// The map is authoritative for a package qualifier: an ordinary by-name
-	// lookup may have found a different same-named package, so override it.
-	// But do not override a name that resolves to a local (function-scoped)
-	// binding -- a local variable may deliberately shadow an imported
-	// package (e.g. "var errors error" shadowing the "errors" package), and
-	// such a use as a value must keep the variable, not become the package.
+	// lookup may have found a different same-named package, or a package-LEVEL
+	// object in the instantiating package that shadows the package name (e.g. a
+	// local "func cmp" shadowing the "cmp" package while the template body calls
+	// cmp.Less), so override it.  The identifier is present in the alias map only
+	// if the template used it as a package qualifier, so resolving it to that
+	// package here is correct.  But do not override a name that resolves to a
+	// genuine function-scoped local (in_function != NULL) -- e.g. a parameter
+	// "errors error" shadowing the "errors" package -- which is a value and must
+	// be kept.
 	if (this->replay_pkg_aliases_ != NULL
-	    && (named_object == NULL
-		|| named_object->is_package())
 	    && in_function == NULL)
 	  {
 	    std::map<std::string, std::string>::const_iterator a =
