@@ -138,7 +138,7 @@ func makeslice64(et *_type, len64, cap64 int64) unsafe.Pointer {
 	return makeslice(et, len, cap)
 }
 
-// This is a wrapper over runtime/internal/math.MulUintptr,
+// This is a wrapper over internal/runtime/math.MulUintptr,
 // so the compiler can recognize and treat it as an intrinsic.
 func mulUintptr(a, b uintptr) (uintptr, bool) {
 	return math.MulUintptr(a, b)

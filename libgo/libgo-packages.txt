@@ -114,7 +114,6 @@ go/importer
 go/internal/gccgoimporter
 go/internal/gcimporter
 go/internal/srcimporter
-go/internal/typeparams
 go/parser
 go/printer
 go/scanner
@@ -169,7 +168,6 @@ internal/bytealg
 internal/byteorder
 internal/cfg
 internal/chacha8rand
-internal/concurrent
 internal/coverage
 internal/coverage/calloc
 internal/coverage/cfile
@@ -238,7 +236,6 @@ internal/trace/version
 internal/txtar
 internal/types/errors
 internal/unsafeheader
-internal/weak
 internal/xcoff
 internal/zstd
 io

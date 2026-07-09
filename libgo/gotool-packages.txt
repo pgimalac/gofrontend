@@ -20,7 +20,6 @@ cmd/go/internal/list
 cmd/go/internal/load
 cmd/go/internal/lockedfile
 cmd/go/internal/lockedfile/internal/filelock
-cmd/go/internal/mmap
 cmd/go/internal/modcmd
 cmd/go/internal/modfetch
 cmd/go/internal/modfetch/codehost
