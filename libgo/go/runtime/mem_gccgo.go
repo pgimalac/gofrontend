@@ -49,7 +49,7 @@ func mmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uintptr) (u
 // prevents us from allocating more stack.
 //
 //go:nosplit
-func sysAllocOS(n uintptr) unsafe.Pointer {
+func sysAllocOS(n uintptr, _ string) unsafe.Pointer {
 	p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, mmapFD, 0)
 	if err != 0 {
 		if err == _EACCES {
@@ -192,7 +192,7 @@ func sysFaultOS(v unsafe.Pointer, n uintptr) {
 	mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, mmapFD, 0)
 }
 
-func sysReserveOS(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+func sysReserveOS(v unsafe.Pointer, n uintptr, _ string) unsafe.Pointer {
 	p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, mmapFD, 0)
 	if err != 0 {
 		return nil
@@ -200,7 +200,7 @@ func sysReserveOS(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	return p
 }
 
-func sysMapOS(v unsafe.Pointer, n uintptr) {
+func sysMapOS(v unsafe.Pointer, n uintptr, _ string) {
 	if GOOS == "aix" {
 		// AIX does not allow mapping a range that is already mapped.
 		// So always unmap first even if it is already unmapped.

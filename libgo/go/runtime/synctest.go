@@ -167,6 +167,15 @@ func (bubble *synctestBubble) raceaddr() unsafe.Pointer {
 
 var bubbleGen atomic.Uint64 // bubble ID counter
 
+// synctestmain is the entry point of a bubble's main goroutine (gccgo). It is a
+// named function rather than a closure so it can be started with a go statement
+// under -fgo-compiling-runtime (closures are heap-allocated and rejected there).
+// It records itself as bubble.main before running f.
+func synctestmain(bubble *synctestBubble, f func()) {
+	bubble.main = getg()
+	f()
+}
+
 //go:linkname synctestRun internal_1synctest.Run
 func synctestRun(f func()) {
 	if debug.asynctimerchan.Load() != 0 {
@@ -197,14 +206,14 @@ func synctestRun(f func()) {
 	// statement. The gc runtime uses newproc1(fv) with a register-ABI
 	// funcval to obtain the new g directly; gccgo's newproc has a
 	// different signature and the go statement lowers to __go_go, so we
-	// record bubble.main from within the new goroutine itself. The
-	// assignment happens before f runs and before the goroutine can
-	// reach _Gdead, so changegstatus's "gp == bubble.main" check is
-	// reliable (the main goroutine is running until after main is set).
-	go func() {
-		bubble.main = getg()
-		f()
-	}()
+	// record bubble.main from within the new goroutine itself. A named
+	// function (not a capturing closure) is used because closures are
+	// heap-allocated, which is rejected under -fgo-compiling-runtime; a
+	// go statement calling a named func with arguments is allowed (as with
+	// go bgsweep(c)). The assignment happens before f runs and before the
+	// goroutine can reach _Gdead, so changegstatus's "gp == bubble.main"
+	// check is reliable (the main goroutine is running until after main is set).
+	go synctestmain(bubble, f)
 
 	lock(&bubble.mu)
 	bubble.active++
@@ -435,21 +444,21 @@ func getOrSetBubbleSpecial(p unsafe.Pointer, bubbleid uint64, add bool) (assoc i
 // synctest_associate associates p with the current bubble.
 // It returns false if p is already associated with a different bubble.
 //
-//go:linkname synctest_associate internal/synctest.associate
+//go:linkname synctest_associate internal_1synctest.associate
 func synctest_associate(p unsafe.Pointer) int {
 	return getOrSetBubbleSpecial(p, getg().bubble.id, true)
 }
 
 // synctest_disassociate disassociates p from its bubble.
 //
-//go:linkname synctest_disassociate internal/synctest.disassociate
+//go:linkname synctest_disassociate internal_1synctest.disassociate
 func synctest_disassociate(p unsafe.Pointer) {
 	removespecial(p, _KindSpecialBubble)
 }
 
 // synctest_isAssociated reports whether p is associated with the current bubble.
 //
-//go:linkname synctest_isAssociated internal/synctest.isAssociated
+//go:linkname synctest_isAssociated internal_1synctest.isAssociated
 func synctest_isAssociated(p unsafe.Pointer) bool {
 	return getOrSetBubbleSpecial(p, getg().bubble.id, false) == bubbleAssocCurrentBubble
 }

@@ -76,7 +76,7 @@ func dlog() *dlogger {
 	if l == nil {
 		// Use sysAllocOS instead of sysAlloc because we want to interfere
 		// with the runtime as little as possible, and sysAlloc updates accounting.
-		l = (*dlogger)(sysAllocOS(unsafe.Sizeof(dlogger{})))
+		l = (*dlogger)(sysAllocOS(unsafe.Sizeof(dlogger{}), "debug log"))
 		if l == nil {
 			throw("failed to allocate debug log")
 		}
@@ -722,7 +722,7 @@ func printDebugLog() {
 	}
 	// Use sysAllocOS instead of sysAlloc because we want to interfere
 	// with the runtime as little as possible, and sysAlloc updates accounting.
-	state1 := sysAllocOS(unsafe.Sizeof(readState{}) * uintptr(n))
+	state1 := sysAllocOS(unsafe.Sizeof(readState{})*uintptr(n), "debug log")
 	if state1 == nil {
 		println("failed to allocate read state for", n, "logs")
 		printunlock()

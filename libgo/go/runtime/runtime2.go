@@ -659,6 +659,11 @@ type m struct {
 	// Whether this is a pending preemption signal on this M.
 	signalPending atomic.Uint32
 
+	// A snapshot of allp, taken by snapshotAllp for use after
+	// dropping the P (see proc.go). The M holds a reference on the
+	// snapshot to keep the backing array alive.
+	allpSnapshot []*p
+
 	// gccgo has no pclntab, so no pcvalue lookup cache.
 
 	dlogPerM
@@ -789,9 +794,8 @@ type p struct {
 	// Timer heap.
 	timers timers
 
-	// Cleanups.
-	cleanups       *cleanupBlock
-	cleanupsQueued uint64 // monotonic count of cleanups queued by this P
+	// gccgo does not implement Go 1.25 cleanups (runtime.AddCleanup), so
+	// the gc-1.25 per-P cleanup block and queued-count fields are omitted.
 
 	// maxStackScanDelta accumulates the amount of stack space held by
 	// live goroutines (i.e. those eligible for stack scanning).
@@ -1049,6 +1053,11 @@ type _panic struct {
 
 	// Whether this panic has been recovered.
 	recovered bool
+
+	// Whether this panic was recovered and then re-raised (panicked
+	// again) with the same value, so that printing can skip the
+	// duplicate. Used only by preprintpanics/printpanics.
+	repanicked bool
 
 	// Whether this panic was pushed on the stack because of an
 	// exception thrown in some other language.

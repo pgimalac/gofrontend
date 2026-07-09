@@ -1575,7 +1575,8 @@ func goroutineProfileWithLabelsConcurrent(p []profilerecord.StackRecord, labels 
 	if fing != nil && !fing.isSystemGoroutine {
 		n++
 	}
-	n += int(gcCleanups.running.Load())
+	// gccgo does not implement Go 1.25 cleanups, so there are no
+	// additional running cleanup goroutines to account for.
 
 	if n > len(p) {
 		// There's not enough space in p to store the whole profile, so (per the

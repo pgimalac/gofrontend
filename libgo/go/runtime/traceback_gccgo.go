@@ -263,6 +263,14 @@ func isSystemGoroutine(gp *g, fixed bool) bool {
 }
 
 func tracebackothers(me *g) {
+	tracebacksomeothers(me, nil)
+}
+
+// tracebacksomeothers is like tracebackothers, but if showf is non-nil it
+// only prints goroutines for which showf returns true (and always prints the
+// current goroutine). This is used to dump only the goroutines involved in a
+// synctest bubble deadlock.
+func tracebacksomeothers(me *g, showf func(*g) bool) {
 	var tb tracebackg
 	tb.gp = me
 
@@ -288,6 +296,9 @@ func tracebackothers(me *g) {
 	lock(&allglock)
 	for _, gp := range allgs {
 		if gp == me || gp == g.m.curg || readgstatus(gp) == _Gdead || isSystemGoroutine(gp, false) && level < 2 {
+			continue
+		}
+		if showf != nil && !showf(gp) {
 			continue
 		}
 		print("\n")

@@ -1327,7 +1327,9 @@ func runtimeNow() (sec int64, nsec int32, mono int64)
 // (see runtime.time_runtimeNano, linknamed as time.runtimeNano).
 func runtimeNano() int64
 
-//go:linkname runtimeIsBubbled
+// runtimeIsBubbled is provided by the runtime (pushed via
+// //go:linkname time_runtimeIsBubbled time.runtimeIsBubbled), so it is a plain
+// bodyless declaration here (gccgo: no consuming-side //go:linkname).
 func runtimeIsBubbled() bool
 
 // Monotonic times are reported as offsets from startNano.

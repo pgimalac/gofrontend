@@ -178,8 +178,8 @@ func (a *activeSweep) end(sl sweepLocker) {
 				live := gcController.heapLive.Load()
 				print("pacer: sweep done at heap size ", live>>20, "MB; allocated ", (live-mheap_.sweepHeapLiveBasis)>>20, "MB during sweep; swept ", mheap_.pagesSwept.Load(), " pages at ", mheap_.sweepPagesPerByte, " pages/byte\n")
 			}
-			// Now that sweeping is completely done, flush remaining cleanups.
-			gcCleanups.flush()
+			// gccgo does not implement Go 1.25 cleanups, so there is
+			// nothing to flush here.
 			return
 		}
 	}
@@ -626,7 +626,9 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 				if asanenabled {
 					asanpoison(unsafe.Pointer(x), size)
 				}
-				if valgrindenabled && !s.isUserArenaChunk {
+				// gccgo does not implement user arena chunks, so the
+				// span is never a user arena chunk here.
+				if valgrindenabled {
 					valgrindFree(unsafe.Pointer(x))
 				}
 			}

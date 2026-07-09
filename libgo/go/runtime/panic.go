@@ -1157,7 +1157,7 @@ func internal_sync_fatal(s string) {
 	fatal(s)
 }
 
-//go:linkname cgroup_throw internal/runtime/cgroup.throw
+//go:linkname cgroup_throw internal_1runtime_1cgroup.throw
 func cgroup_throw(s string) {
 	throw(s)
 }

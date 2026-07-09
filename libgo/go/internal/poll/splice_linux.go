@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"unsafe"
 )
 
 const (
@@ -178,7 +179,10 @@ type splicePipeFields struct {
 
 type splicePipe struct {
 	splicePipeFields
-	cleanup runtime.Cleanup
+
+	// We want to use a finalizer, so ensure that the size is
+	// large enough to not use the tiny allocator.
+	_ [24 - unsafe.Sizeof(splicePipeFields{})%24]byte
 }
 
 // splicePipePool caches pipes to avoid high-frequency construction and destruction of pipe buffers.
@@ -193,10 +197,7 @@ func newPoolPipe() any {
 	if p == nil {
 		return nil
 	}
-
-	p.cleanup = runtime.AddCleanup(p, func(spf splicePipeFields) {
-		destroyPipe(&splicePipe{splicePipeFields: spf})
-	}, p.splicePipeFields)
+	runtime.SetFinalizer(p, destroyPipe)
 	return p
 }
 
@@ -213,7 +214,7 @@ func putPipe(p *splicePipe) {
 	// If there is still data left in the pipe,
 	// then close and discard it instead of putting it back into the pool.
 	if p.data != 0 {
-		p.cleanup.Stop()
+		runtime.SetFinalizer(p, nil)
 		destroyPipe(p)
 		return
 	}

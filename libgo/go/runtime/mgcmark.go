@@ -16,7 +16,6 @@ import (
 const (
 	fixedRootFinalizers = iota
 	fixedRootFreeGStacks
-	fixedRootCleanups
 	fixedRootCount
 
 	// rootBlockBytes is the number of bytes to scan per data or
@@ -172,14 +171,6 @@ func markroot(gcw *gcWork, i uint32, flushBgCredit bool) int64 {
 	case i == fixedRootFreeGStacks:
 		// FIXME: We don't do this for gccgo.
 
-	case i == fixedRootCleanups:
-		for cb := (*cleanupBlock)(gcCleanups.all.Load()); cb != nil; cb = cb.alllink {
-			// N.B. This only needs to synchronize with cleanup execution, which only resets these blocks.
-			// All cleanup queueing happens during sweep.
-			n := uintptr(atomic.Load(&cb.n))
-			scanblock(uintptr(unsafe.Pointer(&cb.cleanups[0])), n*goarch.PtrSize, &cleanupBlockPtrMask[0], gcw)
-		}
-
 	case work.baseSpans <= i && i < work.baseStacks:
 		// mark mspan.specials
 		markrootSpans(gcw, int(i-work.baseSpans))
@@ -321,16 +312,12 @@ func markrootSpans(gcw *gcWork, shard int) {
 			// removed from the list while we're traversing it.
 			lock(&s.speciallock)
 			for sp := s.specials; sp != nil; sp = sp.next {
-				switch sp.kind {
-				case _KindSpecialFinalizer:
-					gcScanFinalizer((*specialfinalizer)(unsafe.Pointer(sp)), s, gcw)
-				case _KindSpecialWeakHandle:
-					// The special itself is a root.
-					spw := (*specialWeakHandle)(unsafe.Pointer(sp))
-					scanblock(uintptr(unsafe.Pointer(&spw.handle)), goarch.PtrSize, &oneptrmask[0], gcw)
-				case _KindSpecialCleanup:
-					gcScanCleanup((*specialCleanup)(unsafe.Pointer(sp)), gcw)
+				// gccgo only implements finalizer specials (no weak
+				// handles or cleanups from Go 1.25).
+				if sp.kind != _KindSpecialFinalizer {
+					continue
 				}
+				gcScanFinalizer((*specialfinalizer)(unsafe.Pointer(sp)), s, gcw)
 			}
 			unlock(&s.speciallock)
 		}
@@ -353,12 +340,6 @@ func gcScanFinalizer(spf *specialfinalizer, s *mspan, gcw *gcWork) {
 
 	// The special itself is also a root.
 	scanblock(uintptr(unsafe.Pointer(&spf.fn)), goarch.PtrSize, &oneptrmask[0], gcw)
-}
-
-// gcScanCleanup scans the relevant parts of a cleanup special as a root.
-func gcScanCleanup(spc *specialCleanup, gcw *gcWork) {
-	// The special itself is a root.
-	scanblock(uintptr(unsafe.Pointer(&spc.fn)), goarch.PtrSize, &oneptrmask[0], gcw)
 }
 
 // gcAssistAlloc performs GC work to make gp's assist debt positive.

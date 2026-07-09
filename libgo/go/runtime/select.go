@@ -180,7 +180,7 @@ func selectgo(cas0 *scase, order0 *uint16, nsends, nrecvs int, block bool) (int,
 	lockorder = lockorder[:norder]
 
 	waitReason := waitReasonSelect
-	if gp.bubble != nil && allSynctest {
+	if getg().bubble != nil && allSynctest {
 		// Every channel selected on is in a synctest bubble,
 		// so this goroutine will count as idle while selecting.
 		waitReason = waitReasonSynctestSelect

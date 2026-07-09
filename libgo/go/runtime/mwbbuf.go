@@ -291,7 +291,7 @@ func wbBufFlush1(pp *p) {
 	}
 
 	// Enqueue the greyed objects.
-	gcw.putObjBatch(ptrs[:pos])
+	gcw.putBatch(ptrs[:pos])
 
 	pp.wbBuf.reset()
 }

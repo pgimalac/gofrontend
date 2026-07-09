@@ -8,8 +8,17 @@ package runtime
 
 import (
 	"internal/runtime/atomic"
-	"internal/runtime/syscall"
 	"unsafe"
+)
+
+// For gccgo the runtime uses its own libc-based syscall wrapper (see
+// stubs.go's syscall function), so we cannot import
+// internal/runtime/syscall here: that package would be imported under the
+// name "syscall", conflicting with the runtime's global syscall function.
+// Define the prctl arguments locally instead.
+const (
+	_PR_SET_VMA           = 0x53564d41
+	_PR_SET_VMA_ANON_NAME = 0
 )
 
 var prSetVMAUnsupported atomic.Bool
@@ -24,8 +33,8 @@ func setVMAName(start unsafe.Pointer, length uintptr, name string) {
 	n := copy(sysName[:], " Go: ")
 	copy(sysName[n:79], name) // leave final byte zero
 
-	_, _, err := syscall.Syscall6(syscall.SYS_PRCTL, syscall.PR_SET_VMA, syscall.PR_SET_VMA_ANON_NAME, uintptr(start), length, uintptr(unsafe.Pointer(&sysName[0])), 0)
-	if err == _EINVAL {
+	r := syscall(_SYS_prctl, _PR_SET_VMA, _PR_SET_VMA_ANON_NAME, uintptr(start), length, uintptr(unsafe.Pointer(&sysName[0])), 0)
+	if int32(r) == -_EINVAL {
 		prSetVMAUnsupported.Store(true)
 	}
 	// ignore other errors

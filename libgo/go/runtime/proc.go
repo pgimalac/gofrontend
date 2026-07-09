@@ -3269,10 +3269,8 @@ top:
 		}
 	}
 
-	// Wake up one or more cleanup Gs.
-	if gcCleanups.needsWake() {
-		gcCleanups.wake()
-	}
+	// gccgo does not implement Go 1.25 cleanups, so there are no
+	// cleanup Gs to wake.
 
 	if *cgo_yield != nil {
 		asmcgocall(*cgo_yield, nil)
@@ -4854,7 +4852,7 @@ func newproc(fn uintptr, arg unsafe.Pointer) *g {
 	newg.entry = entry
 
 	newg.param = arg
-	newg.parentGoid = _g_.goid
+	newg.parentGoid = uint64(_g_.goid)
 	newg.gopc = getcallerpc()
 	newg.ancestors = saveAncestors(_g_)
 	newg.startpc = fn
@@ -5160,7 +5158,7 @@ func badunlockosthread() {
 }
 
 func gcount() int32 {
-	n := int32(atomic.Loaduintptr(&allglen)) - sched.gFree.stack.size - sched.gFree.noStack.size - sched.ngsys.Load()
+	n := int32(atomic.Loaduintptr(&allglen)) - sched.gFree.n - sched.ngsys.Load()
 	for _, pp := range allp {
 		n -= pp.gFree.size
 	}
@@ -5452,8 +5450,8 @@ func (pp *p) destroy() {
 		pp.raceprocctx = 0
 	}
 	pp.gcAssistTime = 0
-	gcCleanups.queued += pp.cleanupsQueued
-	pp.cleanupsQueued = 0
+	// gccgo does not implement Go 1.25 cleanups, so pp.cleanupsQueued
+	// is always zero and there is no global cleanup queue to update.
 	pp.status = _Pdead
 }
 

@@ -367,6 +367,10 @@ var debug struct {
 
 	panicnil atomic.Int32
 
+	// runtimeContentionStacks controls whether contention on runtime-internal
+	// locks records the full stack trace or a single sentinel frame.
+	runtimeContentionStacks atomic.Int32
+
 	// asynctimerchan controls whether timer channels
 	// behave asynchronously (as in Go 1.22 and earlier)
 	// instead of their Go 1.23+ synchronous behavior.
@@ -404,6 +408,7 @@ var dbgvars = []*dbgVar{
 	{name: "panicnil", atomic: &debug.panicnil},
 	{name: "profstackdepth", value: &debug.profstackdepth, def: 128},
 	{name: "sbrk", value: &debug.sbrk},
+	{name: "runtimecontentionstacks", atomic: &debug.runtimeContentionStacks},
 	{name: "scavtrace", value: &debug.scavtrace},
 	{name: "scheddetail", value: &debug.scheddetail},
 	{name: "schedtrace", value: &debug.schedtrace},

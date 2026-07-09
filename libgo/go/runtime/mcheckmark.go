@@ -152,7 +152,12 @@ func runCheckmark(prepareRootSet func(*gcWork)) {
 }
 
 // checkFinalizersAndCleanups uses checkmarks to check for potential issues
-// with the program's use of cleanups and finalizers.
+// with the program's use of finalizers.
+//
+// gccgo does not implement the Go 1.25 cleanup mechanism (runtime.AddCleanup)
+// nor the gc symtab (findfunc/funcInfo) used by the upstream diagnostic to
+// pretty-print the offending finalizer's source location, so this adapted
+// version only reports finalizer reachability cycles.
 func checkFinalizersAndCleanups() {
 	assertWorldStopped()
 
@@ -170,31 +175,19 @@ func checkFinalizersAndCleanups() {
 	var reports [50]report
 	var nreports int
 	var more bool
-	var lastTinyBlock uintptr
 
 	forEachSpecial(func(p uintptr, s *mspan, sp *special) bool {
-		// N.B. The tiny block specials are sorted first in the specials list.
-		if sp.kind == _KindSpecialTinyBlock {
-			lastTinyBlock = s.base() + sp.offset
+		// We only care about finalizers.
+		if sp.kind != _KindSpecialFinalizer {
 			return true
 		}
 
-		// We only care about finalizers and cleanups.
-		if sp.kind != _KindSpecialFinalizer && sp.kind != _KindSpecialCleanup {
-			return true
-		}
-
-		// Run a checkmark GC using this cleanup and/or finalizer as a root.
+		// Run a checkmark GC using this finalizer as a root.
 		if debug.checkfinalizers > 1 {
-			print("Scan trace for cleanup/finalizer on ", hex(p), ":\n")
+			print("Scan trace for finalizer on ", hex(p), ":\n")
 		}
 		runCheckmark(func(gcw *gcWork) {
-			switch sp.kind {
-			case _KindSpecialFinalizer:
-				gcScanFinalizer((*specialfinalizer)(unsafe.Pointer(sp)), s, gcw)
-			case _KindSpecialCleanup:
-				gcScanCleanup((*specialCleanup)(unsafe.Pointer(sp)), gcw)
-			}
+			gcScanFinalizer((*specialfinalizer)(unsafe.Pointer(sp)), s, gcw)
 		})
 		if debug.checkfinalizers > 1 {
 			println()
@@ -202,8 +195,7 @@ func checkFinalizersAndCleanups() {
 
 		// Now check to see if the object the special is attached to was marked.
 		// The roots above do not directly mark p, so if it is marked, then p
-		// must be reachable from the finalizer and/or cleanup, preventing
-		// reclamation.
+		// must be reachable from the finalizer, preventing reclamation.
 		bytep, mask := getCheckmark(p)
 		if bytep == nil {
 			return true
@@ -211,9 +203,6 @@ func checkFinalizersAndCleanups() {
 		var issues int
 		if atomic.Load8(bytep)&mask != 0 {
 			issues |= reportCycle
-		}
-		if p >= lastTinyBlock && p < lastTinyBlock+maxTinySize {
-			issues |= reportTiny
 		}
 		if issues != 0 {
 			if nreports >= len(reports) {
@@ -227,74 +216,21 @@ func checkFinalizersAndCleanups() {
 	})
 
 	if nreports > 0 {
-		lastPtr := uintptr(0)
-		println("WARNING: LIKELY CLEANUP/FINALIZER ISSUES")
+		println("WARNING: LIKELY FINALIZER ISSUES")
 		println()
 		for _, r := range reports[:nreports] {
-			var ctx *specialCheckFinalizer
-			var kind string
-			if r.sp.kind == _KindSpecialFinalizer {
-				kind = "finalizer"
-				ctx = getCleanupContext(r.ptr, 0)
-			} else {
-				kind = "cleanup"
-				ctx = getCleanupContext(r.ptr, ((*specialCleanup)(unsafe.Pointer(r.sp))).id)
-			}
-
-			// N.B. reports is sorted 'enough' that cleanups/finalizers on the same pointer will
-			// appear consecutively because the specials list is sorted.
-			if lastPtr != r.ptr {
-				if lastPtr != 0 {
-					println()
-				}
-				print("Value of type ", toRType(ctx.ptrType).string(), " at ", hex(r.ptr), "\n")
-				if r.issues&reportCycle != 0 {
-					if r.sp.kind == _KindSpecialFinalizer {
-						println("  is reachable from finalizer")
-					} else {
-						println("  is reachable from cleanup or cleanup argument")
-					}
-				}
-				if r.issues&reportTiny != 0 {
-					println("  is in a tiny block with other (possibly long-lived) values")
-				}
-				if r.issues&reportTiny != 0 && r.issues&reportCycle != 0 {
-					if r.sp.kind == _KindSpecialFinalizer {
-						println("  may be in the same tiny block as finalizer")
-					} else {
-						println("  may be in the same tiny block as cleanup or cleanup argument")
-					}
-				}
+			print("Value at ", hex(r.ptr), "\n")
+			if r.issues&reportCycle != 0 {
+				println("  is reachable from finalizer")
 			}
 			println()
-
-			println("Has", kind, "at", hex(uintptr(unsafe.Pointer(r.sp))))
-			funcInfo := findfunc(ctx.funcPC)
-			if funcInfo.valid() {
-				file, line := funcline(funcInfo, ctx.funcPC)
-				print("  ", funcname(funcInfo), "()\n")
-				print("      ", file, ":", line, " +", hex(ctx.funcPC-funcInfo.entry()), "\n")
-			} else {
-				print("  <bad pc ", hex(ctx.funcPC), ">\n")
-			}
-
-			println("created at: ")
-			createInfo := findfunc(ctx.createPC)
-			if createInfo.valid() {
-				file, line := funcline(createInfo, ctx.createPC)
-				print("  ", funcname(createInfo), "()\n")
-				print("      ", file, ":", line, " +", hex(ctx.createPC-createInfo.entry()), "\n")
-			} else {
-				print("  <bad pc ", hex(ctx.createPC), ">\n")
-			}
-
-			lastPtr = r.ptr
+			println("Has finalizer at", hex(uintptr(unsafe.Pointer(r.sp))))
 		}
 		println()
 		if more {
 			println("... too many potential issues ...")
 		}
-		throw("detected possible issues with cleanups and/or finalizers")
+		throw("detected possible issues with finalizers")
 	}
 }
 

@@ -985,7 +985,7 @@ func traceFlush(buf traceBufPtr, pid int32) traceBufPtr {
 		buf = trace.empty
 		trace.empty = buf.ptr().link
 	} else {
-		buf = traceBufPtr(sysAlloc(unsafe.Sizeof(traceBuf{}), &memstats.other_sys))
+		buf = traceBufPtr(sysAlloc(unsafe.Sizeof(traceBuf{}), &memstats.other_sys, "trace buffer"))
 		if buf == 0 {
 			throw("trace: out of memory")
 		}
@@ -1287,7 +1287,7 @@ func (a *traceAlloc) alloc(n uintptr) unsafe.Pointer {
 		}
 		// This is only safe because the strings returned by callers
 		// are stored in a location that is not in the Go heap.
-		block := (*traceAllocBlock)(sysAlloc(unsafe.Sizeof(traceAllocBlock{}), &memstats.other_sys))
+		block := (*traceAllocBlock)(sysAlloc(unsafe.Sizeof(traceAllocBlock{}), &memstats.other_sys, "trace alloc"))
 		if block == nil {
 			throw("trace: out of memory")
 		}

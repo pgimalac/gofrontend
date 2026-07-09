@@ -12,15 +12,16 @@ import (
 	"unsafe"
 )
 
-//go:linkname Run
+// These functions are implemented in the runtime package and pushed here
+// via 2-arg //go:linkname directives in the runtime (the gccgo linkname
+// convention). Declaring them as plain bodyless functions here lets the
+// runtime supply the bodies.
+
 func Run(f func())
 
-//go:linkname Wait
 func Wait()
 
 // IsInBubble reports whether the current goroutine is in a bubble.
-//
-//go:linkname IsInBubble
 func IsInBubble() bool
 
 // Association is the state of a pointer's bubble association.
@@ -40,7 +41,6 @@ func Associate[T any](p *T) Association {
 	return Association(associate(unsafe.Pointer(escapedP)))
 }
 
-//go:linkname associate
 func associate(p unsafe.Pointer) int
 
 // Disassociate disassociates p from any bubble.
@@ -48,7 +48,6 @@ func Disassociate[T any](p *T) {
 	disassociate(unsafe.Pointer(p))
 }
 
-//go:linkname disassociate
 func disassociate(b unsafe.Pointer)
 
 // IsAssociated reports whether p is associated with the current bubble.
@@ -56,16 +55,12 @@ func IsAssociated[T any](p *T) bool {
 	return isAssociated(unsafe.Pointer(p))
 }
 
-//go:linkname isAssociated
 func isAssociated(p unsafe.Pointer) bool
 
-//go:linkname acquire
 func acquire() any
 
-//go:linkname release
 func release(any)
 
-//go:linkname inBubble
 func inBubble(any, func())
 
 // A Bubble is a synctest bubble.

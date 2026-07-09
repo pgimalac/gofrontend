@@ -224,6 +224,7 @@ type mheap struct {
 	specialprofilealloc    fixalloc // allocator for specialprofile*
 	specialReachableAlloc  fixalloc // allocator for specialReachable
 	specialPinCounterAlloc fixalloc // allocator for specialPinCounter
+	specialBubbleAlloc     fixalloc // allocator for specialBubble
 	speciallock            mutex    // lock for special record allocators.
 	arenaHintAlloc         fixalloc // allocator for arenaHints
 
@@ -522,7 +523,7 @@ func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 		}
 		var new []*mspan
 		sp := (*notInHeapSlice)(unsafe.Pointer(&new))
-		sp.array = (*notInHeap)(sysAlloc(uintptr(n)*goarch.PtrSize, &memstats.other_sys))
+		sp.array = (*notInHeap)(sysAlloc(uintptr(n)*goarch.PtrSize, &memstats.other_sys, "allspans array"))
 		if sp.array == nil {
 			throw("runtime: cannot allocate memory")
 		}
@@ -750,6 +751,7 @@ func (h *mheap) init() {
 	h.specialprofilealloc.init(unsafe.Sizeof(specialprofile{}), nil, nil, &memstats.other_sys)
 	h.specialReachableAlloc.init(unsafe.Sizeof(specialReachable{}), nil, nil, &memstats.other_sys)
 	h.specialPinCounterAlloc.init(unsafe.Sizeof(specialPinCounter{}), nil, nil, &memstats.other_sys)
+	h.specialBubbleAlloc.init(unsafe.Sizeof(specialBubble{}), nil, nil, &memstats.other_sys)
 	h.arenaHintAlloc.init(unsafe.Sizeof(arenaHint{}), nil, nil, &memstats.other_sys)
 
 	// Don't zero mspan allocations. Background sweeping can
@@ -934,9 +936,10 @@ func (h *mheap) reclaimChunk(arenas []arenaIdx, pageIdx, n uintptr) uintptr {
 type spanAllocType uint8
 
 const (
-	spanAllocHeap    spanAllocType = iota // heap span
-	spanAllocStack                        // stack span
-	spanAllocWorkBuf                      // work buf span
+	spanAllocHeap          spanAllocType = iota // heap span
+	spanAllocStack                              // stack span
+	spanAllocPtrScalarBits                      // unrolled GC prog bitmap span
+	spanAllocWorkBuf                            // work buf span
 )
 
 // manual returns true if the span allocation is manually managed.
@@ -1406,6 +1409,8 @@ HaveSpan:
 		atomic.Xaddint64(&stats.inHeap, int64(nbytes))
 	case spanAllocStack:
 		atomic.Xaddint64(&stats.inStacks, int64(nbytes))
+	case spanAllocPtrScalarBits:
+		atomic.Xaddint64(&stats.inPtrScalarBits, int64(nbytes))
 	case spanAllocWorkBuf:
 		atomic.Xaddint64(&stats.inWorkBufs, int64(nbytes))
 	}
@@ -1612,6 +1617,8 @@ func (h *mheap) freeSpanLocked(s *mspan, typ spanAllocType) {
 		atomic.Xaddint64(&stats.inHeap, -int64(nbytes))
 	case spanAllocStack:
 		atomic.Xaddint64(&stats.inStacks, -int64(nbytes))
+	case spanAllocPtrScalarBits:
+		atomic.Xaddint64(&stats.inPtrScalarBits, -int64(nbytes))
 	case spanAllocWorkBuf:
 		atomic.Xaddint64(&stats.inWorkBufs, -int64(nbytes))
 	}
@@ -1862,6 +1869,9 @@ const (
 	// _KindSpecialPinCounter is a special used for objects that are pinned
 	// multiple times
 	_KindSpecialPinCounter = 4
+	// _KindSpecialBubble is a special used to associate an object with a
+	// synctest bubble.
+	_KindSpecialBubble = 5
 	// Note: The finalizer special must be first because if we're freeing
 	// an object, a finalizer special will cause the freeing operation
 	// to abort, and we want to keep the other special records around
@@ -2134,6 +2144,10 @@ func freeSpecial(s *special, p unsafe.Pointer, size uintptr) {
 	case _KindSpecialPinCounter:
 		lock(&mheap_.speciallock)
 		mheap_.specialPinCounterAlloc.free(unsafe.Pointer(s))
+		unlock(&mheap_.speciallock)
+	case _KindSpecialBubble:
+		lock(&mheap_.speciallock)
+		mheap_.specialBubbleAlloc.free(unsafe.Pointer(s))
 		unlock(&mheap_.speciallock)
 	default:
 		throw("bad special kind")

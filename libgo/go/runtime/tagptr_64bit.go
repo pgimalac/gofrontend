@@ -49,6 +49,11 @@ const (
 	// we can take 9 from the bottom, because we require pointers to be well-aligned
 	// (see tagptr.go:tagAlignBits). That gives us a total of 25 bits for the tag.
 	tagBits = 64 - addrBits + tagAlignBits
+
+	// The number of bits stored in the numeric tag of a taggedPointer.
+	// gccgo's malloc initialization sanity-checks minTagBits against
+	// this; keep it defined on 64-bit as well as 32-bit (tagptr_32bit.go).
+	taggedPointerBits = tagBits
 )
 
 // taggedPointerPack created a taggedPointer from a pointer and a tag.

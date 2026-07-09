@@ -128,9 +128,11 @@ const (
 	pageMask      = pageSize - 1
 
 	// Unused. Left for viewcore.
-	_PageSize              = pageSize
-	minSizeForMallocHeader = gc.MinSizeForMallocHeader
-	mallocHeaderSize       = gc.MallocHeaderSize
+	_PageSize = pageSize
+	// Note: gccgo does not implement the malloc-header scheme, so
+	// mallocHeaderSize and minSizeForMallocHeader are defined in
+	// mbitmap.go with gccgo-specific sentinel values rather than the
+	// internal/runtime/gc constants.
 
 	// _64bit = 1 on 64-bit systems, 0 on 32-bit systems
 	_64bit = 1 << (^uintptr(0) >> 63) / 2
@@ -624,7 +626,7 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 
 	// First, try the arena pre-reservation.
 	// Newly-used mappings are considered released.
-	v = h.arena.alloc(n, heapArenaBytes, &gcController.heapReleased)
+	v = h.arena.alloc(n, heapArenaBytes, &gcController.heapReleased, "heap")
 	if v != nil {
 		size = n
 		goto mapped
@@ -760,25 +762,25 @@ mapped:
 		}
 
 		// Add the arena to the arenas list.
-		if len(h.allArenas) == cap(h.allArenas) {
-			size := 2 * uintptr(cap(h.allArenas)) * goarch.PtrSize
+		if len(h.heapArenas) == cap(h.heapArenas) {
+			size := 2 * uintptr(cap(h.heapArenas)) * goarch.PtrSize
 			if size == 0 {
 				size = physPageSize
 			}
 			newArray := (*notInHeap)(persistentalloc(size, goarch.PtrSize, &memstats.gcMiscSys))
 			if newArray == nil {
-				throw("out of memory allocating allArenas")
+				throw("out of memory allocating heapArenas")
 			}
-			oldSlice := h.allArenas
-			*(*notInHeapSlice)(unsafe.Pointer(&h.allArenas)) = notInHeapSlice{newArray, len(h.allArenas), int(size / goarch.PtrSize)}
-			copy(h.allArenas, oldSlice)
+			oldSlice := h.heapArenas
+			*(*notInHeapSlice)(unsafe.Pointer(&h.heapArenas)) = notInHeapSlice{newArray, len(h.heapArenas), int(size / goarch.PtrSize)}
+			copy(h.heapArenas, oldSlice)
 			// Do not free the old backing array because
 			// there may be concurrent readers. Since we
 			// double the array each time, this can lead
 			// to at most 2x waste.
 		}
-		h.allArenas = h.allArenas[:len(h.allArenas)+1]
-		h.allArenas[len(h.allArenas)-1] = ri
+		h.heapArenas = h.heapArenas[:len(h.heapArenas)+1]
+		h.heapArenas[len(h.heapArenas)-1] = ri
 
 		// Store atomically just in case an object from the
 		// new heap arena becomes visible before the heap lock

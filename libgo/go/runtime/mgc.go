@@ -135,7 +135,8 @@ import (
 )
 
 const (
-	_DebugGC = 0
+	_DebugGC      = 0
+	_FinBlockSize = 4 * 1024
 
 	// concurrentSweep is a debug flag. Disabling this flag
 	// ensures all spans are swept while the world is stopped.
@@ -185,18 +186,12 @@ func gcinit() {
 	// Use the environment variable GOMEMLIMIT for the initial memoryLimit value.
 	gcController.init(readGOGC(), readGOMEMLIMIT())
 
-	// Set up the cleanup block ptr mask.
-	for i := range cleanupBlockPtrMask {
-		cleanupBlockPtrMask[i] = 0xff
-	}
-
 	work.startSema = 1
 	work.markDoneSema = 1
 	lockInit(&work.sweepWaiters.lock, lockRankSweepWaiters)
 	lockInit(&work.assistQueue.lock, lockRankAssistQueue)
 	lockInit(&work.strongFromWeak.lock, lockRankStrongFromWeakQueue)
 	lockInit(&work.wbufSpans.lock, lockRankWbufSpans)
-	lockInit(&gcCleanups.lock, lockRankCleanupQueue)
 }
 
 // gcenable is called after the bulk of the runtime initialization,
