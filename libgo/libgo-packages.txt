@@ -229,6 +229,7 @@ internal/runtime/syscall
 internal/saferio
 internal/singleflight
 internal/stringslite
+internal/strconv
 internal/sync
 internal/synctest
 internal/syscall/execenv
