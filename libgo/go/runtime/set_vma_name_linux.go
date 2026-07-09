@@ -23,13 +23,9 @@ const (
 
 var prSetVMAUnsupported atomic.Bool
 
-func setVMANameSupported() bool {
-	return !prSetVMAUnsupported.Load()
-}
-
 // setVMAName calls prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start, len, name)
 func setVMAName(start unsafe.Pointer, length uintptr, name string) {
-	if debug.decoratemappings == 0 || !setVMANameSupported() {
+	if debug.decoratemappings == 0 || prSetVMAUnsupported.Load() {
 		return
 	}
 

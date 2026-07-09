@@ -69,7 +69,7 @@ func startCheckmarks() {
 
 // endCheckmarks ends the checkmarks phase.
 func endCheckmarks() {
-	if !gcIsMarkDone() {
+	if gcMarkWorkAvailable(nil) {
 		throw("GC work not flushed")
 	}
 	useCheckmark = false

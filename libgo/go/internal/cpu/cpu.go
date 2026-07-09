@@ -8,6 +8,11 @@ package cpu
 
 import _ "unsafe" // for linkname
 
+// DebugOptions is set to true by the runtime if the OS supports reading
+// GODEBUG early in runtime startup.  gccgo's runtime (proc.go) sets this;
+// upstream gc 1.26 removed the variable, but gccgo still uses it.
+var DebugOptions bool
+
 // CacheLinePad is used to pad structs to avoid false sharing.
 type CacheLinePad struct{ _ [CacheLinePadSize]byte }
 

@@ -493,6 +493,7 @@ func BenchmarkMapInterfacePtr(b *testing.B) {
 	m := map[any]bool{}
 
 	for i := 0; i < 100; i++ {
+		i := i
 		m[&i] = true
 	}
 

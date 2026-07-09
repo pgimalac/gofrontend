@@ -7,16 +7,13 @@ package trace_test
 import (
 	"bytes"
 	"flag"
+	"os"
 	. "runtime/trace"
 	"testing"
 	"time"
 )
 
-var dumpTraces = flag.Bool("dump-traces", false, "dump traces to a file, even on success")
-
-// This file just contains smoke tests and tests of runtime/trace logic only.
-// It doesn't validate the resulting traces. See the internal/trace package for
-// more comprehensive end-to-end tests.
+var saveTraces = flag.Bool("savetraces", false, "save traces collected by tests")
 
 func TestTraceStartStop(t *testing.T) {
 	if IsEnabled() {
@@ -35,6 +32,7 @@ func TestTraceStartStop(t *testing.T) {
 	if size != buf.Len() {
 		t.Fatalf("trace writes after stop: %v -> %v", size, buf.Len())
 	}
+	saveTrace(t, buf, "TestTraceStartStop")
 }
 
 func TestTraceDoubleStart(t *testing.T) {
@@ -51,4 +49,13 @@ func TestTraceDoubleStart(t *testing.T) {
 	}
 	Stop()
 	Stop()
+}
+
+func saveTrace(t *testing.T, buf *bytes.Buffer, name string) {
+	if !*saveTraces {
+		return
+	}
+	if err := os.WriteFile(name+".trace", buf.Bytes(), 0600); err != nil {
+		t.Errorf("failed to write trace file: %s", err)
+	}
 }

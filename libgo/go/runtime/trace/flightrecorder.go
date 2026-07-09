@@ -140,9 +140,9 @@ func (fr *FlightRecorder) WriteTo(w io.Writer) (n int64, err error) {
 
 	// Write all the data.
 	for _, gen := range gens {
-		for _, data := range gen.batches {
+		for _, batch := range gen.batches {
 			// Write batch data.
-			nw, err = w.Write(data)
+			nw, err = w.Write(batch.data)
 			n += int64(nw)
 			if err != nil {
 				return n, err
@@ -157,7 +157,7 @@ type FlightRecorderConfig struct {
 	//
 	// The flight recorder will strive to promptly discard events older than the minimum age,
 	// but older events may appear in the window snapshot. The age setting will always be
-	// overridden by MaxBytes.
+	// overridden by MaxSize.
 	//
 	// If this is 0, the minimum age is implementation defined, but can be assumed to be on the order
 	// of seconds.

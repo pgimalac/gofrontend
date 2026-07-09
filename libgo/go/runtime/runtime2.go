@@ -40,16 +40,12 @@ const (
 
 	// _Grunning means this goroutine may execute user code. The
 	// stack is owned by this goroutine. It is not on a run queue.
-	// It is assigned an M (g.m is valid) and it usually has a P
-	// (g.m.p is valid), but there are small windows of time where
-	// it might not, namely upon entering and exiting _Gsyscall.
+	// It is assigned an M and a P (g.m and g.m.p are valid).
 	_Grunning // 2
 
 	// _Gsyscall means this goroutine is executing a system call.
 	// It is not executing user code. The stack is owned by this
 	// goroutine. It is not on a run queue. It is assigned an M.
-	// It may have a P attached, but it does not own it. Code
-	// executing in this state must not touch g.m.p.
 	_Gsyscall // 3
 
 	// _Gwaiting means this goroutine is blocked in the runtime.
@@ -112,8 +108,6 @@ const (
 	_Gscansyscall   = _Gscan + _Gsyscall   // 0x1003
 	_Gscanwaiting   = _Gscan + _Gwaiting   // 0x1004
 	_Gscanpreempted = _Gscan + _Gpreempted // 0x1009
-	_Gscanleaked    = _Gscan + _Gleaked    // 0x100a
-	_Gscandeadextra = _Gscan + _Gdeadextra // 0x100b
 )
 
 const (
@@ -132,15 +126,22 @@ const (
 	// run user code or the scheduler. Only the M that owns this P
 	// is allowed to change the P's status from _Prunning. The M
 	// may transition the P to _Pidle (if it has no more work to
-	// do), or _Pgcstop (to halt for the GC). The M may also hand
-	// ownership of the P off directly to another M (for example,
-	// to schedule a locked G).
+	// do), _Psyscall (when entering a syscall), or _Pgcstop (to
+	// halt for the GC). The M may also hand ownership of the P
+	// off directly to another M (e.g., to schedule a locked G).
 	_Prunning
 
-	// _Psyscall_unused is a now-defunct state for a P. A P is
-	// identified as "in a system call" by looking at the goroutine's
-	// state.
-	_Psyscall_unused
+	// _Psyscall means a P is not running user code. It has
+	// affinity to an M in a syscall but is not owned by it and
+	// may be stolen by another M. This is similar to _Pidle but
+	// uses lightweight transitions and maintains M affinity.
+	//
+	// Leaving _Psyscall must be done with a CAS, either to steal
+	// or retake the P. Note that there's an ABA hazard: even if
+	// an M successfully CASes its original P back to _Prunning
+	// after a syscall, it must understand the P may have been
+	// used by another M in the interim.
+	_Psyscall
 
 	// _Pgcstop means a P is halted for STW and owned by the M
 	// that stopped the world. The M that stopped the world
@@ -320,8 +321,7 @@ type sudog struct {
 
 	next *sudog
 	prev *sudog
-
-	elem maybeTraceablePtr // data element (may point to stack)
+	elem unsafe.Pointer // data element (may point to stack)
 
 	// The following fields are never accessed concurrently.
 	// For channels, waitlink is only accessed by g.
@@ -349,10 +349,10 @@ type sudog struct {
 	// in the second entry in the list.)
 	waiters uint16
 
-	parent   *sudog             // semaRoot binary tree
-	waitlink *sudog             // g.waiting list or semaRoot
-	waittail *sudog             // semaRoot
-	c        maybeTraceableChan // channel
+	parent   *sudog // semaRoot binary tree
+	waitlink *sudog // g.waiting list or semaRoot
+	waittail *sudog // semaRoot
+	c        *hchan // channel
 }
 
 /*
@@ -460,12 +460,9 @@ type g struct {
 	traceseq        uint64   // trace event sequencer
 	tracelastp      puintptr // last P emitted an event for this goroutine
 	lockedm         muintptr
-	fipsOnlyBypass  bool
-	ditWanted       bool // set if g wants to be executed with DIT enabled
 	syncSafePoint   bool // set if g is stopped at a synchronous safe point.
 	runningCleanups atomic.Bool
 	sig             uint32
-	secret          int32 // current nesting of runtime/secret.Do calls.
 	writebuf        []byte
 	sigcode0        uintptr
 	sigcode1        uintptr
@@ -488,10 +485,6 @@ type g struct {
 
 	coroarg *coro // argument during coroutine transfers
 	bubble  *synctestBubble
-
-	// xRegs stores the extended register state if this G has been
-	// asynchronously preempted.
-	xRegs xRegPerG
 
 	// Per-G tracer state.
 	trace gTraceState
@@ -624,16 +617,14 @@ type m struct {
 	ncgo         int32  // number of cgo calls currently in progress
 	// Not for gccgo: cgoCallersUse uint32      // if non-zero, cgoCallers in use temporarily
 	// Not for gccgo: cgoCallers    *cgoCallers // cgo traceback if crashing in cgo call
-	park        note
-	alllink     *m // on allm
-	schedlink   muintptr
-	idleNode    listNodeManual
-	lockedg     guintptr
+	park          note
+	alllink       *m // on allm
+	schedlink     muintptr
+	lockedg       guintptr
 	createstack [32]location // stack that created this thread.
 	lockedExt   uint32       // tracking for external LockOSThread
 	lockedInt   uint32       // tracking for internal lockOSThread
 	nextwaitm   muintptr     // next m waiting for lock
-	ditEnabled  bool         // set if DIT is currently enabled on this M
 
 	mLockProfile mLockProfile // fields relating to runtime.lock contention
 	profStack    []uintptr    // used for memory/block/mutex stack traces
@@ -697,37 +688,6 @@ type m struct {
 	scannote note // synchonization for signal-based stack scanning
 }
 
-// mWeakPointer is a "weak" pointer to an M. A weak pointer for each M is
-// available as m.self. Users may copy mWeakPointer arbitrarily, and get will
-// return the M if it is still live, or nil after mexit.
-//
-// The zero value is treated as a nil pointer.
-//
-// Note that get may race with M exit. A successful get will keep the m object
-// alive, but the M itself may be exited and thus not actually usable.
-type mWeakPointer struct {
-	m *atomic.Pointer[m]
-}
-
-func newMWeakPointer(mp *m) mWeakPointer {
-	w := mWeakPointer{m: new(atomic.Pointer[m])}
-	w.m.Store(mp)
-	return w
-}
-
-func (w mWeakPointer) get() *m {
-	if w.m == nil {
-		return nil
-	}
-	return w.m.Load()
-}
-
-// clear sets the weak pointer to nil. It cannot be used on zero value
-// mWeakPointers.
-func (w mWeakPointer) clear() {
-	w.m.Store(nil)
-}
-
 type p struct {
 	id          int32
 	status      uint32 // one of pidle/prunning/...
@@ -739,17 +699,6 @@ type p struct {
 	mcache      *mcache
 	pcache      pageCache
 	raceprocctx uintptr
-
-	// oldm is the previous m this p ran on.
-	//
-	// We are not assosciated with this m, so we have no control over its
-	// lifecycle. This value is an m.self object which points to the m
-	// until the m exits.
-	//
-	// Note that this m may be idle, running, or exiting. It should only be
-	// used with mgetSpecific, which will take ownership of the m only if
-	// it is idle.
-	oldm mWeakPointer
 
 	deferpool    []*_defer // pool of available defer structs (see panic.go)
 	deferpoolbuf [32]*_defer
@@ -810,8 +759,8 @@ type p struct {
 	palloc persistentAlloc // per-P to avoid mutex
 
 	// Per-P GC state
-	gcAssistTime         int64        // Nanoseconds in assistAlloc
-	gcFractionalMarkTime atomic.Int64 // Nanoseconds in fractional mark worker
+	gcAssistTime         int64 // Nanoseconds in assistAlloc
+	gcFractionalMarkTime int64 // Nanoseconds in fractional mark worker (atomic)
 
 	// limiterEvent tracks events for the GC CPU limiter.
 	limiterEvent limiterEvent
@@ -825,18 +774,6 @@ type p struct {
 	// gcMarkWorkerStartTime is the nanotime() at which the most recent
 	// mark worker started.
 	gcMarkWorkerStartTime int64
-
-	// nextGCMarkWorker is the next mark worker to run. This may be set
-	// during start-the-world to assign a worker to this P. The P runs this
-	// worker on the next call to gcController.findRunnableGCWorker. If the
-	// P runs something else or stops, it must release this worker via
-	// gcController.releaseNextGCMarkWorker.
-	//
-	// See comment in gcBgMarkWorker about the lifetime of
-	// gcBgMarkWorkerNode.
-	//
-	// Only accessed by this P or during STW.
-	nextGCMarkWorker *gcBgMarkWorkerNode
 
 	// gcw is this P's GC work buffer cache. The work buffer is
 	// filled by write barriers, drained by mutator assists, and
@@ -881,14 +818,6 @@ type p struct {
 	// gcStopTime is the nanotime timestamp that this P last entered _Pgcstop.
 	gcStopTime int64
 
-	// goroutinesCreated is the total count of goroutines created by this P.
-	goroutinesCreated uint64
-
-	// xRegs is the per-P extended register state used by asynchronous
-	// preemption. This is an empty struct on platforms that don't use extended
-	// register state.
-	xRegs xRegPerP
-
 	// Padding is no longer needed. False sharing is now not a worry because p is large enough
 	// that its size class is an integer multiple of the cache line size (for any of our architectures).
 }
@@ -904,16 +833,15 @@ type schedt struct {
 	// When increasing nmidle, nmidlelocked, nmsys, or nmfreed, be
 	// sure to call checkdead().
 
-	midle        listHeadManual // idle m's waiting for work
-	nmidle       int32          // number of idle m's waiting for work
-	nmidlelocked int32          // number of locked m's waiting for work
-	mnext        int64          // number of m's that have been created and next M ID
-	maxmcount    int32          // maximum number of m's allowed (or die)
-	nmsys        int32          // number of system m's not counted for deadlock
-	nmfreed      int64          // cumulative number of freed m's
+	midle        muintptr // idle m's waiting for work
+	nmidle       int32    // number of idle m's waiting for work
+	nmidlelocked int32    // number of locked m's waiting for work
+	mnext        int64    // number of m's that have been created and next M ID
+	maxmcount    int32    // maximum number of m's allowed (or die)
+	nmsys        int32    // number of system m's not counted for deadlock
+	nmfreed      int64    // cumulative number of freed m's
 
-	ngsys        atomic.Int32 // number of system goroutines
-	nGsyscallNoP atomic.Int32 // number of goroutines in syscalls without a P but whose M is not isExtraInC
+	ngsys atomic.Int32 // number of system goroutines
 
 	pidle        puintptr // idle p's
 	npidle       atomic.Int32
@@ -1014,10 +942,6 @@ type schedt struct {
 	// M, but waiting for locks within the runtime. This field stores the value
 	// for Ms that have exited.
 	totalRuntimeLockWaitTime atomic.Int64
-
-	// goroutinesCreated (plus the value of goroutinesCreated on each P in allp)
-	// is the sum of all goroutines created by the program.
-	goroutinesCreated atomic.Uint64
 }
 
 // Values for the flags field of a sigTabT.
@@ -1171,24 +1095,24 @@ const (
 	waitReasonZero                  waitReason = iota // ""
 	waitReasonGCAssistMarking                         // "GC assist marking"
 	waitReasonIOWait                                  // "IO wait"
+	waitReasonChanReceiveNilChan                      // "chan receive (nil chan)"
+	waitReasonChanSendNilChan                         // "chan send (nil chan)"
 	waitReasonDumpingHeap                             // "dumping heap"
 	waitReasonGarbageCollection                       // "garbage collection"
 	waitReasonGarbageCollectionScan                   // "garbage collection scan"
 	waitReasonPanicWait                               // "panicwait"
+	waitReasonSelect                                  // "select"
+	waitReasonSelectNoCases                           // "select (no cases)"
 	waitReasonGCAssistWait                            // "GC assist wait"
 	waitReasonGCSweepWait                             // "GC sweep wait"
 	waitReasonGCScavengeWait                          // "GC scavenge wait"
+	waitReasonChanReceive                             // "chan receive"
+	waitReasonChanSend                                // "chan send"
 	waitReasonFinalizerWait                           // "finalizer wait"
 	waitReasonForceGCIdle                             // "force gc (idle)"
 	waitReasonUpdateGOMAXPROCSIdle                    // "GOMAXPROCS updater (idle)"
 	waitReasonSemacquire                              // "semacquire"
 	waitReasonSleep                                   // "sleep"
-	waitReasonChanReceiveNilChan                      // "chan receive (nil chan)"
-	waitReasonChanSendNilChan                         // "chan send (nil chan)"
-	waitReasonSelectNoCases                           // "select (no cases)"
-	waitReasonSelect                                  // "select"
-	waitReasonChanReceive                             // "chan receive"
-	waitReasonChanSend                                // "chan send"
 	waitReasonSyncCondWait                            // "sync.Cond.Wait"
 	waitReasonSyncMutexLock                           // "sync.Mutex.Lock"
 	waitReasonSyncRWMutexRLock                        // "sync.RWMutex.RLock"
@@ -1274,32 +1198,10 @@ func (w waitReason) String() string {
 	return waitReasonStrings[w]
 }
 
-// isMutexWait returns true if the goroutine is blocked because of
-// sync.Mutex.Lock or sync.RWMutex.[R]Lock.
-//
-//go:nosplit
 func (w waitReason) isMutexWait() bool {
 	return w == waitReasonSyncMutexLock ||
 		w == waitReasonSyncRWMutexRLock ||
 		w == waitReasonSyncRWMutexLock
-}
-
-// isSyncWait returns true if the goroutine is blocked because of
-// sync library primitive operations.
-//
-//go:nosplit
-func (w waitReason) isSyncWait() bool {
-	return waitReasonSyncCondWait <= w && w <= waitReasonSyncWaitGroupWait
-}
-
-// isChanWait is true if the goroutine is blocked because of non-nil
-// channel operations or a select statement with at least one case.
-//
-//go:nosplit
-func (w waitReason) isChanWait() bool {
-	return w == waitReasonSelect ||
-		w == waitReasonChanReceive ||
-		w == waitReasonChanSend
 }
 
 func (w waitReason) isWaitingForSuspendG() bool {
@@ -1346,9 +1248,7 @@ var isIdleInSynctest = [len(waitReasonStrings)]bool{
 }
 
 var (
-	// Linked-list of all Ms. Written under sched.lock, read atomically.
-	allm *m
-
+	allm          *m
 	gomaxprocs    int32
 	numCPUStartup int32
 	forcegc       forcegcstate
@@ -1369,7 +1269,7 @@ var (
 	// be atomic. Length may change at safe points.
 	//
 	// Each P must update only its own bit. In order to maintain
-	// consistency, a P going idle must set the idle mask simultaneously with
+	// consistency, a P going idle must the idle mask simultaneously with
 	// updates to the idle P list under the sched.lock, otherwise a racing
 	// pidleget may clear the mask before pidleput sets the mask,
 	// corrupting the bitmap.
@@ -1390,9 +1290,9 @@ var (
 	// must be set. An idle P (passed to pidleput) cannot add new timers while
 	// idle, so if it has no timers at that time, its mask may be cleared.
 	//
-	// Thus, we get the following effects on timer-stealing in findRunnable:
+	// Thus, we get the following effects on timer-stealing in findrunnable:
 	//
-	//   - Idle Ps with no timers when they go idle are never checked in findRunnable
+	//   - Idle Ps with no timers when they go idle are never checked in findrunnable
 	//     (for work- or timer-stealing; this is the ideal case).
 	//   - Running Ps must always be checked.
 	//   - Idle Ps whose timers are stolen must continue to be checked until they run

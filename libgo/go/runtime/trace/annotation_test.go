@@ -6,7 +6,6 @@ package trace_test
 
 import (
 	"context"
-	"io"
 	. "runtime/trace"
 	"testing"
 )
@@ -34,16 +33,4 @@ func BenchmarkNewTask(b *testing.B) {
 			task.End()
 		}
 	})
-}
-
-func BenchmarkLog(b *testing.B) {
-	b.ReportAllocs()
-
-	Start(io.Discard)
-	defer Stop()
-
-	ctx := context.Background()
-	for b.Loop() {
-		Log(ctx, "", "")
-	}
 }

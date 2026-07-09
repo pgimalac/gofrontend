@@ -11,8 +11,6 @@ import (
 var res int64
 var ures uint64
 
-// TODO: This test probably should be in a different place.
-
 func TestFloatTruncation(t *testing.T) {
 	testdata := []struct {
 		input      float64
@@ -23,37 +21,36 @@ func TestFloatTruncation(t *testing.T) {
 		// max +- 1
 		{
 			input:      0x7fffffffffffffff,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0x8000000000000000,
 		},
 		// For out-of-bounds conversion, the result is implementation-dependent.
-		// This test verifies the implementation of wasm architecture, which is,
-		// saturating to the min/max value.
+		// This test verifies the implementation of wasm architecture.
 		{
 			input:      0x8000000000000000,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      0x7ffffffffffffffe,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0x8000000000000000,
 		},
 		// neg max +- 1
 		{
 			input:      -0x8000000000000000,
 			convInt64:  -0x8000000000000000,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      -0x8000000000000001,
 			convInt64:  -0x8000000000000000,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      -0x7fffffffffffffff,
 			convInt64:  -0x8000000000000000,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		// trunc point +- 1
 		{
@@ -63,7 +60,7 @@ func TestFloatTruncation(t *testing.T) {
 		},
 		{
 			input:      0x7ffffffffffffe00,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0x8000000000000000,
 		},
 		{
@@ -75,48 +72,48 @@ func TestFloatTruncation(t *testing.T) {
 		{
 			input:      -0x7ffffffffffffdff,
 			convInt64:  -0x7ffffffffffffc00,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      -0x7ffffffffffffe00,
 			convInt64:  -0x8000000000000000,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      -0x7ffffffffffffdfe,
 			convInt64:  -0x7ffffffffffffc00,
-			convUInt64: 0,
+			convUInt64: 0x8000000000000000,
 		},
 		// umax +- 1
 		{
 			input:      0xffffffffffffffff,
-			convInt64:  0x7fffffffffffffff,
-			convUInt64: 0xffffffffffffffff,
+			convInt64:  -0x8000000000000000,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      0x10000000000000000,
-			convInt64:  0x7fffffffffffffff,
-			convUInt64: 0xffffffffffffffff,
+			convInt64:  -0x8000000000000000,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      0xfffffffffffffffe,
-			convInt64:  0x7fffffffffffffff,
-			convUInt64: 0xffffffffffffffff,
+			convInt64:  -0x8000000000000000,
+			convUInt64: 0x8000000000000000,
 		},
 		// umax trunc +- 1
 		{
 			input:      0xfffffffffffffbff,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0xfffffffffffff800,
 		},
 		{
 			input:      0xfffffffffffffc00,
-			convInt64:  0x7fffffffffffffff,
-			convUInt64: 0xffffffffffffffff,
+			convInt64:  -0x8000000000000000,
+			convUInt64: 0x8000000000000000,
 		},
 		{
 			input:      0xfffffffffffffbfe,
-			convInt64:  0x7fffffffffffffff,
+			convInt64:  -0x8000000000000000,
 			convUInt64: 0xfffffffffffff800,
 		},
 	}

@@ -7,20 +7,19 @@ package pprof
 import (
 	"context"
 	"fmt"
-	"internal/runtime/pprof/label"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func labelsSorted(ctx context.Context) []label.Label {
-	ls := []label.Label{}
+func labelsSorted(ctx context.Context) []label {
+	ls := []label{}
 	ForLabels(ctx, func(key, value string) bool {
-		ls = append(ls, label.Label{Key: key, Value: value})
+		ls = append(ls, label{key, value})
 		return true
 	})
-	slices.SortFunc(ls, func(a, b label.Label) int { return strings.Compare(a.Key, b.Key) })
+	slices.SortFunc(ls, func(a, b label) int { return strings.Compare(a.key, b.key) })
 	return ls
 }
 
@@ -40,7 +39,7 @@ func TestContextLabels(t *testing.T) {
 		t.Errorf(`Label(ctx, "key"): got %v, %v; want "value", ok`, v, ok)
 	}
 	gotLabels := labelsSorted(ctx)
-	wantLabels := []label.Label{{Key: "key", Value: "value"}}
+	wantLabels := []label{{"key", "value"}}
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
 		t.Errorf("(sorted) labels on context: got %v, want %v", gotLabels, wantLabels)
 	}
@@ -52,7 +51,7 @@ func TestContextLabels(t *testing.T) {
 		t.Errorf(`Label(ctx, "key2"): got %v, %v; want "value2", ok`, v, ok)
 	}
 	gotLabels = labelsSorted(ctx)
-	wantLabels = []label.Label{{Key: "key", Value: "value"}, {Key: "key2", Value: "value2"}}
+	wantLabels = []label{{"key", "value"}, {"key2", "value2"}}
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
 		t.Errorf("(sorted) labels on context: got %v, want %v", gotLabels, wantLabels)
 	}
@@ -64,7 +63,7 @@ func TestContextLabels(t *testing.T) {
 		t.Errorf(`Label(ctx, "key3"): got %v, %v; want "value3", ok`, v, ok)
 	}
 	gotLabels = labelsSorted(ctx)
-	wantLabels = []label.Label{{Key: "key", Value: "value3"}, {Key: "key2", Value: "value2"}}
+	wantLabels = []label{{"key", "value3"}, {"key2", "value2"}}
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
 		t.Errorf("(sorted) labels on context: got %v, want %v", gotLabels, wantLabels)
 	}
@@ -76,7 +75,7 @@ func TestContextLabels(t *testing.T) {
 		t.Errorf(`Label(ctx, "key4"): got %v, %v; want "value4b", ok`, v, ok)
 	}
 	gotLabels = labelsSorted(ctx)
-	wantLabels = []label.Label{{Key: "key", Value: "value3"}, {Key: "key2", Value: "value2"}, {Key: "key4", Value: "value4b"}}
+	wantLabels = []label{{"key", "value3"}, {"key2", "value2"}, {"key4", "value4b"}}
 	if !reflect.DeepEqual(gotLabels, wantLabels) {
 		t.Errorf("(sorted) labels on context: got %v, want %v", gotLabels, wantLabels)
 	}
@@ -94,18 +93,18 @@ func TestLabelMapStringer(t *testing.T) {
 			expected: "{}",
 		}, {
 			m: labelMap{
-				label.NewSet(Labels("foo", "bar").list),
+				Labels("foo", "bar"),
 			},
 			expected: `{"foo":"bar"}`,
 		}, {
 			m: labelMap{
-				label.NewSet(Labels(
+				Labels(
 					"foo", "bar",
 					"key1", "value1",
 					"key2", "value2",
 					"key3", "value3",
 					"key4WithNewline", "\nvalue4",
-				).list),
+				),
 			},
 			expected: `{"foo":"bar", "key1":"value1", "key2":"value2", "key3":"value3", "key4WithNewline":"\nvalue4"}`,
 		},

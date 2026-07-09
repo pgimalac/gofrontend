@@ -7,9 +7,11 @@
 package runtime
 
 import (
-	"internal/runtime/syscall/windows"
+	"internal/runtime/sys"
 	"unsafe"
 )
+
+const MaxArgs = maxArgs
 
 var (
 	OsYield                 = osyield
@@ -17,11 +19,23 @@ var (
 )
 
 func NumberOfProcessors() int32 {
-	var info windows.SystemInfo
-	stdcall(_GetSystemInfo, uintptr(unsafe.Pointer(&info)))
-	return int32(info.NumberOfProcessors)
+	var info systeminfo
+	stdcall1(_GetSystemInfo, uintptr(unsafe.Pointer(&info)))
+	return int32(info.dwnumberofprocessors)
 }
 
-func GetCallerFp() uintptr {
-	return getcallerfp()
+type ContextStub struct {
+	context
+}
+
+func (c ContextStub) GetPC() uintptr {
+	return c.ip()
+}
+
+func NewContextStub() *ContextStub {
+	var ctx context
+	ctx.set_ip(sys.GetCallerPC())
+	ctx.set_sp(sys.GetCallerSP())
+	ctx.set_fp(getcallerfp())
+	return &ContextStub{ctx}
 }

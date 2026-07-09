@@ -52,7 +52,7 @@ func (bubble *synctestBubble) changegstatus(gp *g, oldval, newval uint32) {
 	totalDelta := 0
 	wasRunning := true
 	switch oldval {
-	case _Gdead, _Gdeadextra:
+	case _Gdead:
 		wasRunning = false
 		totalDelta++
 	case _Gwaiting:
@@ -62,7 +62,7 @@ func (bubble *synctestBubble) changegstatus(gp *g, oldval, newval uint32) {
 	}
 	isRunning := true
 	switch newval {
-	case _Gdead, _Gdeadextra:
+	case _Gdead:
 		isRunning = false
 		totalDelta--
 		if gp == bubble.main {
@@ -86,7 +86,7 @@ func (bubble *synctestBubble) changegstatus(gp *g, oldval, newval uint32) {
 			bubble.running++
 		} else {
 			bubble.running--
-			if raceenabled && newval != _Gdead && newval != _Gdeadextra {
+			if raceenabled && newval != _Gdead {
 				// Record that this goroutine parking happens before
 				// any subsequent Wait.
 				racereleasemergeg(gp, bubble.raceaddr())
@@ -422,9 +422,7 @@ func getOrSetBubbleSpecial(p unsafe.Pointer, bubbleid uint64, add bool) (assoc i
 	} else if add {
 		// p is not associated with a bubble,
 		// and we've been asked to add an association.
-		lock(&mheap_.speciallock)
 		s := (*specialBubble)(mheap_.specialBubbleAlloc.alloc())
-		unlock(&mheap_.speciallock)
 		s.bubbleid = bubbleid
 		s.special.kind = _KindSpecialBubble
 		s.special.offset = offset

@@ -12,3 +12,11 @@ func cputicks() int64 {
 	stdcall1(_QueryPerformanceCounter, uintptr(unsafe.Pointer(&counter)))
 	return counter
 }
+
+func checkgoarm() {
+	if goarm < 7 {
+		print("Need atomic synchronization instructions, coprocessor ",
+			"access instructions. Recompile using GOARM=7.\n")
+		exit(1)
+	}
+}

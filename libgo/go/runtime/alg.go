@@ -50,22 +50,9 @@ import (
 //go:linkname alginit
 
 const (
-	// We use 32-bit hash on Wasm, see hash32.go.
-	hashSize = (1-goarch.IsWasm)*goarch.PtrSize + goarch.IsWasm*4
-	c0       = uintptr((8-hashSize)/4*2860486313 + (hashSize-4)/4*33054211828000289)
-	c1       = uintptr((8-hashSize)/4*3267000013 + (hashSize-4)/4*23344194077549503)
+	c0 = uintptr((8-goarch.PtrSize)/4*2860486313 + (goarch.PtrSize-4)/4*33054211828000289)
+	c1 = uintptr((8-goarch.PtrSize)/4*3267000013 + (goarch.PtrSize-4)/4*23344194077549503)
 )
-
-func trimHash(h uintptr) uintptr {
-	if goarch.IsWasm != 0 {
-		// On Wasm, we use 32-bit hash, despite that uintptr is 64-bit.
-		// memhash* always returns a uintptr with high 32-bit being 0
-		// (see hash32.go). We trim the hash in other places where we
-		// compute the hash manually, e.g. in interhash.
-		return uintptr(uint32(h))
-	}
-	return h
-}
 
 func memhash0(p unsafe.Pointer, h uintptr) uintptr {
 	return h
@@ -114,9 +101,9 @@ func f32hash(p unsafe.Pointer, h uintptr) uintptr {
 	f := *(*float32)(p)
 	switch {
 	case f == 0:
-		return trimHash(c1 * (c0 ^ h)) // +0, -0
+		return c1 * (c0 ^ h) // +0, -0
 	case f != f:
-		return trimHash(c1 * (c0 ^ h ^ uintptr(rand()))) // any kind of NaN
+		return c1 * (c0 ^ h ^ uintptr(rand())) // any kind of NaN
 	default:
 		return memhash(p, h, 4)
 	}
@@ -126,9 +113,9 @@ func f64hash(p unsafe.Pointer, h uintptr) uintptr {
 	f := *(*float64)(p)
 	switch {
 	case f == 0:
-		return trimHash(c1 * (c0 ^ h)) // +0, -0
+		return c1 * (c0 ^ h) // +0, -0
 	case f != f:
-		return trimHash(c1 * (c0 ^ h ^ uintptr(rand()))) // any kind of NaN
+		return c1 * (c0 ^ h ^ uintptr(rand())) // any kind of NaN
 	default:
 		return memhash(p, h, 8)
 	}
@@ -159,9 +146,9 @@ func interhash(p unsafe.Pointer, h uintptr) uintptr {
 		panic(errorString("hash of unhashable type " + t.string()))
 	}
 	if isDirectIface(t) {
-		return trimHash(c1 * typehash(t, unsafe.Pointer(&a.data), h^c0))
+		return c1 * typehash(t, unsafe.Pointer(&a.data), h^c0)
 	} else {
-		return trimHash(c1 * typehash(t, a.data, h^c0))
+		return c1 * typehash(t, a.data, h^c0)
 	}
 }
 
@@ -186,9 +173,9 @@ func nilinterhash(p unsafe.Pointer, h uintptr) uintptr {
 		panic(errorString("hash of unhashable type " + t.string()))
 	}
 	if isDirectIface(t) {
-		return trimHash(c1 * typehash(t, unsafe.Pointer(&a.data), h^c0))
+		return c1 * typehash(t, unsafe.Pointer(&a.data), h^c0)
 	} else {
-		return trimHash(c1 * typehash(t, a.data, h^c0))
+		return c1 * typehash(t, a.data, h^c0)
 	}
 }
 

@@ -53,8 +53,6 @@ func init() {
 // gcWork may locally hold GC work buffers. This can be done by
 // disabling preemption (systemstack or acquirem).
 type gcWork struct {
-	id int32 // same ID as the parent P
-
 	// wbuf1 and wbuf2 are the primary and secondary work buffers.
 	//
 	// This can be thought of as a stack of both work buffers'

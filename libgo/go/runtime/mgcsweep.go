@@ -555,7 +555,7 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 	siter := newSpecialsIter(s)
 	for siter.valid() {
 		// A finalizer can be set for an inner byte of an object, find object beginning.
-		objIndex := siter.s.offset / size
+		objIndex := uintptr(siter.s.offset) / size
 		p := s.base() + objIndex*size
 		mbits := s.markBitsForIndex(objIndex)
 		if !mbits.isMarked() {
@@ -563,7 +563,7 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 			// Pass 1: see if it has at least one finalizer.
 			hasFin := false
 			endOffset := p - s.base() + size
-			for tmp := siter.s; tmp != nil && tmp.offset < endOffset; tmp = tmp.next {
+			for tmp := siter.s; tmp != nil && uintptr(tmp.offset) < endOffset; tmp = tmp.next {
 				if tmp.kind == _KindSpecialFinalizer {
 					// Stop freeing of object if it has a finalizer.
 					mbits.setMarkedNonAtomic()
@@ -827,7 +827,7 @@ func (s *mspan) reportZombies() {
 			if length > 1024 {
 				length = 1024
 			}
-			hexdumpWords(addr, length, nil)
+			hexdumpWords(addr, addr+length, nil)
 		}
 		mbits.advance()
 		abits.advance()

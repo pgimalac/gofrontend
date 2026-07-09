@@ -206,7 +206,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	}
 
 	if c.bubble != nil && getg().bubble != c.bubble {
-		fatal("send on synctest channel from outside bubble")
+		panic(plainError("send on synctest channel from outside bubble"))
 	}
 
 	// Fast path: check for failed non-blocking operation without acquiring the lock.
@@ -278,11 +278,11 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
-	mysg.elem.set(ep)
+	mysg.elem = ep
 	mysg.waitlink = nil
 	mysg.g = gp
 	mysg.isSelect = false
-	mysg.c.set(c)
+	mysg.c = c
 	gp.waiting = mysg
 	gp.param = nil
 	c.sendq.enqueue(mysg)
@@ -313,7 +313,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if mysg.releasetime > 0 {
 		blockevent(mysg.releasetime-t0, 2)
 	}
-	mysg.c.set(nil)
+	mysg.c = nil
 	releaseSudog(mysg)
 	if closed {
 		if c.closed == 0 {
@@ -333,7 +333,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if c.bubble != nil && getg().bubble != c.bubble {
 		unlockf()
-		fatal("send on synctest channel from outside bubble")
+		panic(plainError("send on synctest channel from outside bubble"))
 	}
 	if raceenabled {
 		if c.dataqsiz == 0 {
@@ -351,9 +351,9 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 			c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 		}
 	}
-	if sg.elem.get() != nil {
+	if sg.elem != nil {
 		sendDirect(c.elemtype, sg, ep)
-		sg.elem.set(nil)
+		sg.elem = nil
 	}
 	gp := sg.g
 	unlockf()
@@ -431,7 +431,7 @@ func closechan(c *hchan) {
 		panic(plainError("close of nil channel"))
 	}
 	if c.bubble != nil && getg().bubble != c.bubble {
-		fatal("close of synctest channel from outside bubble")
+		panic(plainError("close of synctest channel from outside bubble"))
 	}
 
 	lock(&c.lock)
@@ -456,9 +456,9 @@ func closechan(c *hchan) {
 		if sg == nil {
 			break
 		}
-		if sg.elem.get() != nil {
-			typedmemclr(c.elemtype, sg.elem.get())
-			sg.elem.set(nil)
+		if sg.elem != nil {
+			typedmemclr(c.elemtype, sg.elem)
+			sg.elem = nil
 		}
 		if sg.releasetime != 0 {
 			sg.releasetime = cputicks()
@@ -478,7 +478,7 @@ func closechan(c *hchan) {
 		if sg == nil {
 			break
 		}
-		sg.elem.set(nil)
+		sg.elem = nil
 		if sg.releasetime != 0 {
 			sg.releasetime = cputicks()
 		}
@@ -558,7 +558,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	}
 
 	if c.bubble != nil && getg().bubble != c.bubble {
-		fatal("receive on synctest channel from outside bubble")
+		panic(plainError("receive on synctest channel from outside bubble"))
 	}
 
 	if c.timer != nil {
@@ -662,13 +662,13 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
-	mysg.elem.set(ep)
+	mysg.elem = ep
 	mysg.waitlink = nil
 	gp.waiting = mysg
 
 	mysg.g = gp
 	mysg.isSelect = false
-	mysg.c.set(c)
+	mysg.c = c
 	gp.param = nil
 	c.recvq.enqueue(mysg)
 	if c.timer != nil {
@@ -700,7 +700,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	}
 	success := mysg.success
 	gp.param = nil
-	mysg.c.set(nil)
+	mysg.c = nil
 	releaseSudog(mysg)
 	return true, success
 }
@@ -722,7 +722,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if c.bubble != nil && getg().bubble != c.bubble {
 		unlockf()
-		fatal("receive on synctest channel from outside bubble")
+		panic(plainError("receive on synctest channel from outside bubble"))
 	}
 	if c.dataqsiz == 0 {
 		if raceenabled {
@@ -747,14 +747,14 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 			typedmemmove(c.elemtype, ep, qp)
 		}
 		// copy data from sender to queue
-		typedmemmove(c.elemtype, qp, sg.elem.get())
+		typedmemmove(c.elemtype, qp, sg.elem)
 		c.recvx++
 		if c.recvx == c.dataqsiz {
 			c.recvx = 0
 		}
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
-	sg.elem.set(nil)
+	sg.elem = nil
 	gp := sg.g
 	unlockf()
 	gp.param = unsafe.Pointer(sg)

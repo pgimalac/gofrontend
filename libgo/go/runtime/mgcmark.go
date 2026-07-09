@@ -47,7 +47,7 @@ const (
 	//
 	// Must be a multiple of the pageInUse bitmap element size and
 	// must also evenly divide pagesPerArena.
-	pagesPerSpanRoot = min(512, pagesPerArena)
+	pagesPerSpanRoot = 512
 )
 
 // gcPrepareMarkRoots queues root scanning jobs (stacks, globals, and
@@ -130,7 +130,7 @@ func gcMarkRootCheck() {
 	})
 }
 
-// oneptrmask for an allocation containing a single pointer.
+// ptrmask for an allocation containing a single pointer.
 var oneptrmask = [...]uint8{1}
 
 // markroot scans the i'th root.
@@ -329,7 +329,7 @@ func gcScanFinalizer(spf *specialfinalizer, s *mspan, gcw *gcWork) {
 	// Don't mark finalized object, but scan it so we retain everything it points to.
 
 	// A finalizer can be set for an inner byte of an object, find object beginning.
-	p := s.base() + spf.special.offset/s.elemsize*s.elemsize
+	p := s.base() + uintptr(spf.special.offset)/s.elemsize*s.elemsize
 
 	// Mark everything that can be reached from
 	// the object (but *not* the object itself or
@@ -594,7 +594,6 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 		gp.gcAssistBytes = 0
 		return
 	}
-
 	// Track time spent in this assist. Since we're on the
 	// system stack, this is non-preemptible, so we can
 	// just measure start and end time.
@@ -604,7 +603,11 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 	startTime := nanotime()
 	trackLimiterEvent := gp.m.p.ptr().limiterEvent.start(limiterEventMarkAssist, startTime)
 
-	gcBeginWork()
+	decnwait := atomic.Xadd(&work.nwait, -1)
+	if decnwait == work.nproc {
+		println("runtime: work.nwait =", decnwait, "work.nproc=", work.nproc)
+		throw("nwait > work.nprocs")
+	}
 
 	// gcDrainN requires the caller to be preemptible.
 	casgstatus(gp, _Grunning, _Gwaiting)
@@ -628,7 +631,14 @@ func gcAssistAlloc1(gp *g, scanWork int64) {
 
 	// If this is the last worker and we ran out of work,
 	// signal a completion point.
-	if gcEndWork() {
+	incnwait := atomic.Xadd(&work.nwait, +1)
+	if incnwait > work.nproc {
+		println("runtime: work.nwait=", incnwait,
+			"work.nproc=", work.nproc)
+		throw("work.nwait > work.nproc")
+	}
+
+	if incnwait == work.nproc && !gcMarkWorkAvailable(nil) {
 		// This has reached a background completion point. Set
 		// gp.param to a non-nil value to indicate this. It
 		// doesn't matter what we set it to (it just has to be
@@ -788,7 +798,7 @@ func scanstack(gp *g, gcw *gcWork) int64 {
 	default:
 		print("runtime: gp=", gp, ", goid=", gp.goid, ", gp->atomicstatus=", readgstatus(gp), "\n")
 		throw("mark - bad status")
-	case _Gdead, _Gdeadextra:
+	case _Gdead:
 		return 0
 	case _Grunning:
 		print("runtime: gp=", gp, ", goid=", gp.goid, ", gp->atomicstatus=", readgstatus(gp), "\n")
@@ -984,6 +994,7 @@ func gcDrain(gcw *gcWork, flags gcDrainFlags) {
 		}
 	}
 
+	// Drain root marking jobs.
 	if work.markrootNext < work.markrootJobs {
 		// Stop if we're preemptible, if someone wants to STW, or if
 		// someone is calling forEachP.
@@ -1140,7 +1151,7 @@ func gcDrainN(gcw *gcWork, scanWork int64) int64 {
 	return workFlushed + gcw.heapScanWork
 }
 
-// scanblock scans b as scanObject would, but using an explicit
+// scanblock scans b as scanobject would, but using an explicit
 // pointer bitmap instead of the heap bitmap.
 //
 // This is used to scan non-heap roots, so it does not update
@@ -1163,7 +1174,7 @@ func scanblock(b0, n0 uintptr, ptrmask *uint8, gcw *gcWork) {
 		}
 		for j := 0; j < 8 && i < n; j++ {
 			if bits&1 != 0 {
-				// Same work as in scanObject; see comments there.
+				// Same work as in scanobject; see comments there.
 				p := *(*uintptr)(unsafe.Pointer(b + i))
 				if p != 0 {
 					if obj, span, objIndex := findObject(p, b, i, false); obj != 0 {

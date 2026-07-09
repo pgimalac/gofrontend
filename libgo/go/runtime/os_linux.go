@@ -88,7 +88,7 @@ func futexsleep(addr *uint32, val uint32, ns int64) {
 
 	var ts timespec
 	ts.setNsec(ns)
-	futex(unsafe.Pointer(addr), _FUTEX_WAIT_PRIVATE, val, &ts, nil, 0)
+	futex(unsafe.Pointer(addr), _FUTEX_WAIT_PRIVATE, val, unsafe.Pointer(&ts), nil, 0)
 }
 
 // If any procs are sleeping on addr, wake up at most cnt.
@@ -263,8 +263,8 @@ func getHugePageSize() uintptr {
 		return 0
 	}
 	n-- // remove trailing newline
-	v, err := strconv.Atoi(slicebytetostringtmp((*byte)(ptr), int(n)))
-	if err != nil || v < 0 {
+	v, ok := strconv.Atoi(slicebytetostringtmp((*byte)(ptr), int(n)))
+	if !ok || v < 0 {
 		v = 0
 	}
 	if v&(v-1) != 0 {

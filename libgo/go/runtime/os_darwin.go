@@ -13,11 +13,6 @@ type mOS struct {
 	mutex       pthreadmutex
 	cond        pthreadcond
 	count       int
-
-	// address of errno variable for this thread.
-	// This is an optimization to avoid calling libc_error
-	// on every syscall_rawsyscalln.
-	errnoAddr *int32
 }
 
 func unimplemented(name string) {

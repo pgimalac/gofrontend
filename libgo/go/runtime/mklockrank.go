@@ -193,12 +193,6 @@ defer,
 # Below WB is the write barrier implementation.
 < wbufSpans;
 
-# xRegState allocator
-sched < xRegAlloc;
-
-# spanSPMCs allocator and list
-WB, sched < spanSPMCs;
-
 # Span allocator
 stackLarge,
   stackpool,
@@ -211,8 +205,7 @@ stackLarge,
 # an mspanSpecial lock, and they're part of the malloc implementation.
 # Pinner bits might be freed by the span allocator.
 mheap, mspanSpecial < mheapSpecial;
-# Fixallocs
-mheap, mheapSpecial, xRegAlloc, spanSPMCs < globalAlloc;
+mheap, mheapSpecial < globalAlloc;
 
 # Execution tracer events (with a P)
 hchan,

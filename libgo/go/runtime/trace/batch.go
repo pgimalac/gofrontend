@@ -12,77 +12,72 @@ import (
 // timestamp is an unprocessed timestamp.
 type timestamp uint64
 
+// batch represents a batch of trace events.
+// It is unparsed except for its header.
 type batch struct {
+	m    threadID
 	time timestamp
-	gen  uint64
 	data []byte
 }
 
+// threadID is the runtime-internal M structure's ID. This is unique
+// for each OS thread.
+type threadID int64
+
 // readBatch copies b and parses the trace batch header inside.
-// Returns the batch, bytes read, and an error.
-func readBatch(b []byte) (batch, uint64, error) {
+// Returns the batch, the generation, bytes read, and an error.
+func readBatch(b []byte) (batch, uint64, uint64, error) {
 	if len(b) == 0 {
-		return batch{}, 0, fmt.Errorf("batch is empty")
+		return batch{}, 0, 0, fmt.Errorf("batch is empty")
 	}
 	data := make([]byte, len(b))
-	copy(data, b)
-
+	if nw := copy(data, b); nw != len(b) {
+		return batch{}, 0, 0, fmt.Errorf("unexpected error copying batch")
+	}
 	// Read batch header byte.
-	if typ := tracev2.EventType(b[0]); typ == tracev2.EvEndOfGeneration {
-		if len(b) != 1 {
-			return batch{}, 1, fmt.Errorf("unexpected end of generation in batch of size >1")
-		}
-		return batch{data: data}, 1, nil
-	}
 	if typ := tracev2.EventType(b[0]); typ != tracev2.EvEventBatch && typ != tracev2.EvExperimentalBatch {
-		return batch{}, 1, fmt.Errorf("expected batch event, got event %d", typ)
+		return batch{}, 0, 1, fmt.Errorf("expected batch event, got event %d", typ)
 	}
+
+	// Read the batch header: gen (generation), thread (M) ID, base timestamp
+	// for the batch.
 	total := 1
 	b = b[1:]
-
-	// Read the generation
 	gen, n, err := readUvarint(b)
 	if err != nil {
-		return batch{}, uint64(total + n), fmt.Errorf("error reading batch gen: %w", err)
+		return batch{}, gen, uint64(total + n), fmt.Errorf("error reading batch gen: %w", err)
 	}
 	total += n
 	b = b[n:]
-
-	// Read the M (discard it).
-	_, n, err = readUvarint(b)
+	m, n, err := readUvarint(b)
 	if err != nil {
-		return batch{}, uint64(total + n), fmt.Errorf("error reading batch M ID: %w", err)
+		return batch{}, gen, uint64(total + n), fmt.Errorf("error reading batch M ID: %w", err)
 	}
 	total += n
 	b = b[n:]
-
-	// Read the timestamp.
 	ts, n, err := readUvarint(b)
 	if err != nil {
-		return batch{}, uint64(total + n), fmt.Errorf("error reading batch timestamp: %w", err)
+		return batch{}, gen, uint64(total + n), fmt.Errorf("error reading batch timestamp: %w", err)
 	}
 	total += n
 	b = b[n:]
 
-	// Read the size of the batch to follow.
+	// Read in the size of the batch to follow.
 	size, n, err := readUvarint(b)
 	if err != nil {
-		return batch{}, uint64(total + n), fmt.Errorf("error reading batch size: %w", err)
+		return batch{}, gen, uint64(total + n), fmt.Errorf("error reading batch size: %w", err)
 	}
 	if size > tracev2.MaxBatchSize {
-		return batch{}, uint64(total + n), fmt.Errorf("invalid batch size %d, maximum is %d", size, tracev2.MaxBatchSize)
+		return batch{}, gen, uint64(total + n), fmt.Errorf("invalid batch size %d, maximum is %d", size, tracev2.MaxBatchSize)
 	}
 	total += n
 	total += int(size)
-	if total != len(data) {
-		return batch{}, uint64(total), fmt.Errorf("expected complete batch")
-	}
 	data = data[:total]
 
 	// Return the batch.
 	return batch{
-		gen:  gen,
+		m:    threadID(m),
 		time: timestamp(ts),
 		data: data,
-	}, uint64(total), nil
+	}, gen, uint64(total), nil
 }
