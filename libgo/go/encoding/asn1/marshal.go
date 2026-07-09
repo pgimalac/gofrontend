@@ -460,20 +460,17 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 	case flagType:
 		return bytesEncoder(nil), nil
 	case timeType:
-		t, _ := reflect.TypeAssert[time.Time](value)
+		t := value.Interface().(time.Time)
 		if params.timeType == TagGeneralizedTime || outsideUTCRange(t) {
 			return makeGeneralizedTime(t)
 		}
 		return makeUTCTime(t)
 	case bitStringType:
-		v, _ := reflect.TypeAssert[BitString](value)
-		return bitStringEncoder(v), nil
+		return bitStringEncoder(value.Interface().(BitString)), nil
 	case objectIdentifierType:
-		v, _ := reflect.TypeAssert[ObjectIdentifier](value)
-		return makeObjectIdentifier(v)
+		return makeObjectIdentifier(value.Interface().(ObjectIdentifier))
 	case bigIntType:
-		v, _ := reflect.TypeAssert[*big.Int](value)
-		return makeBigInt(v)
+		return makeBigInt(value.Interface().(*big.Int))
 	}
 
 	switch v := value; v.Kind() {
@@ -608,7 +605,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 	}
 
 	if v.Type() == rawValueType {
-		rv, _ := reflect.TypeAssert[RawValue](v)
+		rv := v.Interface().(RawValue)
 		if len(rv.FullBytes) != 0 {
 			return bytesEncoder(rv.FullBytes), nil
 		}
@@ -653,8 +650,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 			tag = params.stringType
 		}
 	case TagUTCTime:
-		t, _ := reflect.TypeAssert[time.Time](v)
-		if params.timeType == TagGeneralizedTime || outsideUTCRange(t) {
+		if params.timeType == TagGeneralizedTime || outsideUTCRange(v.Interface().(time.Time)) {
 			tag = TagGeneralizedTime
 		}
 	}

@@ -11,7 +11,6 @@ import (
 	"errors"
 	"io"
 	"reflect"
-	"slices"
 
 	"encoding/json/internal/jsonflags"
 	"encoding/json/internal/jsonopts"
@@ -51,7 +50,8 @@ func marshalInlinedFallbackAll(enc *jsontext.Encoder, va addressableValue, mo *j
 	}
 
 	if v.Type() == jsontextValueType {
-		b, _ := reflect.TypeAssert[jsontext.Value](v.Value)
+		// TODO(https://go.dev/issue/62121): Use reflect.Value.AssertTo.
+		b := *v.Addr().Interface().(*jsontext.Value)
 		if len(b) == 0 { // TODO: Should this be nil? What if it were all whitespace?
 			return nil
 		}
@@ -147,7 +147,7 @@ func marshalInlinedFallbackAll(enc *jsontext.Encoder, va addressableValue, mo *j
 				mk.SetIterKey(iter)
 				(*names)[i] = mk.String()
 			}
-			slices.Sort(*names)
+			names.Sort()
 			for _, name := range *names {
 				mk.SetString(name)
 				if err := marshalKey(mk); err != nil {
@@ -174,7 +174,7 @@ func unmarshalInlinedFallbackNext(dec *jsontext.Decoder, va addressableValue, uo
 	v = v.indirect(true)
 
 	if v.Type() == jsontextValueType {
-		b, _ := reflect.TypeAssert[*jsontext.Value](v.Addr())
+		b := v.Addr().Interface().(*jsontext.Value)
 		if len(*b) == 0 { // TODO: Should this be nil? What if it were all whitespace?
 			*b = append(*b, '{')
 		} else {
@@ -188,7 +188,7 @@ func unmarshalInlinedFallbackNext(dec *jsontext.Decoder, va addressableValue, uo
 					*b = append(*b, ',')
 				}
 			} else {
-				return newUnmarshalErrorAfterWithSkipping(dec, v.Type(), errRawInlinedNotObject)
+				return newUnmarshalErrorAfterWithSkipping(dec, uo, v.Type(), errRawInlinedNotObject)
 			}
 		}
 		*b = append(*b, quotedName...)

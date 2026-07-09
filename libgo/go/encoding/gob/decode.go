@@ -768,14 +768,11 @@ func (dec *Decoder) decodeGobDecoder(ut *userTypeInfo, state *decoderState, valu
 	// We know it's one of these.
 	switch ut.externalDec {
 	case xGob:
-		gobDecoder, _ := reflect.TypeAssert[GobDecoder](value)
-		err = gobDecoder.GobDecode(b)
+		err = value.Interface().(GobDecoder).GobDecode(b)
 	case xBinary:
-		binaryUnmarshaler, _ := reflect.TypeAssert[encoding.BinaryUnmarshaler](value)
-		err = binaryUnmarshaler.UnmarshalBinary(b)
+		err = value.Interface().(encoding.BinaryUnmarshaler).UnmarshalBinary(b)
 	case xText:
-		textUnmarshaler, _ := reflect.TypeAssert[encoding.TextUnmarshaler](value)
-		err = textUnmarshaler.UnmarshalText(b)
+		err = value.Interface().(encoding.TextUnmarshaler).UnmarshalText(b)
 	}
 	if err != nil {
 		error_(err)

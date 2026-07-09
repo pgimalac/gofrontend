@@ -11,6 +11,8 @@ import (
 	"encoding"
 	"io"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -407,7 +409,7 @@ func Unmarshal(in []byte, out any, opts ...Options) (err error) {
 	dec := export.GetBufferedDecoder(in, opts...)
 	defer export.PutBufferedDecoder(dec)
 	xd := export.Decoder(dec)
-	err = unmarshalDecode(dec, out, &xd.Struct, true)
+	err = unmarshalFull(dec, out, &xd.Struct)
 	if err != nil && xd.Flags.Get(jsonflags.ReportErrorsWithLegacySemantics) {
 		return internal.TransformUnmarshalError(out, err)
 	}
@@ -424,11 +426,23 @@ func UnmarshalRead(in io.Reader, out any, opts ...Options) (err error) {
 	dec := export.GetStreamingDecoder(in, opts...)
 	defer export.PutStreamingDecoder(dec)
 	xd := export.Decoder(dec)
-	err = unmarshalDecode(dec, out, &xd.Struct, true)
+	err = unmarshalFull(dec, out, &xd.Struct)
 	if err != nil && xd.Flags.Get(jsonflags.ReportErrorsWithLegacySemantics) {
 		return internal.TransformUnmarshalError(out, err)
 	}
 	return err
+}
+
+func unmarshalFull(in *jsontext.Decoder, out any, uo *jsonopts.Struct) error {
+	switch err := unmarshalDecode(in, out, uo); err {
+	case nil:
+		return export.Decoder(in).CheckEOF()
+	case io.EOF:
+		offset := in.InputOffset() + int64(len(in.UnreadBuffer()))
+		return &jsontext.SyntacticError{ByteOffset: offset, Err: io.ErrUnexpectedEOF}
+	default:
+		return err
+	}
 }
 
 // UnmarshalDecode deserializes a Go value from a [jsontext.Decoder] according to
@@ -438,9 +452,8 @@ func UnmarshalRead(in io.Reader, out any, opts ...Options) (err error) {
 // Unlike [Unmarshal] and [UnmarshalRead], decode options are ignored because
 // they must have already been specified on the provided [jsontext.Decoder].
 //
-// The input may be a stream of zero or more JSON values,
+// The input may be a stream of one or more JSON values,
 // where this only unmarshals the next JSON value in the stream.
-// If there are no more top-level JSON values, it reports [io.EOF].
 // The output must be a non-nil pointer.
 // See [Unmarshal] for details about the conversion of JSON into a Go value.
 func UnmarshalDecode(in *jsontext.Decoder, out any, opts ...Options) (err error) {
@@ -450,14 +463,14 @@ func UnmarshalDecode(in *jsontext.Decoder, out any, opts ...Options) (err error)
 		defer func() { xd.Struct = optsOriginal }()
 		xd.Struct.JoinWithoutCoderOptions(opts...)
 	}
-	err = unmarshalDecode(in, out, &xd.Struct, false)
+	err = unmarshalDecode(in, out, &xd.Struct)
 	if err != nil && xd.Flags.Get(jsonflags.ReportErrorsWithLegacySemantics) {
 		return internal.TransformUnmarshalError(out, err)
 	}
 	return err
 }
 
-func unmarshalDecode(in *jsontext.Decoder, out any, uo *jsonopts.Struct, last bool) (err error) {
+func unmarshalDecode(in *jsontext.Decoder, out any, uo *jsonopts.Struct) (err error) {
 	v := reflect.ValueOf(out)
 	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return &SemanticError{action: "unmarshal", GoType: reflect.TypeOf(out), Err: internal.ErrNonNilReference}
@@ -468,11 +481,7 @@ func unmarshalDecode(in *jsontext.Decoder, out any, uo *jsonopts.Struct, last bo
 	// In legacy semantics, the entirety of the next JSON value
 	// was validated before attempting to unmarshal it.
 	if uo.Flags.Get(jsonflags.ReportErrorsWithLegacySemantics) {
-		if err := export.Decoder(in).CheckNextValue(last); err != nil {
-			if err == io.EOF && last {
-				offset := in.InputOffset() + int64(len(in.UnreadBuffer()))
-				return &jsontext.SyntacticError{ByteOffset: offset, Err: io.ErrUnexpectedEOF}
-			}
+		if err := export.Decoder(in).CheckNextValue(); err != nil {
 			return err
 		}
 	}
@@ -486,14 +495,7 @@ func unmarshalDecode(in *jsontext.Decoder, out any, uo *jsonopts.Struct, last bo
 		if !uo.Flags.Get(jsonflags.AllowDuplicateNames) {
 			export.Decoder(in).Tokens.InvalidateDisabledNamespaces()
 		}
-		if err == io.EOF && last {
-			offset := in.InputOffset() + int64(len(in.UnreadBuffer()))
-			return &jsontext.SyntacticError{ByteOffset: offset, Err: io.ErrUnexpectedEOF}
-		}
 		return err
-	}
-	if last {
-		return export.Decoder(in).CheckEOF()
 	}
 	return nil
 }
@@ -571,6 +573,9 @@ func putStrings(s *stringSlice) {
 	if cap(*s) > 1<<10 {
 		*s = nil // avoid pinning arbitrarily large amounts of memory
 	}
-	clear(*s) // avoid pinning a reference to each string
 	stringsPools.Put(s)
+}
+
+func (ss *stringSlice) Sort() {
+	slices.SortFunc(*ss, func(x, y string) int { return strings.Compare(x, y) })
 }
