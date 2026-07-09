@@ -192,6 +192,8 @@ toolexeclibgocrypto_DATA = \
 	crypto/ed25519.gox \
 	crypto/elliptic.gox \
 	crypto/hmac.gox \
+	crypto/hkdf.gox \
+	crypto/fips140.gox \
 	crypto/md5.gox \
 	crypto/rand.gox \
 	crypto/rc4.gox \
