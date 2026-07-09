@@ -5,7 +5,6 @@
 package sort_test
 
 import (
-	"math/bits"
 	"runtime"
 	. "sort"
 	stringspkg "strings"
@@ -136,10 +135,13 @@ func TestFind(t *testing.T) {
 // log2 computes the binary logarithm of x, rounded up to the next integer.
 // (log2(0) == 0, log2(1) == 0, log2(2) == 1, log2(3) == 2, etc.)
 func log2(x int) int {
-	if x < 1 {
-		return 0
+	n := 0
+	for p := 1; p < x; p += p {
+		// p == 2**n
+		n++
 	}
-	return bits.Len(uint(x - 1))
+	// p/2 < x <= p == 2**n
+	return n
 }
 
 func TestSearchEfficiency(t *testing.T) {
