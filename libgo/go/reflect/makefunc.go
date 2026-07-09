@@ -8,7 +8,6 @@ package reflect
 
 import (
 	"internal/abi"
-	"internal/goarch"
 	"unsafe"
 )
 
