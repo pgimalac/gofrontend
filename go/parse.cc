@@ -115,7 +115,7 @@ class Generic_function_info
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
       type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
-      methods_(), defining_package_(NULL), package_aliases_(),
+      methods_(), defining_package_(NULL), package_aliases_(), is_alias_(false),
       is_function_local_(false), decl_bindings_(NULL), enclosing_type_args_()
   { }
 
@@ -163,6 +163,17 @@ class Generic_function_info
   void
   set_is_function_local()
   { this->is_function_local_ = true; }
+
+  // Whether this is a generic type alias ("type X[T any] = Y[T]").  When set,
+  // the captured tokens are the aliased type expression (the leading "=" is
+  // dropped at capture) and an instance is made an alias of that type.
+  bool
+  is_alias() const
+  { return this->is_alias_; }
+
+  void
+  set_is_alias()
+  { this->is_alias_ = true; }
 
   // Map from a package qualifier alias used in the template tokens (e.g.
   // "internal") to that package's full pkgpath, captured when the template
@@ -271,6 +282,7 @@ class Generic_function_info
   std::map<std::string, std::string> package_aliases_;
   std::vector<std::pair<Named_object*, std::vector<std::vector<Token> > > >
     instance_list_;
+  bool is_alias_;
   bool is_function_local_;
   Bindings* decl_bindings_;
   std::vector<std::vector<Token> > enclosing_type_args_;
@@ -397,6 +409,9 @@ gen_write_generic_body(Export* exp, Gogo* gogo, Generic_function_info* info)
 {
   std::vector<std::string>& names = info->type_param_names();
   std::vector<std::vector<Token> >& constraints = info->constraints();
+  // Whether this template is a generic type alias.
+  exp->write_int(info->is_alias() ? 1 : 0);
+  exp->write_c_string("\n");
   exp->write_int(static_cast<int>(names.size()));
   exp->write_c_string("\n");
   for (size_t i = 0; i < names.size(); ++i)
@@ -792,6 +807,11 @@ gen_read_tokens(Import* imp, std::vector<Token>* out, Location loc)
 static void
 gen_read_generic_body(Import* imp, Generic_function_info* info, Location loc)
 {
+  // Whether this template is a generic type alias (see gen_write_generic_body).
+  int alias_flag = gen_read_int(imp);
+  gen_skip_newline(imp);
+  if (alias_flag != 0)
+    info->set_is_alias();
   int nparams = gen_read_int(imp);
   gen_skip_newline(imp);
   for (int i = 0; i < nparams; ++i)
@@ -4523,6 +4543,15 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
     this->note_token_package_usage(info->constraints()[ci],
 				   &info->package_aliases());
 
+  // Generic type alias ("type X[T any] = Y[T]"): a "=" after the type
+  // parameter list marks an alias.  Record the flag and skip the "=" so the
+  // captured tokens are just the aliased type expression.
+  if (this->peek_token()->is_op(OPERATOR_EQ))
+    {
+      info->set_is_alias();
+      this->advance_token();
+    }
+
   // Capture the type definition tokens up to a top-level semicolon.
   std::vector<Token>& toks = info->tokens();
   int depth = 0;
@@ -4830,6 +4859,10 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     this->gogo_->pop_replay_lexical_scope();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
+  // A generic type alias instance ("X[int]" for "type X[T any] = Y[T]") is an
+  // alias of the substituted aliased type, so it is interchangeable with it.
+  if (info->is_alias())
+    nt->set_is_alias();
   // Record the canonical id on the instance so it exports and so nested
   // instances referencing it as an argument reuse its origin-based identity.
   if (!canon_id.empty())

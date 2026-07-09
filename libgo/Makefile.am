@@ -156,7 +156,8 @@ toolexeclibgo_DATA = \
 	syscall.gox \
 	testing.gox \
 	time.gox \
-	unicode.gox
+	unicode.gox \
+	weak.gox
 
 toolexeclibgoarchivedir = $(toolexeclibgodir)/archive
 

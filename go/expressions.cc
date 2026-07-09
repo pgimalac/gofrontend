@@ -11855,6 +11855,14 @@ Builtin_call_expression::do_determine_type(Gogo* gogo,
 	      }
 	    if (arg_type == NULL)
 	      {
+		// Every argument is untyped (e.g. min(math.MaxInt,
+		// math.MaxUint32) at package scope with no numeric context).
+		// The loop above skipped them, so their types are not yet
+		// determined; calling type() on the front argument directly
+		// would read a NULL type and ICE.  Determine the front
+		// argument without a context first to give it its default
+		// type, then use that (made non-abstract) as the shared type.
+		args->front()->determine_type_no_context(gogo);
 		arg_type = args->front()->type();
 		if (arg_type->is_abstract() && !context->may_be_abstract)
 		  arg_type = arg_type->make_non_abstract_type();
