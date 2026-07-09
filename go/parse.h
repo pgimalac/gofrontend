@@ -477,6 +477,7 @@ class Parse
   std::string package_alias_for_local_type(Type* lt, Location);
   void register_local_type_aliases(Type* t, Location, int depth);
   Named_object* lookup_type_in_instantiation_packages(const std::string& name);
+  Named_object* lookup_value_in_instantiation_packages(const std::string& name);
   void localize_local_type_args(std::vector<std::vector<Token> >& type_args);
   Typed_identifier* receiver();
   Expression* operand(bool may_be_sink, bool *is_parenthesized);

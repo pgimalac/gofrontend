@@ -7518,6 +7518,47 @@ Parse::lookup_type_in_instantiation_packages(const std::string& name)
   return result;
 }
 
+// Generics: like lookup_type_in_instantiation_packages, but for a value
+// reference (const/var/func) rather than a type.  While re-parsing an imported
+// template, a bare unexported identifier belongs to the template's DEFINING
+// package, not the package being compiled; but pack_hidden_name packs it with
+// the compiling package's path, so an ordinary lookup finds a same-named
+// object in the WRONG package (e.g. slices' and sort's identical unexported
+// const "increasingHint" of their identical unexported type "sortedHint").
+// Resolve the name against the instantiation-package stack (innermost first,
+// skipping the compiling package) so it names the defining package's object.
+// Returns NULL if not found there.
+
+Named_object*
+Parse::lookup_value_in_instantiation_packages(const std::string& name)
+{
+  Named_object* result = NULL;
+  const std::vector<Package*>& ips = this->gogo_->instantiation_packages();
+  for (std::vector<Package*>::const_reverse_iterator pi = ips.rbegin();
+       pi != ips.rend() && result == NULL;
+       ++pi)
+    {
+      Package* ip = *pi;
+      if (ip == NULL || ip->pkgpath() == this->gogo_->pkgpath())
+	continue;
+      Named_object* ino = ip->bindings()->lookup(name);
+      if (ino == NULL)
+	{
+	  std::string bare = Gogo::unpack_hidden_name(name);
+	  if (!bare.empty())
+	    {
+	      ino = ip->bindings()->lookup(bare);
+	      if (ino == NULL)
+		ino = ip->bindings()->lookup('.' + ip->pkgpath() + '.' + bare);
+	    }
+	}
+      // Accept any real object (const/var/func/type), but never a package.
+      if (ino != NULL && !ino->is_package())
+	result = ino;
+    }
+  return result;
+}
+
 // Generics: a generic instance is re-parsed at package scope, so a type
 // argument that names a function-local type would not resolve.  Replace
 // each such single-identifier argument with a package-scope alias name.
@@ -7706,6 +7747,27 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 
 	Named_object* in_function;
 	Named_object* named_object = this->gogo_->lookup(packed, &in_function);
+
+	// Generics: while re-parsing an imported template, a bare UNEXPORTED
+	// identifier belongs to the template's DEFINING package, not the package
+	// being compiled.  pack_hidden_name packed it with the compiling
+	// package's path, so the lookup above may have found a same-named object
+	// in the WRONG package (e.g. slices' and sort's identical unexported
+	// const "increasingHint" of their identical unexported type
+	// "sortedHint"), giving a type mismatch inside the instantiated body.
+	// Prefer the instantiation package's binding, mirroring type_name's stack
+	// walk.  Skip synthetic names ($infermarker/$localtype), function-local
+	// names, and package qualifiers, which are current-context.
+	if (this->replay_tokens_ != NULL
+	    && !is_exported
+	    && in_function == NULL
+	    && (named_object == NULL || !named_object->is_package())
+	    && (id.empty() || id[0] != '$'))
+	  {
+	    Named_object* ino = this->lookup_value_in_instantiation_packages(id);
+	    if (ino != NULL)
+	      named_object = ino;
+	  }
 
 	// While re-parsing a generic instance, resolve a package qualifier
 	// through the template's alias->pkgpath map, so it names the exact
