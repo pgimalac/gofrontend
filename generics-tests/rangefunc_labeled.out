@@ -1,0 +1,4 @@
+break: 0/0 0/1
+continue: 0/0 1/0 2/0
+goto: 0 1 2 end
+nested: 0,0 0,1 0,2 1,0

@@ -7575,26 +7575,72 @@ Rangefunc_targets_collect::statement(Block*, size_t*, Statement* s)
   return TRAVERSE_CONTINUE;
 }
 
+// Traverse a range-over-func body looking for control-flow transfers that
+// escape the loop body (a labeled break/continue to an outer construct, or a
+// goto to a label outside the body).  Collects the distinct escaping targets
+// in source order (so each can be assigned a stable $rangestate code), and
+// records whether the body itself contains a nested range-over-func loop.
+
 class Rangefunc_escape_check : public Traverse
 {
  public:
   Rangefunc_escape_check(const Unordered_set(Unnamed_label*)& unnamed,
 			 const Unordered_set(Label*)& named)
     : Traverse(traverse_statements),
-      unnamed_(unnamed), named_(named), escapes_(false)
+      unnamed_(unnamed), named_(named), has_nested_range_(false)
   { }
 
   bool
   escapes() const
-  { return this->escapes_; }
+  { return !this->esc_unnamed_.empty() || !this->esc_named_.empty(); }
+
+  // Distinct escaping unnamed-label targets (outer break/continue), in order.
+  const std::vector<Unnamed_label*>&
+  escaping_unnamed() const
+  { return this->esc_unnamed_; }
+
+  // Distinct escaping named-label targets (goto), in order.
+  const std::vector<Label*>&
+  escaping_named() const
+  { return this->esc_named_; }
+
+  // Whether the body still contains an un-lowered nested range-over-func loop.
+  // Under the current contents-first lowering order (Lower_parse_tree lowers a
+  // statement's contents before the statement itself), a lexically nested
+  // range-over-func has already been rewritten into an F(yield) call by the
+  // time the enclosing loop is lowered, so this stays false in practice and
+  // the guard below is a conservative fallback that is not expected to trigger
+  // today.  It fails closed with a compile-time error (rather than risking a
+  // bad cross-yield transfer) should some future refactor change that order.
+  bool
+  has_nested_range() const
+  { return this->has_nested_range_; }
 
   int
   statement(Block*, size_t*, Statement*);
 
  private:
+  void
+  add_unnamed(Unnamed_label* l)
+  {
+    if (this->seen_unnamed_.insert(l).second)
+      this->esc_unnamed_.push_back(l);
+  }
+
+  void
+  add_named(Label* l)
+  {
+    if (this->seen_named_.insert(l).second)
+      this->esc_named_.push_back(l);
+  }
+
   const Unordered_set(Unnamed_label*)& unnamed_;
   const Unordered_set(Label*)& named_;
-  bool escapes_;
+  std::vector<Unnamed_label*> esc_unnamed_;
+  std::vector<Label*> esc_named_;
+  Unordered_set(Unnamed_label*) seen_unnamed_;
+  Unordered_set(Label*) seen_named_;
+  bool has_nested_range_;
 };
 
 int
@@ -7602,26 +7648,30 @@ Rangefunc_escape_check::statement(Block*, size_t*, Statement* s)
 {
   switch (s->classification())
     {
+    case Statement::STATEMENT_FOR_RANGE:
+      if (s->for_range_statement()->is_range_over_func())
+	this->has_nested_range_ = true;
+      break;
     case Statement::STATEMENT_BREAK_OR_CONTINUE:
       {
 	Bc_statement* bc = static_cast<Bc_statement*>(s);
 	Unnamed_label* l = bc->label();
 	if (l != NULL && this->unnamed_.find(l) == this->unnamed_.end())
-	  this->escapes_ = true;
+	  this->add_unnamed(l);
       }
       break;
     case Statement::STATEMENT_GOTO_UNNAMED:
       {
 	Unnamed_label* l = s->goto_unnamed_statement()->unnamed_label();
 	if (l != NULL && this->unnamed_.find(l) == this->unnamed_.end())
-	  this->escapes_ = true;
+	  this->add_unnamed(l);
       }
       break;
     case Statement::STATEMENT_GOTO:
       {
 	Label* l = s->goto_statement()->label();
 	if (l != NULL && this->named_.find(l) == this->named_.end())
-	  this->escapes_ = true;
+	  this->add_named(l);
       }
       break;
     default:
@@ -7658,10 +7708,13 @@ class Rangefunc_capture_rewrite : public Traverse
   Rangefunc_capture_rewrite(Named_object* yield_no, Named_object* closure_no,
 			    Unordered_map(Named_object*, unsigned int)* fi,
 			    const std::vector<Named_object*>& ret_vars,
-			    Named_object* state_no)
+			    Named_object* state_no,
+			    const Unordered_map(Unnamed_label*, int)* esc_unnamed,
+			    const Unordered_map(Label*, int)* esc_named)
     : Traverse(traverse_statements | traverse_expressions),
       yield_no_(yield_no), closure_no_(closure_no), field_index_(fi),
-      ret_vars_(ret_vars), state_no_(state_no)
+      ret_vars_(ret_vars), state_no_(state_no),
+      esc_unnamed_(esc_unnamed), esc_named_(esc_named)
   { }
 
   int
@@ -7671,11 +7724,18 @@ class Rangefunc_capture_rewrite : public Traverse
   expression(Expression**);
 
  private:
+  // Build the { $state = code; return false } block that replaces an
+  // escaping control-flow transfer (or a return, with save_return_vals).
+  Statement*
+  make_escape_block(Block* block, int code, Location loc);
+
   Named_object* yield_no_;
   Named_object* closure_no_;
   Unordered_map(Named_object*, unsigned int)* field_index_;
   const std::vector<Named_object*>& ret_vars_;
   Named_object* state_no_;
+  const Unordered_map(Unnamed_label*, int)* esc_unnamed_;
+  const Unordered_map(Label*, int)* esc_named_;
 };
 
 // Expression-only variant: rewrites captured-variable references into
@@ -7736,10 +7796,81 @@ Rangefunc_capture_rewrite::expression(Expression** pexpr)
   return TRAVERSE_CONTINUE;
 }
 
+// Build the { $state = code; return false } block that replaces an escaping
+// break/continue/goto inside the yield function.
+
+Statement*
+Rangefunc_capture_rewrite::make_escape_block(Block* block, int code,
+					     Location loc)
+{
+  Type* int_type = Type::lookup_integer_type("int");
+  Block* b = new Block(block, loc);
+  Expression* lhs = Expression::make_var_reference(this->state_no_, loc);
+  Expression* cv = Expression::make_integer_ul(code, int_type, loc);
+  b->add_statement(Statement::make_assignment(lhs, cv, loc));
+  Expression_list* rf = new Expression_list();
+  rf->push_back(Expression::make_boolean(false, loc));
+  b->add_statement(Statement::make_return_statement(this->yield_no_, rf, loc));
+  // Rewrite the $state reference through the closure (expression-only, so the
+  // synthetic "return false" is not treated as a user return).
+  Rangefunc_expr_rewrite er(this->closure_no_, this->field_index_);
+  b->traverse(&er);
+  return Statement::make_block_statement(b, loc);
+}
+
 int
 Rangefunc_capture_rewrite::statement(Block* block, size_t* pindex,
 				     Statement* s)
 {
+  // An escaping break/continue (to an outer construct) or goto (to a label
+  // outside the body) is rewritten to set $rangestate to that target's code
+  // and return false; the outer block dispatches on $rangestate after F
+  // returns to perform the real transfer.
+  switch (s->classification())
+    {
+    case Statement::STATEMENT_BREAK_OR_CONTINUE:
+      {
+	Unnamed_label* l = static_cast<Bc_statement*>(s)->label();
+	Unordered_map(Unnamed_label*, int)::const_iterator p =
+	  this->esc_unnamed_->find(l);
+	if (p != this->esc_unnamed_->end())
+	  {
+	    block->replace_statement(*pindex,
+	      this->make_escape_block(block, p->second, s->location()));
+	    return TRAVERSE_SKIP_COMPONENTS;
+	  }
+	return TRAVERSE_CONTINUE;
+      }
+    case Statement::STATEMENT_GOTO_UNNAMED:
+      {
+	Unnamed_label* l = s->goto_unnamed_statement()->unnamed_label();
+	Unordered_map(Unnamed_label*, int)::const_iterator p =
+	  this->esc_unnamed_->find(l);
+	if (p != this->esc_unnamed_->end())
+	  {
+	    block->replace_statement(*pindex,
+	      this->make_escape_block(block, p->second, s->location()));
+	    return TRAVERSE_SKIP_COMPONENTS;
+	  }
+	return TRAVERSE_CONTINUE;
+      }
+    case Statement::STATEMENT_GOTO:
+      {
+	Label* l = s->goto_statement()->label();
+	Unordered_map(Label*, int)::const_iterator p =
+	  this->esc_named_->find(l);
+	if (p != this->esc_named_->end())
+	  {
+	    block->replace_statement(*pindex,
+	      this->make_escape_block(block, p->second, s->location()));
+	    return TRAVERSE_SKIP_COMPONENTS;
+	  }
+	return TRAVERSE_CONTINUE;
+      }
+    default:
+      break;
+    }
+
   if (s->classification() != Statement::STATEMENT_RETURN)
     return TRAVERSE_CONTINUE;
 
@@ -7867,6 +7998,20 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
   // Detect control-flow transfers that would escape the yield function
   // (a labeled break/continue to an outer construct, or a goto to a
   // label outside the loop body).  These are not yet supported.
+  // Each distinct escaping target is assigned a $rangestate code (>= 3);
+  // inside the body the escaping break/continue/goto is rewritten to set
+  // $rangestate and return false, and after F(yield) returns the outer block
+  // dispatches on $rangestate to perform the real transfer to the outer
+  // target.  Escapes that cross a nested range-over-func are handled by
+  // per-level propagation: the nested loop lowers first (contents-first), so
+  // its own dispatch re-emits a goto to the outer target, which this loop then
+  // sees as one of its escaping targets.  The has_nested_range() guard below is
+  // therefore a conservative fallback (see its comment) that does not trigger
+  // under the current lowering order.
+  Unordered_map(Unnamed_label*, int) escape_unnamed_code;
+  Unordered_map(Label*, int) escape_named_code;
+  std::vector<Unnamed_label*> escape_unnamed_order;
+  std::vector<Label*> escape_named_order;
   {
     Unordered_set(Unnamed_label*) safe_unnamed;
     Unordered_set(Label*) safe_named;
@@ -7876,12 +8021,29 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
     this->statements_->traverse(&tc);
     Rangefunc_escape_check ec(safe_unnamed, safe_named);
     this->statements_->traverse(&ec);
-    if (ec.escapes())
+    if (ec.escapes() && ec.has_nested_range())
       {
 	go_error_at(loc,
 		    "labeled break/continue or goto out of a range-over-func "
-		    "loop is not yet supported by gccgo");
+		    "loop is not yet supported by gccgo when the body contains "
+		    "a nested range-over-func loop");
 	return Statement::make_error_statement(loc);
+      }
+    int code = 3;
+    for (std::vector<Unnamed_label*>::const_iterator p =
+	   ec.escaping_unnamed().begin();
+	 p != ec.escaping_unnamed().end();
+	 ++p)
+      {
+	escape_unnamed_code[*p] = code++;
+	escape_unnamed_order.push_back(*p);
+      }
+    for (std::vector<Label*>::const_iterator p = ec.escaping_named().begin();
+	 p != ec.escaping_named().end();
+	 ++p)
+      {
+	escape_named_code[*p] = code++;
+	escape_named_order.push_back(*p);
       }
   }
 
@@ -8061,7 +8223,9 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
   // that it goes through the closure, and rewrite return statements.
   Statement* rewritten = this->rewrite_range_func_body(gogo, yield_no,
 						       closure_no, field_index,
-						       ret_vars, state_no, loc);
+						       ret_vars, state_no,
+						       &escape_unnamed_code,
+						       &escape_named_code, loc);
   gogo->add_statement(rewritten);
 
   // Fall-off end of body == continue: jump to the continue label.
@@ -8143,6 +8307,39 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
     outer->add_statement(ifs);
   }
 
+  // Dispatch on $rangestate for the escaping labeled break/continue/goto
+  // targets: for each, "if $state == code { <goto the real outer target> }".
+  // This runs at the lexical position the range statement occupied, so the
+  // outer break/continue labels and goto labels are in scope here.
+  for (size_t i = 0; i < escape_unnamed_order.size(); ++i)
+    {
+      Unnamed_label* target = escape_unnamed_order[i];
+      int code = escape_unnamed_code[target];
+      Expression* state_ref = Expression::make_var_reference(state_no, loc);
+      Expression* cv = Expression::make_integer_ul(code, int_type, loc);
+      Expression* cond = Expression::make_binary(OPERATOR_EQEQ, state_ref, cv,
+						 loc);
+      Block* then_block = new Block(outer, loc);
+      then_block->add_statement(
+	Statement::make_goto_unnamed_statement(target, loc));
+      outer->add_statement(
+	Statement::make_if_statement(cond, then_block, NULL, loc));
+    }
+  for (size_t i = 0; i < escape_named_order.size(); ++i)
+    {
+      Label* target = escape_named_order[i];
+      int code = escape_named_code[target];
+      Expression* state_ref = Expression::make_var_reference(state_no, loc);
+      Expression* cv = Expression::make_integer_ul(code, int_type, loc);
+      Expression* cond = Expression::make_binary(OPERATOR_EQEQ, state_ref, cv,
+						 loc);
+      Block* then_block = new Block(outer, loc);
+      then_block->add_statement(
+	Statement::make_goto_statement(target, loc));
+      outer->add_statement(
+	Statement::make_if_statement(cond, then_block, NULL, loc));
+    }
+
   Statement* result = Statement::make_block_statement(outer, loc);
   result->determine_types(gogo);
   return result;
@@ -8157,10 +8354,12 @@ For_range_statement::rewrite_range_func_body(
     Gogo*, Named_object* yield_no, Named_object* closure_no,
     Unordered_map(Named_object*, unsigned int)& field_index,
     const std::vector<Named_object*>& ret_vars, Named_object* state_no,
+    const Unordered_map(Unnamed_label*, int)* esc_unnamed,
+    const Unordered_map(Label*, int)* esc_named,
     Location loc)
 {
   Rangefunc_capture_rewrite rw(yield_no, closure_no, &field_index, ret_vars,
-			       state_no);
+			       state_no, esc_unnamed, esc_named);
   this->statements_->traverse(&rw);
   return Statement::make_block_statement(this->statements_, loc);
 }
@@ -9006,6 +9205,22 @@ For_range_statement::continue_label()
   if (this->continue_label_ == NULL)
     this->continue_label_ = new Unnamed_label(this->location());
   return this->continue_label_;
+}
+
+// Whether this ranges over a function (a range-over-func iterator),
+// mirroring the dispatch in do_lower.
+
+bool
+For_range_statement::is_range_over_func() const
+{
+  Type* range_type = this->range_->type();
+  if (range_type == NULL)
+    return false;
+  if (range_type->points_to() != NULL
+      && range_type->points_to()->array_type() != NULL
+      && !range_type->points_to()->is_slice_type())
+    range_type = range_type->points_to();
+  return range_type->function_type() != NULL;
 }
 
 // Dump the AST representation for a for range statement.

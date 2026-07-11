@@ -107,7 +107,14 @@ func newcorog(callerpc uintptr) *g {
 	}
 
 	trace := traceAcquire()
-	casgstatus(newg, _Gdead, _Grunnable)
+	// A coroutine G is never put on a run queue: it is resumed directly by
+	// coroswitch_m, which transfers it from _Gwaiting to _Grunning.  Create it
+	// already parked in _Gwaiting so that first switch's CAS succeeds; creating
+	// it _Grunnable makes coroswitch_m's "_Gwaiting -> _Grunning" CAS fail and
+	// the fallback casgstatus hit the "waiting for Gwaiting but is Grunnable"
+	// invariant (iter.Pull crash).
+	newg.waitreason = waitReasonCoroutine
+	casgstatus(newg, _Gdead, _Gwaiting)
 	if pp.goidcache == pp.goidcacheend {
 		pp.goidcache = sched.goidgen.Add(_GoidCacheBatch)
 		pp.goidcache -= _GoidCacheBatch - 1

@@ -1743,6 +1743,10 @@ class For_range_statement : public Statement
   Unnamed_label*
   continue_label();
 
+  // Whether this ranges over a function (range-over-func iterator).
+  bool
+  is_range_over_func() const;
+
  protected:
   int
   do_traverse(Traverse*);
@@ -1819,6 +1823,8 @@ class For_range_statement : public Statement
   rewrite_range_func_body(Gogo*, Named_object*, Named_object*,
 			  Unordered_map(Named_object*, unsigned int)&,
 			  const std::vector<Named_object*>&, Named_object*,
+			  const Unordered_map(Unnamed_label*, int)*,
+			  const Unordered_map(Label*, int)*,
 			  Location);
 
   // The variable which is set to the index value.
