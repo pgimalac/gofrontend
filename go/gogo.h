@@ -739,6 +739,12 @@ class Gogo
   void
   add_generic_type(const std::string& name, Generic_function_info*);
 
+  // Register a FUNCTION-LOCAL generic type template in the current
+  // block/function bindings (lexically scoped).  The caller decides which to
+  // use based on Generic_function_info::is_function_local().
+  void
+  add_local_generic_type(const std::string& name, Generic_function_info*);
+
   // Look up a generic type template by raw (source) name, or NULL.
   Generic_function_info*
   lookup_generic_type(const std::string& name);
@@ -3563,6 +3569,27 @@ class Bindings
   void
   clear_file_scope(Gogo*);
 
+  // Generics: register a function-local generic type template in this
+  // (block/function-scoped) contour, keyed by its packed name.
+  void
+  add_generic_type_template(const std::string& name, Generic_function_info* info)
+  { this->generic_type_templates_[name] = info; }
+
+  // Generics: look up a function-local generic type template by packed name in
+  // this contour and any enclosing contour, or NULL.  Package/imported
+  // templates are not here (see Gogo::lookup_generic_type).
+  Generic_function_info*
+  lookup_generic_type_template(const std::string& name) const
+  {
+    Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+      this->generic_type_templates_.find(name);
+    if (p != this->generic_type_templates_.end())
+      return p->second;
+    if (this->enclosing_ != NULL)
+      return this->enclosing_->lookup_generic_type_template(name);
+    return NULL;
+  }
+
   // Look up a name in this binding contour and in any enclosing
   // binding contours.  This returns NULL if the name is not found.
   Named_object*
@@ -3658,6 +3685,14 @@ class Bindings
   std::vector<Named_object*> named_objects_;
   // The mapping from names to objects.
   Contour bindings_;
+  // Generics: function-local generic type templates declared in this contour
+  // (block/function scope).  Package-level and imported generic type templates
+  // are NOT here -- they live in Gogo::generic_types_.  Keeping function-local
+  // templates here gives them correct lexical scope (visible from declaration
+  // to the end of the declaring block, and invisible in a separately-replayed
+  // package-scope template, whose replay runs with the caller's function stack
+  // cleared by push_instantiation_context).
+  Unordered_map(std::string, Generic_function_info*) generic_type_templates_;
 };
 
 // A label.

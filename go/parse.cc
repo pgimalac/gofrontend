@@ -4450,10 +4450,14 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
   this->note_token_package_usage(toks, &info->package_aliases());
 
   // Register under the packed name so that lookups in type context
-  // (which pack the name) match, including for unexported types.
-  this->gogo_->add_generic_type(this->gogo_->pack_hidden_name(name,
-							      is_exported),
-				info);
+  // (which pack the name) match, including for unexported types.  A
+  // function-local generic type goes into the current block/function bindings
+  // (lexically scoped); a package-level one into the global registry.
+  std::string packed = this->gogo_->pack_hidden_name(name, is_exported);
+  if (info->is_function_local())
+    this->gogo_->add_local_generic_type(packed, info);
+  else
+    this->gogo_->add_generic_type(packed, info);
 }
 
 // Generics: is NAME a predeclared/universal type name?  Such a name denotes the
@@ -4704,37 +4708,18 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   if (!canon_id.empty())
     this->gogo_->add_canonical_generic_instance(canon_id, no);
 
+  // A PACKAGE-scope generic type's body (and its methods) is lexically at
+  // package scope and must resolve generic-type names there, never against a
+  // caller's function-local generic templates -- but that is now guaranteed by
+  // scoping: function-local templates live in the function's Bindings, and this
+  // replay runs with the function stack cleared (push_instantiation_context),
+  // so lookup_generic_type does not consult them.  (A function-local generic
+  // type's OWN instantiation, `local`, keeps the function stack, so it still
+  // sees its sibling function-local types.)
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
   ip.set_replay_pkg_aliases(&merged_aliases);
-  // As in instantiate_generic_function: a PACKAGE-scope generic type's body is
-  // lexically at package scope and must resolve generic-type names there, never
-  // against the function-local generic templates of a caller whose body is
-  // instantiating it (e.g. `type Wrap[T] struct{ b Box[T] }` instantiated
-  // inside a function that declares its own local `type Box[T]`).  Hide the
-  // function-local templates for this replay.  This is NOT done when
-  // instantiating a function-local generic type itself (`local`), whose body
-  // may legitimately reference sibling function-local generic types.
-  Unordered_map(std::string, Generic_function_info*) saved_generic_types;
-  bool filtered_gt = false;
-  if (!local)
-    {
-      saved_generic_types = this->gogo_->generic_types();
-      Unordered_map(std::string, Generic_function_info*) pkg_only;
-      for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
-	     saved_generic_types.begin();
-	   p != saved_generic_types.end();
-	   ++p)
-	if (!p->second->is_function_local())
-	  pkg_only.insert(*p);
-      this->gogo_->set_generic_types(pkg_only);
-      filtered_gt = true;
-    }
   Type* underlying = ip.type();
-  // Note: generic_types_ stays filtered past here so that the method bodies
-  // replayed by instantiate_instance_methods below (also lexically package
-  // scope) do not see the caller's function-local templates either.  It is
-  // restored at the end of this function.
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
   // Record the canonical id on the instance so it exports and so nested
@@ -4815,11 +4800,6 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   }
 
   this->instantiate_instance_methods(info, type_args, nt, underlying, location);
-
-  // Restore the function-local templates hidden for this package-scope type's
-  // body and method replays (see above).
-  if (filtered_gt)
-    this->gogo_->set_generic_types(saved_generic_types);
 
   if (imported)
     this->gogo_->pop_instantiation_package();
@@ -7799,33 +7779,13 @@ Parse::instantiate_generic_function(Generic_function_info* info,
     ip.set_replay_pkg_aliases(&info->package_aliases());
 
   // A generic function is always declared at package scope (Go has no
-  // function-local generic function declarations), so its signature and body
-  // must resolve generic-type names against package scope -- NOT against the
-  // function-local generic templates of the CALLER whose body is instantiating
-  // this one, nor those of an enclosing instantiation.  Those caller-locals are
-  // registered in the package-global generic_types_ map, so hide them for this
-  // whole replay: snapshot the map, drop the function-local entries, and
-  // restore afterward.  The restore also discards any function-local template
-  // THIS replay declares (they are non-persistent) and undoes a same-named
-  // clobber from a nested/recursive instantiation.  (This function's own body
-  // still sees the local generic types it declares, because those are added to
-  // the map during the replay, after this filtering.)  When the whole
-  // compilation declares no function-local generic type, generic_types_ holds
-  // only package-scope templates, so the filter is a no-op (pkg_only == the
-  // full map) -- correct, just a copy.
-  Unordered_map(std::string, Generic_function_info*) saved_generic_types =
-    this->gogo_->generic_types();
-  {
-    Unordered_map(std::string, Generic_function_info*) pkg_only;
-    for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
-	   saved_generic_types.begin();
-	 p != saved_generic_types.end();
-	 ++p)
-      if (!p->second->is_function_local())
-	pkg_only.insert(*p);
-    this->gogo_->set_generic_types(pkg_only);
-  }
-
+  // function-local generic function declarations); push_instantiation_context
+  // above cleared the caller's function stack, so this replay's
+  // lookup_generic_type does not see any caller/enclosing function-local
+  // generic templates (they live in the caller's Bindings) -- its generic-type
+  // names resolve against package scope.  A function-local generic type
+  // declared in THIS function's own body registers in this instance function's
+  // Bindings and is discarded when the function's block is finished.
   Function_type* fntype = ip.signature(NULL, location);
   if (fntype == NULL)
     fntype = Type::make_function_type(NULL, NULL, NULL, location);
@@ -7836,7 +7796,6 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // same type arguments resolve to this instance.
   info->add_instance(key, ino, type_args);
   ip.block();
-  this->gogo_->set_generic_types(saved_generic_types);
   this->gogo_->finish_function(location);
   if (imported)
     this->gogo_->pop_instantiation_package();

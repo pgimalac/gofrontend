@@ -2586,12 +2586,36 @@ Gogo::add_generic_type(const std::string& name, Generic_function_info* info)
   this->generic_types_[name] = info;
 }
 
+// Register a function-local generic type template in the current
+// block/function bindings (lexically scoped).  Kept separate from
+// add_generic_type because the routing decision (info->is_function_local()) is
+// made by the caller in parse.cc, where Generic_function_info is complete.
+
+void
+Gogo::add_local_generic_type(const std::string& name,
+			     Generic_function_info* info)
+{
+  this->current_bindings()->add_generic_type_template(name, info);
+}
+
 // Look up a generic type template by raw name, or return NULL.
 
 Generic_function_info*
 Gogo::lookup_generic_type(const std::string& name)
 {
   Unordered_map(std::string, Generic_function_info*)::iterator p;
+
+  // A function-local generic type (lexically scoped, stored in the current
+  // block/function bindings) shadows a package-level one and takes priority.
+  // Only consult local scope while inside a function; at package scope there
+  // are no local templates.
+  if (!this->in_global_scope())
+    {
+      Generic_function_info* local =
+	this->current_bindings()->lookup_generic_type_template(name);
+      if (local != NULL)
+	return local;
+    }
   // While re-parsing an imported template, a bare reference to a sibling
   // generic type of the defining package resolves via that pkgpath.  This
   // MUST take priority over the bare-name lookup below: an exported generic
