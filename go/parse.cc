@@ -115,8 +115,26 @@ class Generic_function_info
 			Location location)
     : name_(name), is_exported_(is_exported), location_(location),
       type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
-      methods_(), defining_package_(NULL), package_aliases_()
+      methods_(), defining_package_(NULL), package_aliases_(),
+      is_function_local_(false)
   { }
+
+  // Whether this generic type template was declared inside a function body
+  // (a function-local generic type).  Such a template is never exported or
+  // imported, and -- crucially when the enclosing function is itself generic
+  // -- each enclosing instantiation captures its own token stream (with the
+  // enclosing type parameters already substituted), so its instances must NOT
+  // share the cross-package canonical-instance registry: F[string].Box[int]
+  // and F[float64].Box[int] are distinct nominal types.  Instead each instance
+  // is created in-function, so its backend/reflection name incorporates the
+  // (distinct) enclosing function instance.
+  bool
+  is_function_local() const
+  { return this->is_function_local_; }
+
+  void
+  set_is_function_local()
+  { this->is_function_local_ = true; }
 
   // Map from a package qualifier alias used in the template tokens (e.g.
   // "internal") to that package's full pkgpath, captured when the template
@@ -225,6 +243,7 @@ class Generic_function_info
   std::map<std::string, std::string> package_aliases_;
   std::vector<std::pair<Named_object*, std::vector<std::vector<Token> > > >
     instance_list_;
+  bool is_function_local_;
 };
 
 // Generics: cross-package export/import of generic templates.
@@ -429,7 +448,10 @@ go_export_generics(Export* exp, Gogo* gogo)
 	 gt.begin();
        p != gt.end();
        ++p)
-    if (p->second->defining_package() == NULL)
+    // A function-local generic type is never visible outside its enclosing
+    // function, so it must not appear in this package's export data.
+    if (p->second->defining_package() == NULL
+	&& !p->second->is_function_local())
       types.push_back(*p);
 
   if (funcs.empty() && types.empty())
@@ -589,7 +611,10 @@ go_collect_generic_exports(Gogo* gogo, const Bindings* bindings,
        p != gt.end();
        ++p)
     {
-      if (p->second->defining_package() != NULL)
+      // Function-local generic types are not exported (see go_export_generics),
+      // so do not collect symbols on their behalf.
+      if (p->second->defining_package() != NULL
+	  || p->second->is_function_local())
 	continue;
       Generic_function_info* info = p->second;
       collect_refs_in_tokens(gogo, bindings, info->tokens(),
@@ -2910,8 +2935,16 @@ Parse::type_spec()
   // list, but only if it really is one -- "[" also begins an array or
   // slice type ("type S []int", "type A [3]int").  Capture the template
   // and return; instances are created on demand at each use site.
-  // (Skipped when re-parsing an instance.)
-  if (token->is_op(OPERATOR_LSQUARE) && this->replay_tokens_ == NULL
+  // Normally skipped when re-parsing an instance (replay_tokens_ != NULL),
+  // EXCEPT for a FUNCTION-LOCAL generic type declared inside a generic
+  // function body being instantiated: that decl is at function scope (not
+  // global) and must still be captured as its own generic-type template so
+  // its own uses inside the body (e.g. "var x Box[int]") can instantiate it.
+  // (A top-level generic type is only re-parsed as one of its own instances,
+  // where the "[" is an array/slice of a concrete type, so global-scope
+  // replay stays on the array path.)
+  if (token->is_op(OPERATOR_LSQUARE)
+      && (this->replay_tokens_ == NULL || !this->gogo_->in_global_scope())
       && this->next_is_type_parameter_decl())
     {
       this->generic_type_decl(name, is_exported, location);
@@ -4379,6 +4412,13 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
   Generic_function_info* info =
     new Generic_function_info(name, is_exported, location);
 
+  // A generic type declared inside a function body is function-local; its
+  // instances get in-function identity rather than the cross-package
+  // canonical-instance registry (see Generic_function_info::is_function_local
+  // and instantiate_generic_type).
+  if (!this->gogo_->in_global_scope())
+    info->set_is_function_local();
+
   this->type_parameter_names(&info->type_param_names(), &info->constraints());
 
   // Note any package qualifier appearing only in a constraint (see the
@@ -4586,7 +4626,17 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   std::string iname = info->name() + std::string(buf);
   std::string packed = this->gogo_->pack_hidden_name(iname, false);
 
-  this->gogo_->push_instantiation_context();
+  // A function-local generic type is instantiated in-place, inside the
+  // enclosing function's scope: we must NOT push_instantiation_context (which
+  // saves and clears the function stack, making the instance a package-level
+  // type), so that declare_type below records the instance as in-function and
+  // its backend/reflection name incorporates the (distinct) enclosing function
+  // instance.  It also must NOT join the cross-package canonical-instance
+  // registry (canon_id is forced empty below), so F[string].Box[int] and
+  // F[float64].Box[int] stay distinct nominal types.
+  bool local = info->is_function_local();
+  if (!local)
+    this->gogo_->push_instantiation_context();
   bool imported = info->defining_package() != NULL;
   if (imported)
     this->gogo_->push_instantiation_package(info->defining_package());
@@ -4595,9 +4645,12 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   // context so predeclared/defining-package names resolve) and consult the
   // global canonical-instance registry, so a locally-created instance and one
   // imported by reference (or created while importing another package) unify
-  // to a single nominal type object across packages.
-  std::string canon_id = this->generic_instance_canonical_id(info, type_args,
-							     merged_aliases);
+  // to a single nominal type object across packages.  Skipped for a
+  // function-local generic type (see above): forcing an empty id disables the
+  // registry lookup/registration and set_generic_canonical_id below.
+  std::string canon_id = local
+    ? std::string()
+    : this->generic_instance_canonical_id(info, type_args, merged_aliases);
   if (!canon_id.empty())
     {
       Named_object* cno =
@@ -4654,7 +4707,34 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
   ip.set_replay_pkg_aliases(&merged_aliases);
+  // As in instantiate_generic_function: a PACKAGE-scope generic type's body is
+  // lexically at package scope and must resolve generic-type names there, never
+  // against the function-local generic templates of a caller whose body is
+  // instantiating it (e.g. `type Wrap[T] struct{ b Box[T] }` instantiated
+  // inside a function that declares its own local `type Box[T]`).  Hide the
+  // function-local templates for this replay.  This is NOT done when
+  // instantiating a function-local generic type itself (`local`), whose body
+  // may legitimately reference sibling function-local generic types.
+  Unordered_map(std::string, Generic_function_info*) saved_generic_types;
+  bool filtered_gt = false;
+  if (!local)
+    {
+      saved_generic_types = this->gogo_->generic_types();
+      Unordered_map(std::string, Generic_function_info*) pkg_only;
+      for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	     saved_generic_types.begin();
+	   p != saved_generic_types.end();
+	   ++p)
+	if (!p->second->is_function_local())
+	  pkg_only.insert(*p);
+      this->gogo_->set_generic_types(pkg_only);
+      filtered_gt = true;
+    }
   Type* underlying = ip.type();
+  // Note: generic_types_ stays filtered past here so that the method bodies
+  // replayed by instantiate_instance_methods below (also lexically package
+  // scope) do not see the caller's function-local templates either.  It is
+  // restored at the end of this function.
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
   // Record the canonical id on the instance so it exports and so nested
@@ -4736,9 +4816,15 @@ Parse::instantiate_generic_type(Generic_function_info* info,
 
   this->instantiate_instance_methods(info, type_args, nt, underlying, location);
 
+  // Restore the function-local templates hidden for this package-scope type's
+  // body and method replays (see above).
+  if (filtered_gt)
+    this->gogo_->set_generic_types(saved_generic_types);
+
   if (imported)
     this->gogo_->pop_instantiation_package();
-  this->gogo_->pop_instantiation_context();
+  if (!local)
+    this->gogo_->pop_instantiation_context();
 
   return nt;
 }
@@ -7712,6 +7798,34 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   else
     ip.set_replay_pkg_aliases(&info->package_aliases());
 
+  // A generic function is always declared at package scope (Go has no
+  // function-local generic function declarations), so its signature and body
+  // must resolve generic-type names against package scope -- NOT against the
+  // function-local generic templates of the CALLER whose body is instantiating
+  // this one, nor those of an enclosing instantiation.  Those caller-locals are
+  // registered in the package-global generic_types_ map, so hide them for this
+  // whole replay: snapshot the map, drop the function-local entries, and
+  // restore afterward.  The restore also discards any function-local template
+  // THIS replay declares (they are non-persistent) and undoes a same-named
+  // clobber from a nested/recursive instantiation.  (This function's own body
+  // still sees the local generic types it declares, because those are added to
+  // the map during the replay, after this filtering.)  When the whole
+  // compilation declares no function-local generic type, generic_types_ holds
+  // only package-scope templates, so the filter is a no-op (pkg_only == the
+  // full map) -- correct, just a copy.
+  Unordered_map(std::string, Generic_function_info*) saved_generic_types =
+    this->gogo_->generic_types();
+  {
+    Unordered_map(std::string, Generic_function_info*) pkg_only;
+    for (Unordered_map(std::string, Generic_function_info*)::const_iterator p =
+	   saved_generic_types.begin();
+	 p != saved_generic_types.end();
+	 ++p)
+      if (!p->second->is_function_local())
+	pkg_only.insert(*p);
+    this->gogo_->set_generic_types(pkg_only);
+  }
+
   Function_type* fntype = ip.signature(NULL, location);
   if (fntype == NULL)
     fntype = Type::make_function_type(NULL, NULL, NULL, location);
@@ -7722,6 +7836,7 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // same type arguments resolve to this instance.
   info->add_instance(key, ino, type_args);
   ip.block();
+  this->gogo_->set_generic_types(saved_generic_types);
   this->gogo_->finish_function(location);
   if (imported)
     this->gogo_->pop_instantiation_package();

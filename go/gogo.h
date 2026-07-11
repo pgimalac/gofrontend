@@ -724,6 +724,17 @@ class Gogo
   generic_types() const
   { return this->generic_types_; }
 
+  // Overwrite the generic-type registry.  Used to save/restore the registry
+  // around a generic function body replay: a function-local generic type
+  // declared during the replay registers here, and a nested (e.g. recursive)
+  // instantiation of the same generic function would otherwise clobber the
+  // enclosing instance's same-named local template.  Restoring after the
+  // replay both discards the (function-local, non-persistent) locals and
+  // undoes any such clobber.
+  void
+  set_generic_types(const Unordered_map(std::string, Generic_function_info*)& m)
+  { this->generic_types_ = m; }
+
   // Register a generic type template, keyed by its raw (source) name.
   void
   add_generic_type(const std::string& name, Generic_function_info*);

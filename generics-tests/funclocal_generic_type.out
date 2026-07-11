@@ -1,0 +1,8 @@
+stack: [1 2 3]
+box: s 7
+box: 1.5 7
+ownarg: 11
+ownarg: hi
+list: 1 2
+identity distinct: true
+identity same: true
