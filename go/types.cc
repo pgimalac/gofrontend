@@ -415,6 +415,14 @@ Type::are_identical(const Type* t1, const Type* t2, int flags,
     {
       const Named_type* n1 = t1->named_type();
       const Named_type* n2 = t2->named_type();
+      // Predeclared types are universal: replaying an imported generic can
+      // reconstruct a builtin type through a distinct local Named_type object
+      // even though it denotes the same predeclared name.
+      if (n1 != NULL && n2 != NULL
+	  && n1->is_builtin()
+	  && n2->is_builtin()
+	  && n1->name() == n2->name())
+	return true;
       if (n1 != NULL && n2 != NULL
 	  && !n1->generic_canonical_id().empty()
 	  && n1->generic_canonical_id() == n2->generic_canonical_id())
