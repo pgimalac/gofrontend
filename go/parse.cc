@@ -6669,6 +6669,66 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc,
       return true;
     }
 
+  // A function type "func(params) results", as can arise as an inferred type
+  // argument (e.g. the value type of a map[K]func(...), inferred for
+  // maps.Clone / maps.Copy in net/http).  Parameter and result names are
+  // omitted (they are not part of the type); a variadic final parameter is
+  // written "...E".
+  Function_type* ft = t->function_type();
+  if (ft != NULL && !ft->is_method())
+    {
+      out.push_back(Token::make_keyword_token(KEYWORD_FUNC, loc));
+      out.push_back(Token::make_operator_token(OPERATOR_LPAREN, loc));
+      const Typed_identifier_list* params = ft->parameters();
+      if (params != NULL)
+	{
+	  bool first = true;
+	  for (Typed_identifier_list::const_iterator p = params->begin();
+	       p != params->end();
+	       ++p)
+	    {
+	      if (!first)
+		out.push_back(Token::make_operator_token(OPERATOR_COMMA, loc));
+	      first = false;
+	      Type* pt = p->type();
+	      if (ft->is_varargs() && p + 1 == params->end()
+		  && pt->array_type() != NULL
+		  && pt->array_type()->length() == NULL)
+		{
+		  out.push_back(Token::make_operator_token(OPERATOR_ELLIPSIS,
+							   loc));
+		  if (!type_to_tokens(pt->array_type()->element_type(), out,
+				      loc, pkg_bindings))
+		    return false;
+		}
+	      else if (!type_to_tokens(pt, out, loc, pkg_bindings))
+		return false;
+	    }
+	}
+      out.push_back(Token::make_operator_token(OPERATOR_RPAREN, loc));
+      const Typed_identifier_list* results = ft->results();
+      if (results != NULL && !results->empty())
+	{
+	  bool multi = results->size() > 1;
+	  if (multi)
+	    out.push_back(Token::make_operator_token(OPERATOR_LPAREN, loc));
+	  bool first = true;
+	  for (Typed_identifier_list::const_iterator p = results->begin();
+	       p != results->end();
+	       ++p)
+	    {
+	      if (!first)
+		out.push_back(Token::make_operator_token(OPERATOR_COMMA, loc));
+	      first = false;
+	      if (!type_to_tokens(p->type(), out, loc, pkg_bindings))
+		return false;
+	    }
+	  if (multi)
+	    out.push_back(Token::make_operator_token(OPERATOR_RPAREN, loc));
+	}
+      return true;
+    }
+
   return false;
 }
 

@@ -1876,12 +1876,60 @@ Gogo::lookup(const std::string& name, Named_object** pfunction) const
 	  // collision.  Narrow on purpose: both must resolve to (distinct)
 	  // functions, and only during reparse, so ordinary type/forward-decl
 	  // resolution and inference are untouched.
+	  bool ret_is_func = (ret->is_function()
+			      || ret->is_function_declaration());
+	  // For a TYPE collision the redirect is restricted to EXPORTED names.
+	  // An exported same-spelled type in two different packages (e.g.
+	  // crypto/ecdh's wrapper "PrivateKey"/"PublicKey" vs
+	  // crypto/internal/fips140/ecdh's own, whose generic constructors set
+	  // the unexported fields "d"/"q") is genuinely a distinct type, so the
+	  // defining package's must win.  An UNEXPORTED same-spelled type (e.g.
+	  // both sort and slices define "type sortedHint int") is a local helper
+	  // that the reparsed body already resolves consistently through the
+	  // compiling package's scope; redirecting it would only introduce a
+	  // partial, inconsistent rewrite and break otherwise-working packages.
+	  bool ret_is_type = ((ret->is_type() || ret->is_type_declaration())
+			      && !Gogo::is_hidden_name(name));
+	  // A VARIABLE in the compiling package shadowing a CONSTANT of the
+	  // defining package: the reparsed body refers to a package-scope const of
+	  // its DEFINING package, but the compiling package declares a same-spelled
+	  // VARIABLE.  E.g. crypto/internal/fips140/ecdh has "const p521 curveID"
+	  // (used in GenerateKey's body) while crypto/ecdh has "var p521
+	  // *nistCurve"; without redirecting, the reparsed body binds the wrong
+	  // "p521" (a pointer) and "c.curve == p521" fails to type-check.  This is
+	  // narrowed to the var-shadows-const case on purpose: a same-KIND
+	  // collision (e.g. sort and slices both declaring "const increasingHint
+	  // sortedHint") is a local helper that the reparsed body resolves
+	  // consistently through the compiling package's scope, and redirecting it
+	  // would desync from its (unexported, non-redirected) type.
+	  bool ret_is_value = ret->is_variable();
 	  if (ip != NULL && ip != this->package_ && this->is_reparsing()
-	      && (ret->is_function() || ret->is_function_declaration()))
+	      && (ret_is_func || ret_is_type || ret_is_value))
 	    {
 	      Named_object* ipf = ip->bindings()->lookup(name);
+	      // An UNEXPORTED name is packed with a pkgpath: the parser packed
+	      // it with the COMPILING package's pkgpath (".sort.isNaN"), but in
+	      // the defining package it is stored under that package's own
+	      // pkgpath (".cmp.isNaN").  Recover the bare name and retry with the
+	      // defining package's hidden-name form so a same-spelled unexported
+	      // function of the compiling package (e.g. sort's own "isNaN") does
+	      // not shadow the one the template body actually refers to (cmp's
+	      // generic "isNaN", called from cmp.Less's body).  Without this the
+	      // element type would be coerced to the compiling function's
+	      // parameter type (e.g. float64), breaking int/string instances.
+	      if (ipf == NULL && Gogo::is_hidden_name(name))
+		{
+		  std::string bare = Gogo::unpack_hidden_name(name);
+		  ipf = ip->bindings()->lookup('.' + ip->pkgpath() + '.' + bare);
+		  if (ipf == NULL)
+		    ipf = ip->bindings()->lookup(bare);
+		}
 	      if (ipf != NULL && ipf != ret
-		  && (ipf->is_function() || ipf->is_function_declaration()))
+		  && ((ret_is_func
+		       && (ipf->is_function() || ipf->is_function_declaration()))
+		      || (ret_is_type
+			  && (ipf->is_type() || ipf->is_type_declaration()))
+		      || (ret_is_value && ipf->is_const())))
 		return ipf;
 	    }
 	  if (ret->package() != NULL)
@@ -2518,11 +2566,14 @@ Gogo::lookup_generic_function_no(Named_object* no)
     return NULL;
   if (no->package() != NULL)
     {
-      Generic_function_info* gi =
-	this->lookup_generic_function(no->package()->pkgpath() + '.'
-				      + no->name());
-      if (gi != NULL)
-	return gi;
+      // A package-QUALIFIED reference ("errors.New") names a symbol of that
+      // specific package.  It may match a generic template of that package
+      // (keyed by "<pkgpath>.<name>"), but it must NOT fall through to the
+      // bare-name lookup below: a same-spelled generic in a DIFFERENT package
+      // (e.g. crypto/internal/fips140/hmac's generic "New") is unrelated, and
+      // treating "errors.New(...)" as an instantiation of it breaks inference.
+      return this->lookup_generic_function(no->package()->pkgpath() + '.'
+					   + no->name());
     }
   return this->lookup_generic_function(no->name());
 }
@@ -2617,6 +2668,29 @@ Gogo::infer_marker_index(const Type* type) const
   for (size_t i = 0; i < this->infer_markers_.size(); ++i)
     if (this->infer_markers_[i] == nt)
       return (int) i;
+  // A marker that reaches here through a rebuilt or imported generic instance
+  // (e.g. the "newPoint func() $infermarker0" field of a Curve[P] parameter
+  // instance) is a DISTINCT Named_type object from the canonical marker
+  // registered above, so the pointer comparison misses it.  Markers have a
+  // reserved, collision-free spelling ("$infermarker<N>"); recover the index
+  // from the name so structural unification (crypto/ecdh's ecdh.GenerateKey
+  // etc.) can still solve the type parameter.
+  const std::string& name = nt->name();
+  static const char prefix[] = "$infermarker";
+  const size_t plen = sizeof(prefix) - 1;
+  if (name.compare(0, plen, prefix) == 0 && name.size() > plen)
+    {
+      size_t idx = 0;
+      for (size_t k = plen; k < name.size(); ++k)
+	{
+	  char c = name[k];
+	  if (c < '0' || c > '9')
+	    return -1;
+	  idx = idx * 10 + (size_t) (c - '0');
+	}
+      if (idx < this->infer_markers_.size())
+	return (int) idx;
+    }
   return -1;
 }
 
