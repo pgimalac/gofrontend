@@ -767,12 +767,27 @@ OverlayLoop:
 			fmt.Fprintf(&icfg, "importmap %s=%s\n", raw, final)
 		}
 	}
-	for _, a1 := range a.Deps {
+	// The deps to expose in the import config. For the gc toolchain this is
+	// just the direct build dependencies. For gccgo we expose the FULL
+	// transitive dependency closure: gccgo instantiates generics by
+	// re-parsing the exported template bodies, which may reference (via
+	// genimports) packages that are only transitive dependencies of the
+	// package being compiled. Those packages' export data must be findable
+	// through the import config, or the qualified references in the template
+	// (e.g. storage.GetOperation) resolve to nothing. Duplicate ImportPaths
+	// are de-duplicated.
+	icfgDeps := a.Deps
+	if cfg.BuildToolchainName == "gccgo" {
+		icfgDeps = actionList(a)
+	}
+	seenPkgFile := make(map[string]bool)
+	for _, a1 := range icfgDeps {
 		p1 := a1.Package
 		if p1 == nil || p1.ImportPath == "" {
 			continue
 		}
-		if a1.built != "" {
+		if a1.built != "" && !seenPkgFile[p1.ImportPath] {
+			seenPkgFile[p1.ImportPath] = true
 			fmt.Fprintf(&icfg, "packagefile %s=%s\n", p1.ImportPath, a1.built)
 		}
 	}
