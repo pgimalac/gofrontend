@@ -6589,20 +6589,36 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	Package* package = NULL;
 	if (named_object != NULL && named_object->is_package())
 	  {
-	    if (!this->advance_token()->is_op(OPERATOR_DOT)
-		|| !this->advance_token()->is_identifier())
+	    if (this->advance_token()->is_op(OPERATOR_DOT))
 	      {
-		go_error_at(location, "unexpected reference to package");
-		return Expression::make_error(location);
+		if (!this->advance_token()->is_identifier())
+		  {
+		    go_error_at(location, "unexpected reference to package");
+		    return Expression::make_error(location);
+		  }
+		package = named_object->package_value();
+		package->note_usage(id);
+		id = this->peek_token()->identifier();
+		is_exported = this->peek_token()->is_identifier_exported();
+		packed = this->gogo_->pack_hidden_name(id, is_exported);
+		named_object = package->lookup(packed);
+		location = this->location();
+		go_assert(in_function == NULL);
 	      }
-	    package = named_object->package_value();
-	    package->note_usage(id);
-	    id = this->peek_token()->identifier();
-	    is_exported = this->peek_token()->is_identifier_exported();
-	    packed = this->gogo_->pack_hidden_name(id, is_exported);
-	    named_object = package->lookup(packed);
-	    location = this->location();
-	    go_assert(in_function == NULL);
+	    else
+	      {
+		// The name resolved to a package but is not followed by
+		// ".Name", so it is being used as an ordinary value.  This
+		// happens when a package-scope identifier (e.g. a
+		// "var testlog = ..." in the testing package) shares its
+		// basename with an imported package (internal/testlog) and was
+		// resolved to a synthesized package by the generics last-resort
+		// lookup in Gogo::lookup.  Put the identifier back and treat it
+		// as an ordinary, possibly not-yet-declared, name.
+		this->unget_token(Token::make_identifier_token(id, is_exported,
+							       location));
+		named_object = NULL;
+	      }
 	  }
 
 	this->advance_token();
