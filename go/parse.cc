@@ -4295,32 +4295,75 @@ Parse::type_parameter_names(std::vector<std::string>* names,
 bool
 Parse::next_is_type_parameter_decl()
 {
-  Token open = *this->peek_token();
-  const Token* t1 = this->advance_token();
-  bool result;
-  if (t1->is_op(OPERATOR_RSQUARE) || !t1->is_identifier())
+  // Scan the whole bracket ("[" ... matching "]") into a buffer so we can
+  // look past the first two tokens, then restore the token stream.  We need
+  // more than a two-token lookahead for the ambiguous "[Name *..." case: gc
+  // parses "[P *T]" as the array "P * T", but "[T *X | Y]" (a union constraint
+  // with a pointer term) and "[T *X, U any]" (multiple parameters) are type
+  // parameter lists, disambiguated by a top-level "|" or ",".  (net/x509's
+  // "nameConstraintsSet[T *net.IPNet | string, V net.IP | string]" hits this.)
+  std::vector<Token> saved;
+  saved.push_back(*this->peek_token());   // the "[" (current token)
+  int depth = 0;
+  bool has_toplevel_pipe = false;
+  bool has_toplevel_comma = false;
+  Token t1 = Token::make_invalid_token(Linemap::unknown_location());
+  Token t2 = Token::make_invalid_token(Linemap::unknown_location());
+  size_t meaningful = 0;
+  while (true)
     {
-      result = false;
-      this->unget_token(open);
+      const Token* t = this->advance_token();
+      saved.push_back(*t);
+      if (t->is_eof())
+	break;
+      if (depth == 0 && t->is_op(OPERATOR_RSQUARE))
+	break;
+      if (t->is_op(OPERATOR_LSQUARE) || t->is_op(OPERATOR_LPAREN)
+	  || t->is_op(OPERATOR_LCURLY))
+	++depth;
+      else if (t->is_op(OPERATOR_RPAREN) || t->is_op(OPERATOR_RCURLY)
+	       || t->is_op(OPERATOR_RSQUARE))
+	--depth;
+      else if (depth == 0 && t->is_op(OPERATOR_OR))
+	has_toplevel_pipe = true;
+      else if (depth == 0 && t->is_op(OPERATOR_COMMA))
+	has_toplevel_comma = true;
+      // Record the first two tokens after the "[".
+      if (meaningful == 0)
+	t1 = *t;
+      else if (meaningful == 1)
+	t2 = *t;
+      ++meaningful;
     }
-  else
-    {
-      Token first = *t1;
-      const Token* t2 = this->advance_token();
-      result = (t2->is_identifier()
-		|| t2->is_op(OPERATOR_COMMA)
-		|| t2->is_op(OPERATOR_TILDE)
-		|| t2->is_op(OPERATOR_LSQUARE)
-		|| t2->is_op(OPERATOR_CHANOP)
-		|| t2->is_keyword(KEYWORD_INTERFACE)
-		|| t2->is_keyword(KEYWORD_CHAN)
-		|| t2->is_keyword(KEYWORD_FUNC)
-		|| t2->is_keyword(KEYWORD_MAP)
-		|| t2->is_keyword(KEYWORD_STRUCT));
-      this->unget_token(first);
-      this->unget_token(open);
-    }
-  return result;
+
+  // Restore the token stream: leave the last-read token in token_ and unget
+  // everything before it (see peek/advance/unget: ungot_ is a LIFO stack).
+  for (int i = (int) saved.size() - 2; i >= 0; --i)
+    this->unget_token(saved[i]);
+
+  if (!t1.is_identifier())
+    return false;
+  // "[" ident "]" is an array (e.g. "[N]T"), not a type parameter list.
+  if (t2.is_op(OPERATOR_RSQUARE) || t2.is_invalid())
+    return false;
+  if (t2.is_identifier()
+      || t2.is_op(OPERATOR_COMMA)
+      || t2.is_op(OPERATOR_TILDE)
+      || t2.is_op(OPERATOR_LSQUARE)
+      || t2.is_op(OPERATOR_CHANOP)
+      || t2.is_keyword(KEYWORD_INTERFACE)
+      || t2.is_keyword(KEYWORD_CHAN)
+      || t2.is_keyword(KEYWORD_FUNC)
+      || t2.is_keyword(KEYWORD_MAP)
+      || t2.is_keyword(KEYWORD_STRUCT))
+    return true;
+  // Ambiguous starts (e.g. "*" for a pointer term, "(" for a parenthesized
+  // constraint): it is a type parameter list only if the bracket has a
+  // top-level "|" (union constraint) or "," (multiple parameters), which an
+  // array length expression never has.
+  if (has_toplevel_pipe || has_toplevel_comma)
+    return true;
+  return false;
 }
 
 // Generics: capture a generic type template.  The current token is the
