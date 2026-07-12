@@ -7659,11 +7659,26 @@ Parse::operand(bool may_be_sink, bool* is_parenthesized)
 	    && named_object->is_type()
 	    && !named_object->type_value()->is_visible())
 	  {
-	    go_assert(package != NULL);
-	    go_error_at(location, "invalid reference to hidden type %<%s.%s%>",
-			Gogo::message_name(package->package_name()).c_str(),
-			Gogo::message_name(id).c_str());
-	    return Expression::make_error(location);
+	    // While re-parsing an instantiated imported generic body, an
+	    // unqualified reference to one of the defining package's own
+	    // unexported helper types is legal and may resolve here with no
+	    // package qualifier.  Mirror type_name and accept replay-time uses.
+	    if (this->replay_tokens_ == NULL)
+	      {
+		const Package* p = package;
+		if (p == NULL)
+		  p = named_object->package();
+		if (p != NULL)
+		  go_error_at(location,
+			      "invalid reference to hidden type %<%s.%s%>",
+			      Gogo::message_name(p->package_name()).c_str(),
+			      Gogo::message_name(id).c_str());
+		else
+		  go_error_at(location,
+			      "invalid reference to hidden type %<%s%>",
+			      Gogo::message_name(id).c_str());
+		return Expression::make_error(location);
+	      }
 	  }
 
 

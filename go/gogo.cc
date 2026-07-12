@@ -2969,15 +2969,14 @@ Gogo::add_dot_import_object(Named_object* no)
 // (those the standard library "pushes" via a linkname on the definition,
 // including the back-compat "badlinkname.go" lists).  Third-party packages
 // -- notably github.com/modern-go/reflect2 (pulled in transitively by
-// json-iterator/go, prometheus/client_golang, ...) -- write the gc symbol
-// name, but gccgo mangles identifiers (e.g. '_' becomes '__'), so a handful
-// of those names differ from gccgo's actual symbol.  We only need entries
-// for the names that really differ: targets whose gccgo encoding is
-// identical to the gc name (typedmemmove, mapassign, ifaceE2I, ...) resolve
-// on their own.  This is deliberately a small, demand-driven table rather
-// than a mirror of the upstream allowlist: the gc restriction postdates
-// Go 1.18 and gccgo's libgo is a separate implementation, so we add only
-// the mappings real programs actually require.
+// json-iterator/go, prometheus/client_golang, golang.org/x/tools, ...) may
+// write the gc symbol name, but gccgo mangles identifiers (e.g. '_' becomes
+// '__') and package paths (e.g. '/' becomes '_1').  Convert the common
+// gc-style form here and keep a small fixup table for the names that still
+// differ after that generic translation.  This remains deliberately
+// demand-driven rather than a mirror of the upstream allowlist: the gc
+// restriction postdates Go 1.18 and gccgo's libgo is a separate
+// implementation, so we add only the mappings real programs actually require.
 
 static std::string
 translate_gc_linkname(const std::string& ext_name)
@@ -2990,6 +2989,30 @@ translate_gc_linkname(const std::string& ext_name)
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i)
     if (ext_name == table[i].gc)
       return std::string(table[i].gccgo);
+
+  if (ext_name.find('/') != std::string::npos)
+    {
+      size_t last_slash = ext_name.rfind('/');
+      size_t last_dot = ext_name.rfind('.');
+      if (last_dot != std::string::npos
+	  && last_dot > last_slash
+	  && last_dot + 1 < ext_name.length())
+	{
+	  Backend_name bname;
+	  size_t prev_dot = ext_name.rfind('.', last_dot - 1);
+	  if (prev_dot != std::string::npos && prev_dot > last_slash)
+	    {
+	      bname.add(ext_name.substr(0, prev_dot));
+	      bname.add(ext_name.substr(prev_dot + 1,
+					last_dot - prev_dot - 1));
+	    }
+	  else
+	    bname.add(ext_name.substr(0, last_dot));
+	  bname.add(ext_name.substr(last_dot + 1));
+	  return bname.asm_name();
+	}
+    }
+
   return ext_name;
 }
 
