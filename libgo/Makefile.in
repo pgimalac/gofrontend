@@ -899,7 +899,7 @@ noinst_DATA = golang.org/x/net/nettest.gox internal/cfg.gox \
 	internal/obscuretestdata.gox internal/profile.gox \
 	internal/testenv.gox internal/trace.gox \
 	net/internal/socktest.gox os/exec/internal/fdtest.gox \
-	os/signal/internal/pty.gox reflect/internal/example1.gox \
+	internal/testpty.gox reflect/internal/example1.gox \
 	reflect/internal/example2.gox zdefaultcc.go
 @LIBGO_IS_RTEMS_FALSE@rtems_task_variable_add_file = 
 @LIBGO_IS_RTEMS_TRUE@rtems_task_variable_add_file = runtime/rtems-task-variable-add.c
