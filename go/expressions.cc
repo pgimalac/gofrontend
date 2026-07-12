@@ -18264,6 +18264,24 @@ Expression::make_composite_literal_key(const std::string& name,
   return new Composite_literal_key_expression(name, location);
 }
 
+// Composite literal keys can start life as parser-only wrappers when an
+// identifier might be either a struct field name or an expression.  Resolve
+// those wrappers now so later constant evaluation sees the real expression.
+
+static Expression*
+resolve_composite_literal_key(Gogo* gogo, Expression* key,
+			      const Type_context* context)
+{
+  if (key == NULL)
+    return NULL;
+
+  key->determine_type(gogo, context);
+  if (key->classification() == Expression::EXPRESSION_COMPOSITE_LITERAL_KEY)
+    gogo->lower_expression(NULL, NULL, &key);
+
+  return key;
+}
+
 // Class Composite_literal_expression.
 
 // Traversal.
@@ -18433,14 +18451,13 @@ Composite_literal_expression::do_determine_type(Gogo* gogo,
       Array_type* at = type->array_type();
       Type_context intcontext(Type::lookup_integer_type("int"), false);
       Type_context subcontext(at->element_type(), false);
-      for (Expression_list::const_iterator pv = this->vals_->begin();
+      for (Expression_list::iterator pv = this->vals_->begin();
 	   pv != this->vals_->end();
 	   ++pv)
 	{
 	  if (this->has_keys_)
 	    {
-	      if (*pv != NULL)
-		(*pv)->determine_type(gogo, &intcontext);
+	      *pv = resolve_composite_literal_key(gogo, *pv, &intcontext);
 	      ++pv;
 	      if (pv == this->vals_->end())
 		break;
@@ -18464,12 +18481,11 @@ Composite_literal_expression::do_determine_type(Gogo* gogo,
       Map_type* mt = type->map_type();
       Type_context key_context(mt->key_type(), false);
       Type_context val_context(mt->val_type(), false);
-      for (Expression_list::const_iterator pv = this->vals_->begin();
+      for (Expression_list::iterator pv = this->vals_->begin();
 	   pv != this->vals_->end();
 	   ++pv)
 	{
-	  if (*pv != NULL)
-	    (*pv)->determine_type(gogo, &key_context);
+	  *pv = resolve_composite_literal_key(gogo, *pv, &key_context);
 	  ++pv;
 	  if (*pv != NULL)
 	    (*pv)->determine_type(gogo, &val_context);
