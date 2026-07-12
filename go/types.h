@@ -3558,6 +3558,18 @@ class Named_type : public Type
   set_generic_type_args(const std::vector<Type*>& args)
   { this->generic_type_args_ = args; }
 
+  // Generics: for a FUNCTION-LOCAL generic type instance declared inside a
+  // generic function, the enclosing instantiation's type arguments.  Rendered
+  // in the reflection name as "Base[enclosingArgs;ownArgs]" (matching gc), so
+  // instances differing only by enclosing args are distinct reflect.Types.
+  const std::vector<Type*>&
+  generic_enclosing_type_args() const
+  { return this->generic_enclosing_type_args_; }
+
+  void
+  set_generic_enclosing_type_args(const std::vector<Type*>& args)
+  { this->generic_enclosing_type_args_ = args; }
+
   // Generics: the package-independent canonical identity of a generic
   // instance ("<origin-pkgpath>.Base[<arg>,...]").  Set for a generic
   // instance (computed locally, or read from export data for an imported
@@ -3836,6 +3848,9 @@ class Named_type : public Type
   // For a generic type instance, the resolved type arguments; see
   // generic_type_args().
   std::vector<Type*> generic_type_args_;
+  // For a function-local generic type instance, the enclosing instantiation's
+  // type arguments; see generic_enclosing_type_args().
+  std::vector<Type*> generic_enclosing_type_args_;
   // For a generic type instance, its package-independent canonical id; see
   // generic_canonical_id().
   std::string generic_canonical_id_;

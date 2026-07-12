@@ -2605,11 +2605,20 @@ Gogo::lookup_generic_type(const std::string& name)
 {
   Unordered_map(std::string, Generic_function_info*)::iterator p;
 
-  // A function-local generic type (lexically scoped, stored in the current
-  // block/function bindings) shadows a package-level one and takes priority.
-  // Only consult local scope while inside a function; at package scope there
-  // are no local templates.
-  if (!this->in_global_scope())
+  // A function-local generic type (lexically scoped, stored in block/function
+  // bindings) shadows a package-level one and takes priority.  While replaying
+  // a function-local generic type's body, resolve names in the template's
+  // DECLARATION contour (pushed by instantiate_generic_type); otherwise use the
+  // current block/function bindings.  At package scope with no replay override
+  // there are no local templates.
+  Bindings* lex = this->current_replay_lexical_scope();
+  if (lex != NULL)
+    {
+      Generic_function_info* local = lex->lookup_generic_type_template(name);
+      if (local != NULL)
+	return local;
+    }
+  else if (!this->in_global_scope())
     {
       Generic_function_info* local =
 	this->current_bindings()->lookup_generic_type_template(name);

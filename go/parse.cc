@@ -116,8 +116,36 @@ class Generic_function_info
     : name_(name), is_exported_(is_exported), location_(location),
       type_param_names_(), tokens_(), instances_(), marker_signature_(NULL),
       methods_(), defining_package_(NULL), package_aliases_(),
-      is_function_local_(false)
+      is_function_local_(false), decl_bindings_(NULL), enclosing_type_args_()
   { }
+
+  // For a function-local generic type declared inside a GENERIC function, the
+  // resolved type arguments of that enclosing instantiation, as source-token
+  // lists (e.g. F[string] -> {"string"}).  Used to render the instance's
+  // reflection name as "Base[enclosingArgs;ownArgs]" (matching gc).  Empty for
+  // a local type in a non-generic function or a package-level template.
+  std::vector<std::vector<Token> >&
+  enclosing_type_args()
+  { return this->enclosing_type_args_; }
+
+  void
+  set_enclosing_type_args(const std::vector<std::vector<Token> >& a)
+  { this->enclosing_type_args_ = a; }
+
+  // For a function-local generic type, the block/function bindings contour in
+  // which it was DECLARED.  Its instance body must be replayed resolving
+  // generic-type names in this contour (its lexical declaration scope), not in
+  // the use-site scope where the instance happens to be created -- otherwise a
+  // same-named type in an inner block at the use site would wrongly shadow the
+  // one visible where the template was declared.  NULL for package-level
+  // templates.
+  Bindings*
+  decl_bindings() const
+  { return this->decl_bindings_; }
+
+  void
+  set_decl_bindings(Bindings* b)
+  { this->decl_bindings_ = b; }
 
   // Whether this generic type template was declared inside a function body
   // (a function-local generic type).  Such a template is never exported or
@@ -244,6 +272,8 @@ class Generic_function_info
   std::vector<std::pair<Named_object*, std::vector<std::vector<Token> > > >
     instance_list_;
   bool is_function_local_;
+  Bindings* decl_bindings_;
+  std::vector<std::vector<Token> > enclosing_type_args_;
 };
 
 // Generics: cross-package export/import of generic templates.
@@ -1264,6 +1294,42 @@ Parse::type_may_start_here()
 	  || token->is_op(OPERATOR_LPAREN));
 }
 
+// Generics: opaque replay bindings for FUNCTION-LOCAL types used as generic
+// type arguments.  A function-local type is out of scope at the (possibly
+// later-pass) point where the generic it is passed to is instantiated, so its
+// bare source name would be undefined during that replay.  Instead each such
+// type is given a stable synthetic name "$localtypeN" that maps directly back
+// to the ORIGINAL Named_object (preserving nominal identity, unlike a package
+// alias): type_to_tokens emits "$localtypeN" for any in-function named type,
+// and type_name resolves "$localtypeN" back to the original type during replay.
+// Global for the (single-package) compilation; the synthetic names are unique
+// per Named_object so no scoping/threading is needed.
+static std::map<const Named_object*, std::string> replay_local_type_syn;
+static std::map<std::string, Named_object*> replay_local_type_obj;
+
+// Generics: stack of the enclosing generic function instantiation's type
+// arguments (source-token lists) while replaying its body, so a function-local
+// generic type declared in the body can record them (for its reflection name).
+static std::vector<std::vector<std::vector<Token> > > enclosing_generic_args_stack;
+
+// Return the stable "$localtypeN" synthetic name for a function-local named
+// type, allocating and recording it (both directions) on first use.
+static std::string
+replay_name_for_local_type(Named_object* no)
+{
+  std::map<const Named_object*, std::string>::const_iterator p =
+    replay_local_type_syn.find(no);
+  if (p != replay_local_type_syn.end())
+    return p->second;
+  char buf[40];
+  snprintf(buf, sizeof buf, "$localtype%u",
+	   (unsigned) replay_local_type_syn.size());
+  std::string syn(buf);
+  replay_local_type_syn[no] = syn;
+  replay_local_type_obj[syn] = no;
+  return syn;
+}
+
 // TypeName = QualifiedIdent .
 
 // If MAY_BE_NIL is true, then an identifier with the value of the
@@ -1278,6 +1344,23 @@ Parse::type_name(bool issue_error)
   Named_object* package;
   if (!this->qualified_ident(&name, &package))
     return Type::make_error_type();
+
+  // Generics: a "$localtypeN" synthetic name (emitted by type_to_tokens for a
+  // function-local type used as a generic type argument) resolves back to the
+  // exact original local type object -- its bare source name would be out of
+  // scope here (see replay_local_type_obj).
+  if (package == NULL)
+    {
+      std::string bare =
+	Gogo::is_hidden_name(name) ? Gogo::unpack_hidden_name(name) : name;
+      if (bare.compare(0, 10, "$localtype") == 0)
+	{
+	  std::map<std::string, Named_object*>::const_iterator lp =
+	    replay_local_type_obj.find(bare);
+	  if (lp != replay_local_type_obj.end() && lp->second->is_type())
+	    return lp->second->type_value();
+	}
+    }
 
   // Generics: a "[" after a type name is a type argument list.  If the
   // generic type is already known, instantiate now.  Otherwise it is a
@@ -4417,7 +4500,18 @@ Parse::generic_type_decl(const std::string& name, bool is_exported,
   // canonical-instance registry (see Generic_function_info::is_function_local
   // and instantiate_generic_type).
   if (!this->gogo_->in_global_scope())
-    info->set_is_function_local();
+    {
+      info->set_is_function_local();
+      // Remember the declaration contour so the instance body is later replayed
+      // resolving generic-type names in the lexical scope where the template
+      // was declared, not the use site (see instantiate_generic_type).
+      info->set_decl_bindings(this->gogo_->current_bindings_for_generics());
+      // If declared inside a GENERIC function, record that enclosing
+      // instantiation's type arguments, for the instance's reflection name
+      // ("Base[enclosingArgs;ownArgs]").
+      if (!enclosing_generic_args_stack.empty())
+	info->set_enclosing_type_args(enclosing_generic_args_stack.back());
+    }
 
   this->type_parameter_names(&info->type_param_names(), &info->constraints());
 
@@ -4719,7 +4813,19 @@ Parse::instantiate_generic_type(Generic_function_info* info,
   Parse ip(this->lex_, this->gogo_);
   ip.set_replay_tokens(&substituted);
   ip.set_replay_pkg_aliases(&merged_aliases);
+  // For a function-local generic type, resolve generic-type names in its
+  // DECLARATION contour, not the use site (so an inner-block same-named type at
+  // the use site does not shadow the type visible where the template was
+  // declared).
+  bool pushed_lex = false;
+  if (local && info->decl_bindings() != NULL)
+    {
+      this->gogo_->push_replay_lexical_scope(info->decl_bindings());
+      pushed_lex = true;
+    }
   Type* underlying = ip.type();
+  if (pushed_lex)
+    this->gogo_->pop_replay_lexical_scope();
 
   Named_type* nt = Type::make_named_type(no, underlying, location);
   // Record the canonical id on the instance so it exports and so nested
@@ -4754,6 +4860,28 @@ Parse::instantiate_generic_type(Generic_function_info* info,
     if (all_ok)
       nt->set_generic_type_args(argtypes);
   }
+  // For a function-local generic type declared in a generic function, record
+  // the enclosing instantiation's type args too, so the instance reflects as
+  // "Base[enclosingArgs;ownArgs]" (matching gc) and instances differing only
+  // in the enclosing args are distinct reflect.Types.
+  if (local && !info->enclosing_type_args().empty())
+    {
+      std::vector<Type*> encl;
+      bool all_ok = true;
+      for (size_t i = 0; i < info->enclosing_type_args().size(); ++i)
+	{
+	  Type* et = this->parse_type_from_tokens(info->enclosing_type_args()[i],
+						  &merged_aliases, false);
+	  if (et == NULL || et->is_error_type())
+	    {
+	      all_ok = false;
+	      break;
+	    }
+	  encl.push_back(et);
+	}
+      if (all_ok)
+	nt->set_generic_enclosing_type_args(encl);
+    }
   this->gogo_->define_type(no, nt);
 
   // Record this instance's canonical spelling ("Name[arg, ...]") so that
@@ -6709,6 +6837,24 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc,
   Named_type* nt = t->named_type();
   if (nt != NULL)
     {
+      // A FUNCTION-LOCAL named type (including a local generic instance) is
+      // emitted as its stable synthetic "$localtypeN" name, which maps back to
+      // this exact type object during replay -- its bare source name would be
+      // out of scope where the enclosing generic is instantiated.  Checked
+      // before the generic-instance spelling so a local generic instance
+      // "U[int]" emits "$localtypeN" for the exact instance (preserving
+      // identity) rather than its "U[int]" spelling.  Skip an alias: use its
+      // aliased target's identity instead (below / via forwarded()).
+      {
+	unsigned int fidx;
+	if (!nt->is_alias() && nt->in_function(&fidx) != NULL)
+	  {
+	    Named_object* lno = nt->named_object();
+	    out.push_back(Token::make_identifier_token(
+	      replay_name_for_local_type(lno), true, loc));
+	    return true;
+	  }
+      }
       // A generic instance ("Box$type0") is emitted by its canonical
       // spelling ("Box[arg, ...]") so it hashes to the same instance as
       // the type written out directly.
@@ -7679,23 +7825,66 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
   for (size_t i = 0; i < type_args.size(); ++i)
     {
       std::vector<Token>& a = type_args[i];
-      if (a.size() != 1 || !a[0].is_identifier())
+      if (a.empty())
 	continue;
-      std::string id = a[0].identifier();
-      bool exp = a[0].is_identifier_exported();
-      std::string packed = this->gogo_->pack_hidden_name(id, exp);
-      Named_object* in_function = NULL;
-      Named_object* no = this->gogo_->lookup(packed, &in_function);
-      if (no == NULL || in_function == NULL || !no->is_type())
-	continue;
-      Type* lt = no->type_value();
-      if (lt == NULL || lt->is_error_type() || lt->named_type() == NULL)
-	continue;
-
       Location aloc = a[0].location();
-      std::string syn = this->package_alias_for_local_type(lt, aloc);
-      a.clear();
-      a.push_back(Token::make_identifier_token(syn, false, aloc));
+
+      // Fast path: a bare identifier naming a function-local type.  Replace it
+      // with its stable "$localtypeN" synthetic name, which maps back to this
+      // exact original type object during replay (see replay_local_type_obj /
+      // type_name).  Must be done while the local type is still in scope (this
+      // runs at the use site).  Emitted exported so the name is not
+      // package-packed and resolves verbatim.
+      if (a.size() == 1 && a[0].is_identifier())
+	{
+	  std::string id = a[0].identifier();
+	  bool exp = a[0].is_identifier_exported();
+	  std::string packed = this->gogo_->pack_hidden_name(id, exp);
+	  Named_object* in_function = NULL;
+	  Named_object* no = this->gogo_->lookup(packed, &in_function);
+	  if (no != NULL && in_function != NULL && no->is_type())
+	    {
+	      Type* lt = no->type_value();
+	      if (lt != NULL && !lt->is_error_type()
+		  && lt->named_type() != NULL)
+		{
+		  std::string syn = replay_name_for_local_type(no);
+		  a.clear();
+		  a.push_back(Token::make_identifier_token(syn, true, aloc));
+		}
+	    }
+	  continue;
+	}
+
+      // General path: a composite/instance argument (e.g. "[]V", "map[K]V",
+      // "X[int]" where X is a function-local generic type).  If it references a
+      // function-local type anywhere, re-emit the whole argument via
+      // type_to_tokens, which substitutes "$localtypeN" for each local part
+      // (preserving identity) and leaves the rest verbatim.  Only done when a
+      // local type is actually mentioned, to avoid eagerly resolving/rewriting
+      // ordinary composite arguments.
+      bool mentions_local = false;
+      for (size_t j = 0; j < a.size() && !mentions_local; ++j)
+	{
+	  if (!a[j].is_identifier())
+	    continue;
+	  std::string packed =
+	    this->gogo_->pack_hidden_name(a[j].identifier(),
+					  a[j].is_identifier_exported());
+	  Named_object* inf = NULL;
+	  Named_object* n = this->gogo_->lookup(packed, &inf);
+	  if (n != NULL && inf != NULL
+	      && (n->is_type() || n->is_type_declaration()))
+	    mentions_local = true;
+	}
+      if (!mentions_local)
+	continue;
+      Type* at = this->parse_type_from_tokens(a, NULL, false);
+      if (at == NULL || at->is_error_type())
+	continue;
+      std::vector<Token> rewritten;
+      if (type_to_tokens(at, rewritten, aloc, NULL) && !rewritten.empty())
+	a.swap(rewritten);
     }
 }
 
@@ -7795,7 +7984,15 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // Register before parsing the body so that recursive calls with the
   // same type arguments resolve to this instance.
   info->add_instance(key, ino, type_args);
+  // Expose this instantiation's type arguments to the body replay, so a
+  // function-local generic type declared in the body records them for its
+  // reflection name.  Only meaningful when this function is itself generic.
+  bool pushed_encl = !info->type_param_names().empty();
+  if (pushed_encl)
+    enclosing_generic_args_stack.push_back(type_args);
   ip.block();
+  if (pushed_encl)
+    enclosing_generic_args_stack.pop_back();
   this->gogo_->finish_function(location);
   if (imported)
     this->gogo_->pop_instantiation_package();

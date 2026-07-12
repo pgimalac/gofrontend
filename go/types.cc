@@ -11951,11 +11951,24 @@ Named_type::append_reflection_type_name(Gogo* gogo, bool use_alias,
     }
   // Generics: a generic type instance reflects as "Base[arg0,arg1,...]"
   // (each argument's own reflection), not the internal mangled instance
-  // name ("Base$typeN").
+  // name ("Base$typeN").  A FUNCTION-LOCAL generic type instance declared in a
+  // generic function reflects as "Base[enclosingArgs;ownArgs]" (matching gc),
+  // so instances differing only in the enclosing instantiation's args are
+  // distinct; a gc-style middle-dot disambiguator "路N" is appended for a
+  // shadowed local type (in_function_index_ > 0).
   if (!this->generic_type_args_.empty() && !this->generic_base_name_.empty())
     {
       ret->append(this->generic_base_name_);
       ret->push_back('[');
+      for (size_t i = 0; i < this->generic_enclosing_type_args_.size(); ++i)
+	{
+	  if (i > 0)
+	    ret->push_back(',');
+	  append_generic_arg_name(this->generic_enclosing_type_args_[i], gogo,
+				  ret);
+	}
+      if (!this->generic_enclosing_type_args_.empty())
+	ret->push_back(';');
       for (size_t i = 0; i < this->generic_type_args_.size(); ++i)
 	{
 	  if (i > 0)
@@ -11963,6 +11976,13 @@ Named_type::append_reflection_type_name(Gogo* gogo, bool use_alias,
 	  append_generic_arg_name(this->generic_type_args_[i], gogo, ret);
 	}
       ret->push_back(']');
+      unsigned int fidx;
+      if (this->in_function(&fidx) != NULL && fidx > 0)
+	{
+	  char buf[24];
+	  snprintf(buf, sizeof buf, "\xc2\xb7%u", fidx);
+	  ret->append(buf);
+	}
       return;
     }
   ret->append(Gogo::unpack_hidden_name(this->named_object_->name()));

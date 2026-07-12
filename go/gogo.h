@@ -745,6 +745,32 @@ class Gogo
   void
   add_local_generic_type(const std::string& name, Generic_function_info*);
 
+  // Generics: while replaying a function-local generic type's body, override
+  // the lexical scope used to resolve function-local generic-type names, so
+  // they resolve in the template's DECLARATION contour rather than the use
+  // site.  A stack (nested local instantiations).  NULL back() means inactive.
+  void
+  push_replay_lexical_scope(Bindings* b)
+  { this->replay_lexical_scope_.push_back(b); }
+
+  void
+  pop_replay_lexical_scope()
+  { this->replay_lexical_scope_.pop_back(); }
+
+  Bindings*
+  current_replay_lexical_scope() const
+  {
+    return (this->replay_lexical_scope_.empty()
+	    ? NULL
+	    : this->replay_lexical_scope_.back());
+  }
+
+  // Public access to the current binding contour, for the generics machinery
+  // (e.g. capturing a function-local generic type's declaration scope).
+  Bindings*
+  current_bindings_for_generics()
+  { return this->current_bindings(); }
+
   // Look up a generic type template by raw (source) name, or NULL.
   Generic_function_info*
   lookup_generic_type(const std::string& name);
@@ -1556,6 +1582,9 @@ class Gogo
   Unordered_map(std::string, Generic_function_info*) generic_functions_;
   // Registered generic type templates, keyed by raw (source) name.
   Unordered_map(std::string, Generic_function_info*) generic_types_;
+  // Generics: active declaration-scope override(s) for function-local generic
+  // type body replay (see push_replay_lexical_scope).
+  std::vector<Bindings*> replay_lexical_scope_;
   // Forward references to generic types, resolved after parsing.
   std::vector<Pending_generic_type*> pending_generic_types_;
   // Constraint-satisfaction obligations, checked after determine_types.
