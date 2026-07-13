@@ -27,7 +27,14 @@ type OID struct {
 // ParseOID parses a Object Identifier string, represented by ASCII numbers separated by dots.
 func ParseOID(oid string) (OID, error) {
 	var o OID
-	return o, o.unmarshalOIDText(oid)
+	// Written as two statements rather than
+	//   return o, o.unmarshalOIDText(oid)
+	// because unmarshalOIDText mutates o through its pointer receiver, and
+	// gccgo evaluates the first result operand (o) before the mutating call in
+	// the same return/tuple (gc reads it after), so the one-liner returns an
+	// empty OID under gccgo. Keep the portable, order-independent form.
+	err := o.unmarshalOIDText(oid)
+	return o, err
 }
 
 func newOIDFromDER(der []byte) (OID, bool) {
