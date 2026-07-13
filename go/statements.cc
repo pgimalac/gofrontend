@@ -6618,6 +6618,148 @@ For_statement::do_check_types(Gogo*)
     }
 }
 
+// Go 1.22 per-iteration loop variables.  When a for-clause or range loop
+// declares its loop variable(s) with ":=", each iteration gets its own
+// instance, so a closure capturing a loop variable captures a fresh value.
+// gccgo lowers loops with a single shared variable; to get per-iteration
+// semantics we keep the original variable as a hidden loop-carried holder and,
+// inside the emitted body, declare a fresh per-iteration local initialized from
+// the holder, rewrite the body's references (closure captures included -- a func
+// literal's closure_ is built at parse time, so it is reachable by traversing
+// the body) to that local, and copy it back to the holder before the post
+// statement / next iteration.  Applied on the Go 1.22+ branches only.
+
+typedef Unordered_map(Named_object*, Named_object*) Loopvar_rewrite_map;
+
+// A traversal that replaces references to loop variables (map keys) with
+// references to their fresh per-iteration locals (map values).
+
+class Loopvar_rewrite : public Traverse
+{
+ public:
+  Loopvar_rewrite(const Loopvar_rewrite_map* replacements)
+    : Traverse(traverse_expressions), replacements_(replacements)
+  { }
+
+  int
+  expression(Expression** pexpr)
+  {
+    Var_expression* ve = (*pexpr)->var_expression();
+    if (ve == NULL)
+      return TRAVERSE_CONTINUE;
+    Loopvar_rewrite_map::const_iterator p =
+      this->replacements_->find(ve->named_object());
+    if (p == this->replacements_->end())
+      return TRAVERSE_CONTINUE;
+    *pexpr = Expression::make_var_reference(p->second, (*pexpr)->location());
+    return TRAVERSE_SKIP_COMPONENTS;
+  }
+
+ private:
+  const Loopvar_rewrite_map* replacements_;
+};
+
+static std::string
+loopvar_name()
+{
+  static unsigned int count;
+  char buf[50];
+  snprintf(buf, sizeof buf, "$loopvar%u", count++);
+  return std::string(buf);
+}
+
+static Named_object*
+make_loopvar_object(Type* type, Expression* init, Location loc)
+{
+  Variable* var = new Variable(type, init, false, false, false, loc);
+  var->set_is_used();
+  return Named_object::make_variable(loopvar_name(), NULL, var);
+}
+
+static Named_object*
+add_loopvar_object(Block* b, Type* type, Expression* init, Location loc)
+{
+  Named_object* no = make_loopvar_object(type, init, loc);
+  Named_object* added = b->bindings()->add_named_object(no);
+  go_assert(added == no && no->is_variable());
+  return added;
+}
+
+static void
+add_loopvar_decl(Gogo* gogo, Block* b, Named_object* no)
+{
+  Statement* s = Statement::make_variable_declaration(no);
+  s->determine_types(gogo);
+  b->add_statement(s);
+}
+
+static Named_object*
+loopvar_object(Expression* e)
+{
+  if (e == NULL || e->is_sink_expression())
+    return NULL;
+  Var_expression* ve = e->var_expression();
+  return ve == NULL ? NULL : ve->named_object();
+}
+
+static void
+collect_loopvar_decl(Named_object* no, std::vector<Named_object*>* out,
+		     Unordered_set(Named_object*)* seen)
+{
+  if (no == NULL || !no->is_variable() || seen->find(no) != seen->end())
+    return;
+  seen->insert(no);
+  out->push_back(no);
+}
+
+// Collect the variables declared with ":=" directly in block B (a loop's init
+// clause); these are the loop's per-iteration variables.
+
+static void
+collect_loopvar_decls(Block* b, std::vector<Named_object*>* out,
+		      Unordered_set(Named_object*)* seen)
+{
+  if (b == NULL)
+    return;
+  const std::vector<Statement*>* statements = b->statements();
+  for (std::vector<Statement*>::const_iterator p = statements->begin();
+       p != statements->end();
+       ++p)
+    {
+      Variable_declaration_statement* vds =
+	(*p)->variable_declaration_statement();
+      if (vds != NULL)
+	collect_loopvar_decl(vds->var(), out, seen);
+    }
+}
+
+// Collect the variables declared with ":=" in block ENCLOSING that appear
+// before statement STOP.  A for-clause's init variables are declared in the
+// dedicated block that encloses the for statement (the parser opens it just to
+// hold them), not in the For_statement's init_ block, so this is how we find a
+// for-clause's per-iteration variables.
+
+static void
+collect_loopvar_decls_before(Block* enclosing, const Statement* stop,
+			     std::vector<Named_object*>* out,
+			     Unordered_set(Named_object*)* seen)
+{
+  if (enclosing == NULL)
+    return;
+  const std::vector<Statement*>* statements = enclosing->statements();
+  for (std::vector<Statement*>::const_iterator p = statements->begin();
+       p != statements->end();
+       ++p)
+    {
+      if (*p == stop)
+	return;
+      Variable_declaration_statement* vds =
+	(*p)->variable_declaration_statement();
+      if (vds != NULL)
+	collect_loopvar_decl(vds->var(), out, seen);
+    }
+}
+
 // Lower a For_statement into if statements and gotos.  Getting rid of
 // complex statements make it easier to handle garbage collection.
 
@@ -6629,6 +6771,15 @@ For_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
 
   if (this->classification() == STATEMENT_ERROR)
     return Statement::make_error_statement(loc);
+
+  // Go 1.22: the loop variables declared with ":=" in the init clause are
+  // per-iteration.
+  std::vector<Named_object*> loopvars;
+  Unordered_set(Named_object*) seen_loopvars;
+  if (this->init_ != NULL)
+    collect_loopvar_decls(this->init_, &loopvars, &seen_loopvars);
+  else
+    collect_loopvar_decls_before(enclosing, this, &loopvars, &seen_loopvars);
 
   Statement* s;
   Block* b = new Block(enclosing, this->location());
@@ -6650,14 +6801,51 @@ For_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
   top->set_derived_from(this);
   b->add_statement(Statement::make_unnamed_label_statement(top));
 
-  s = Statement::make_block_statement(this->statements_,
-				      this->statements_->start_location());
+  Block* body = this->statements_;
+  Unnamed_label* cont = this->continue_label_;
+  if (!loopvars.empty())
+    {
+      // Per-iteration loop variables (Go 1.22): wrap the body so each iteration
+      // copies the loop-carried holders into fresh locals, runs the body against
+      // those locals (so closures capture per-iteration values), then copies
+      // them back before the continue label (i.e. before the post statement).
+      body = new Block(b, this->statements_->start_location());
+      Loopvar_rewrite_map replacements;
+      std::vector<std::pair<Named_object*, Named_object*> > copies;
+      for (std::vector<Named_object*>::const_iterator p = loopvars.begin();
+	   p != loopvars.end();
+	   ++p)
+	{
+	  Expression* iinit = Expression::make_var_reference(*p, loc);
+	  Named_object* iter =
+	    add_loopvar_object(body, (*p)->var_value()->type(), iinit, loc);
+	  add_loopvar_decl(gogo, body, iter);
+	  replacements[*p] = iter;
+	  copies.push_back(std::make_pair(*p, iter));
+	}
+      Loopvar_rewrite rw(&replacements);
+      this->statements_->traverse(&rw);
+      body->add_statement(Statement::make_block_statement(
+	  this->statements_, this->statements_->start_location()));
+      if (cont != NULL)
+	body->add_statement(Statement::make_unnamed_label_statement(cont));
+      for (size_t i = 0; i < copies.size(); ++i)
+	{
+	  Statement* as = Statement::make_assignment(
+	      Expression::make_var_reference(copies[i].first, loc),
+	      Expression::make_var_reference(copies[i].second, loc), loc);
+	  as->determine_types(gogo);
+	  body->add_statement(as);
+	}
+      body->set_end_location(this->statements_->end_location());
+    }
+
+  s = Statement::make_block_statement(body, body->start_location());
   b->add_statement(s);
 
   Location end_loc = this->statements_->end_location();
 
-  Unnamed_label* cont = this->continue_label_;
-  if (cont != NULL)
+  if (cont != NULL && loopvars.empty())
     b->add_statement(Statement::make_unnamed_label_statement(cont));
 
   if (this->post_ != NULL)
@@ -6908,6 +7096,12 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
   if (this->classification() == STATEMENT_ERROR)
     return Statement::make_error_statement(this->location());
 
+  // Go 1.22: range loop variables declared with ":=" are per-iteration.
+  std::vector<Named_object*> range_loopvars;
+  Unordered_set(Named_object*) range_loopvar_set;
+  collect_loopvar_decls_before(enclosing, this, &range_loopvars,
+			       &range_loopvar_set);
+
   Type* range_type = this->range_->type();
   if (range_type->points_to() != NULL
       && range_type->points_to()->array_type() != NULL
@@ -7093,6 +7287,39 @@ For_range_statement::do_lower(Gogo* gogo, Named_object*, Block* enclosing,
       assign->determine_types(gogo);
       body->add_statement(assign);
     }
+
+  // Go 1.22 per-iteration range variables: copy the just-assigned range
+  // variables into fresh per-iteration locals and rewrite the body to use them,
+  // so closures capture per-iteration values.  The range variables are
+  // re-assigned each iteration, so no copy-back is needed.
+  {
+    Loopvar_rewrite_map replacements;
+    Named_object* index_no = loopvar_object(this->index_var_);
+    Named_object* value_no = loopvar_object(this->value_var_);
+    if (index_no != NULL
+	&& range_loopvar_set.find(index_no) != range_loopvar_set.end())
+      {
+	Named_object* iter =
+	  add_loopvar_object(body, index_no->var_value()->type(),
+			     Expression::make_var_reference(index_no, loc), loc);
+	add_loopvar_decl(gogo, body, iter);
+	replacements[index_no] = iter;
+      }
+    if (value_no != NULL
+	&& range_loopvar_set.find(value_no) != range_loopvar_set.end())
+      {
+	Named_object* iter =
+	  add_loopvar_object(body, value_no->var_value()->type(),
+			     Expression::make_var_reference(value_no, loc), loc);
+	add_loopvar_decl(gogo, body, iter);
+	replacements[value_no] = iter;
+      }
+    if (!replacements.empty())
+      {
+	Loopvar_rewrite rw(&replacements);
+	this->statements_->traverse(&rw);
+      }
+  }
 
   body->add_statement(Statement::make_block_statement(this->statements_, loc));
 
