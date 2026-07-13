@@ -1,0 +1,5 @@
+case1 [0 1 2]
+case2 [0 1 2]
+case3 [0:a 1:b 2:c]
+case4 [00 01 10 11]
+case5 sum 46

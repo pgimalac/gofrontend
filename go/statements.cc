@@ -6654,11 +6654,23 @@ class Loopvar_rewrite : public Traverse
   int
   expression(Expression** pexpr)
   {
+    // A reference to the loop variable is either a plain Var_expression
+    // or, when it appears inside a nested closure that has already been
+    // lowered (e.g. an iter.Seq2 body containing a func literal), an
+    // Enclosed_var_expression.  Rewrite both to the per-iteration local.
+    Named_object* no = NULL;
     Var_expression* ve = (*pexpr)->var_expression();
-    if (ve == NULL)
+    if (ve != NULL)
+      no = ve->named_object();
+    else
+      {
+	Enclosed_var_expression* eve = (*pexpr)->enclosed_var_expression();
+	if (eve != NULL)
+	  no = eve->variable();
+      }
+    if (no == NULL)
       return TRAVERSE_CONTINUE;
-    Loopvar_rewrite_map::const_iterator p =
-      this->replacements_->find(ve->named_object());
+    Loopvar_rewrite_map::const_iterator p = this->replacements_->find(no);
     if (p == this->replacements_->end())
       return TRAVERSE_CONTINUE;
     *pexpr = Expression::make_var_reference(p->second, (*pexpr)->location());
@@ -8115,14 +8127,10 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
 	value_no = ve->named_object();
     }
 
-  // Add the range variables, $state and $ret vars to the capture list
-  // (they may already be captured through the body if it references
-  // them; add them explicitly to be sure).
+  // Add $state and the $ret vars to the capture list (they may already
+  // be captured through the body if it references them; add them
+  // explicitly to be sure).
   std::vector<Named_object*> extra;
-  if (index_no != NULL)
-    extra.push_back(index_no);
-  if (value_no != NULL)
-    extra.push_back(value_no);
   extra.push_back(state_no);
   for (size_t i = 0; i < ret_vars.size(); ++i)
     extra.push_back(ret_vars[i]);
@@ -8194,29 +8202,43 @@ For_range_statement::lower_range_func(Gogo* gogo, Named_object* enclosing_fn,
 
   // Build the body of the yield function.
   gogo->start_block(loc);
+  Block* yield_block = gogo->current_block();
 
   // Get references to the parameters.
   Named_object* kp = (index_type != NULL ? gogo->lookup("$rfk", NULL) : NULL);
   Named_object* vp = (value_type != NULL ? gogo->lookup("$rfv", NULL) : NULL);
 
-  // Assign the range variables from the parameters: x = k; y = v.
+  // Declare fresh per-iteration loop variables local to the yield
+  // function, initialized from the parameters: "k := $rfk; v := $rfv".
+  // Because the yield function is invoked once per iteration, each call
+  // gets a distinct instance of these locals (heap-allocated by escape
+  // analysis when a body closure captures them), giving Go 1.22+
+  // per-iteration semantics.
+  Loopvar_rewrite_map loopvar_repl;
   if (index_no != NULL)
     {
-      Expression* lhs = rangefunc_closure_ref(closure_no,
-					      field_index[index_no],
-					      index_no, loc);
-      Expression* rhs = Expression::make_var_reference(kp, loc);
-      Statement* s = Statement::make_assignment(lhs, rhs, loc);
-      gogo->add_statement(s);
+      Named_object* kloc =
+	add_loopvar_object(yield_block, index_type,
+			   Expression::make_var_reference(kp, loc), loc);
+      kloc->var_value()->set_address_taken();
+      Node::make_node(kloc)->set_encoding(Node::ESCAPE_HEAP);
+      add_loopvar_decl(gogo, yield_block, kloc);
+      loopvar_repl[index_no] = kloc;
     }
   if (value_no != NULL)
     {
-      Expression* lhs = rangefunc_closure_ref(closure_no,
-					      field_index[value_no],
-					      value_no, loc);
-      Expression* rhs = Expression::make_var_reference(vp, loc);
-      Statement* s = Statement::make_assignment(lhs, rhs, loc);
-      gogo->add_statement(s);
+      Named_object* vloc =
+	add_loopvar_object(yield_block, value_type,
+			   Expression::make_var_reference(vp, loc), loc);
+      vloc->var_value()->set_address_taken();
+      Node::make_node(vloc)->set_encoding(Node::ESCAPE_HEAP);
+      add_loopvar_decl(gogo, yield_block, vloc);
+      loopvar_repl[value_no] = vloc;
+    }
+  if (!loopvar_repl.empty())
+    {
+      Loopvar_rewrite rw(&loopvar_repl);
+      this->statements_->traverse(&rw);
     }
 
   // Rewrite every reference to a captured variable inside the body so
