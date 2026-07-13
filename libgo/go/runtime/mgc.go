@@ -239,7 +239,17 @@ const (
 //go:nosplit
 func setGCPhase(x uint32) {
 	atomic.Store(&gcphase, x)
-	writeBarrier.enabled = gcphase == _GCmark || gcphase == _GCmarktermination
+	// gccgo's libgo still has runtime bulk write barriers (typedmemmove,
+	// typedslicecopy, bulkBarrierPreWrite, wbBufFlush, ...) that guard on
+	// writeBarrier.needed, whereas the compiler-emitted barriers check
+	// writeBarrier.enabled.  The 1.22 gc rename of needed->enabled was only
+	// half-applied here: setGCPhase set enabled but left needed permanently
+	// false, silently disabling every runtime bulk barrier during GC and
+	// corrupting the heap (freed live map/string backing -> aeshash fault;
+	// marked-but-free objects -> reportZombies).  Keep the two in lockstep
+	// (they are documented as "identical to enabled, for now"), as Go 1.21 did.
+	writeBarrier.needed = gcphase == _GCmark || gcphase == _GCmarktermination
+	writeBarrier.enabled = writeBarrier.needed
 }
 
 // gcMarkWorkerMode represents the mode that a concurrent mark worker
