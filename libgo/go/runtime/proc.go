@@ -4481,7 +4481,19 @@ func exitsyscall0(gp *g) {
 		//
 		// It's important that we write this *after* we know whether we
 		// lost our P or not (determined by exitsyscallfast).
-		trace.GoSysExit(true)
+		//
+		// gccgo uses the pre-ExecTracer2 tracer, whose GoSysExit emits via
+		// traceEvent and therefore requires a P for the per-P trace buffer.
+		// This slow path (exitsyscall0) runs without a P — exitsyscallfast
+		// failed to reacquire one — so emitting here would dereference a nil P
+		// and crash. Match Go 1.22 and the upstream old tracer, which do not
+		// emit the syscall-exit event on the P-less exitsyscall0 path (it is
+		// only emitted on the fast paths that hold a P). Guard on holding a P
+		// so this stays correct if ExecTracer2 (whose GoSysExit is P-safe) is
+		// ever enabled.
+		if getg().m.p != 0 {
+			trace.GoSysExit(true)
+		}
 		traceRelease(trace)
 	}
 	lock(&sched.lock)
