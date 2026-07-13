@@ -5059,6 +5059,11 @@ Parse::generic_type_instantiation(Generic_function_info* info,
   // Consume "]".
   this->advance_token();
 
+  // A function-local type argument is out of scope by the time the generic
+  // type is re-parsed, so rewrite any such argument to its stable synthetic
+  // "$localtypeN" spelling while the declaration scope is still active.
+  this->localize_local_type_args(type_args);
+
   // Record the package-qualifier bindings of the type arguments from the
   // current (correct) scope, so the instance re-parse resolves each qualifier
   // to the exact package the argument came from -- even when a same-named
@@ -5186,6 +5191,11 @@ Parse::pending_generic_type_instantiation(const std::string& name,
     }
   // Consume "]".
   this->advance_token();
+
+  // A function-local type argument is out of scope by the time the generic
+  // type is re-parsed, so rewrite any such argument to its stable synthetic
+  // "$localtypeN" spelling while the declaration scope is still active.
+  this->localize_local_type_args(type_args);
 
   std::map<std::string, std::string> pkg_bindings;
   for (size_t i = 0; i < type_args.size(); ++i)
@@ -5399,6 +5409,18 @@ Parse::resolve_constraint_type(const std::vector<Token>& toks,
 {
   if (toks.size() == 1 && toks[0].is_identifier())
     {
+      // Synthetic local-type names are resolved by the replay map; ordinary
+      // name lookup would miss them because they are out of scope when the
+      // instantiation is revisited.
+      if (toks[0].identifier().compare(0, 10, "$localtype") == 0)
+	{
+	  std::map<std::string, Named_object*>::const_iterator p =
+	    replay_local_type_obj.find(toks[0].identifier());
+	  if (p != replay_local_type_obj.end() && p->second->is_type())
+	    return p->second->type_value();
+	  return NULL;
+	}
+
       // Resolve a single name quietly (never via a throwaway re-parse,
       // which would emit a spurious "undefined type" error for a name that
       // belongs to another package).  Try the global bindings (for
@@ -7848,9 +7870,10 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
 	      if (lt != NULL && !lt->is_error_type()
 		  && lt->named_type() != NULL)
 		{
-		  std::string syn = replay_name_for_local_type(no);
+		  std::string syn = this->package_alias_for_local_type(
+		    lt, aloc);
 		  a.clear();
-		  a.push_back(Token::make_identifier_token(syn, true, aloc));
+		  a.push_back(Token::make_identifier_token(syn, false, aloc));
 		}
 	    }
 	  continue;
