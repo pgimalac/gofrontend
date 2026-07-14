@@ -1833,8 +1833,10 @@ Parse::field_decl(Struct_field_list* sfl)
 	      return;
 	    }
 	  std::string name =
-	    this->gogo_->pack_hidden_name_for_field(token->identifier(),
-						    token->is_identifier_exported());
+	    (Gogo::is_hidden_name(token->identifier())
+	     ? token->identifier()
+	     : this->gogo_->pack_hidden_name_for_field(
+		 token->identifier(), token->is_identifier_exported()));
 	  til.push_back(Typed_identifier(name, NULL, token->location()));
 	  if (!this->advance_token()->is_op(OPERATOR_COMMA))
 	    break;
@@ -6995,11 +6997,14 @@ type_to_tokens(Type* t, std::vector<Token>& out, Location loc,
 	      first = false;
 	      if (!p->is_anonymous())
 		{
-		  // field_name() is the packed name for an unexported field
-		  // (".pkgpath.b"); emit the source name so re-parsing packs it
-		  // once for the current package rather than double-packing.
 		  const std::string& fn = p->field_name();
-		  std::string src = Gogo::unpack_hidden_name(fn);
+		  // Preserve an unexported field's existing hidden spelling so a
+		  // replayed generic instantiation keeps the field's origin package
+		  // path instead of re-packing it with the instantiating package's
+		  // path.  Exported fields still round-trip as plain identifiers.
+		  std::string src = (Gogo::is_hidden_name(fn)
+				     ? fn
+				     : Gogo::unpack_hidden_name(fn));
 		  out.push_back(Token::make_identifier_token(
 		    src, Lex::is_exported_name(src), loc));
 		}
