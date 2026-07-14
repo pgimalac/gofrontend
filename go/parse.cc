@@ -7842,7 +7842,8 @@ Parse::lookup_value_in_instantiation_packages(const std::string& name)
 // Must be called while still in the calling function's scope.
 
 void
-Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
+Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args,
+				std::map<std::string, std::string>* pkg_bindings)
 {
   for (size_t i = 0; i < type_args.size(); ++i)
     {
@@ -7874,6 +7875,23 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
 		    lt, aloc);
 		  a.clear();
 		  a.push_back(Token::make_identifier_token(syn, false, aloc));
+	      }
+	    }
+	  else if (no != NULL && no->is_type() && no->package() != NULL)
+	    {
+	      Type* lt = no->type_value();
+	      if (lt != NULL && !lt->is_error_type())
+		{
+		  std::vector<Token> rewritten;
+		  std::map<std::string, std::string> bindings;
+		  if (type_to_tokens(lt, rewritten, aloc,
+				     pkg_bindings != NULL ? &bindings : NULL)
+		      && !rewritten.empty())
+		    {
+		      if (pkg_bindings != NULL && !bindings.empty())
+			pkg_bindings->insert(bindings.begin(), bindings.end());
+		      a.swap(rewritten);
+		    }
 		}
 	    }
 	  continue;
@@ -7896,8 +7914,8 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
 					  a[j].is_identifier_exported());
 	  Named_object* inf = NULL;
 	  Named_object* n = this->gogo_->lookup(packed, &inf);
-	  if (n != NULL && inf != NULL
-	      && (n->is_type() || n->is_type_declaration()))
+	  if (n != NULL && (n->is_type() || n->is_type_declaration())
+	      && (inf != NULL || n->package() != NULL))
 	    mentions_local = true;
 	}
       if (!mentions_local)
@@ -7906,8 +7924,15 @@ Parse::localize_local_type_args(std::vector<std::vector<Token> >& type_args)
       if (at == NULL || at->is_error_type())
 	continue;
       std::vector<Token> rewritten;
-      if (type_to_tokens(at, rewritten, aloc, NULL) && !rewritten.empty())
-	a.swap(rewritten);
+      std::map<std::string, std::string> bindings;
+      if (type_to_tokens(at, rewritten, aloc,
+			 pkg_bindings != NULL ? &bindings : NULL)
+	  && !rewritten.empty())
+	{
+	  if (pkg_bindings != NULL && !bindings.empty())
+	    pkg_bindings->insert(bindings.begin(), bindings.end());
+	  a.swap(rewritten);
+	}
     }
 }
 
@@ -7928,7 +7953,11 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // context is entered, below).  Done before the cache key is built so that
   // repeated uses share one instance.
   std::vector<std::vector<Token> > type_args = type_args_in;
-  this->localize_local_type_args(type_args);
+  std::map<std::string, std::string> pkg_bindings;
+  this->localize_local_type_args(type_args, &pkg_bindings);
+  std::map<std::string, std::string> arg_aliases = pkg_bindings;
+  if (extra_pkg_aliases != NULL && !extra_pkg_aliases->empty())
+    arg_aliases.insert(extra_pkg_aliases->begin(), extra_pkg_aliases->end());
 
   // Build a mangled key from the type arguments and check the cache.
   std::string key = this->instance_key(type_args);
@@ -7946,7 +7975,8 @@ Parse::instantiate_generic_function(Generic_function_info* info,
 
   record_constraint_obligations(this->gogo_, info, type_args,
 				Gogo::message_name(info->name()), location,
-				extra_pkg_aliases);
+				(!arg_aliases.empty() ? &arg_aliases
+				 : NULL));
 
   // Substitute type arguments for type parameter names throughout the
   // captured token stream.
@@ -7980,11 +8010,10 @@ Parse::instantiate_generic_function(Generic_function_info* info,
   // cross-package type argument whose package name the template does not import
   // (or is ambiguous by name) still resolves to the exact package it came from.
   std::map<std::string, std::string> merged_aliases;
-  if (extra_pkg_aliases != NULL && !extra_pkg_aliases->empty())
+  if (!arg_aliases.empty())
     {
       merged_aliases = info->package_aliases();
-      merged_aliases.insert(extra_pkg_aliases->begin(),
-			    extra_pkg_aliases->end());
+      merged_aliases.insert(arg_aliases.begin(), arg_aliases.end());
       ip.set_replay_pkg_aliases(&merged_aliases);
     }
   else
