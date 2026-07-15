@@ -44,8 +44,13 @@ func Escape[T any](x T) T {
 //
 //	if hasNonStringPointers(T) { Escape(v) }
 //
-// Implemented as a compiler intrinsic.
-func EscapeNonString[T any](v T) { panic("intrinsic") }
+// Implemented as a compiler intrinsic on the gc toolchain.  gccgo does not
+// implement the intrinsic and does not need it: gccgo's hash/maphash
+// comparableHash hashes v by value (via the runtime type hasher over &v within
+// a single synchronous call), so it never retains an address across a possible
+// stack move.  A no-op therefore preserves both correctness and the zero-alloc
+// guarantee that hash/maphash.Comparable requires.
+func EscapeNonString[T any](v T) {}
 
 // EscapeToResultNonString models a data flow edge from v to the result,
 // if v contains a non-string pointer. If v contains only string pointers,
