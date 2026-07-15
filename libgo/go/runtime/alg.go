@@ -25,6 +25,7 @@ import (
 //go:linkname c128hash
 //go:linkname interhash
 //go:linkname nilinterhash
+//go:linkname efaceHash
 //go:linkname memequal0
 //go:linkname memequal8
 //go:linkname memequal16

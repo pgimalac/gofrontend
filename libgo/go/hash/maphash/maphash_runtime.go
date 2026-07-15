@@ -7,9 +7,7 @@
 package maphash
 
 import (
-	"internal/abi"
 	"internal/goarch"
-	"internal/goexperiment"
 	"unsafe"
 )
 
@@ -47,21 +45,25 @@ func randUint64() uint64 {
 	return runtime_rand()
 }
 
+// runtime_efaceHash is the runtime's hasher for an empty interface value.  It
+// hashes the (dynamic type, value) pair, which is exactly the identity
+// hash/maphash.Comparable needs, and is marked //go:noescape so that boxing v
+// into the interface argument can stay on the stack (preserving the zero-alloc
+// guarantee).  gccgo's map type descriptor does not share the gc toolchain's
+// abi.OldMapType / abi.SwissMapType layout, so the upstream "map hasher" path
+// is unusable here (its .Hasher field is garbage and calling it faults).
+//
+//go:linkname runtime_efaceHash runtime.efaceHash
+//go:noescape
+func runtime_efaceHash(i any, seed uintptr) uintptr
+
 func comparableHash[T comparable](v T, seed Seed) uint64 {
 	s := seed.s
-	var m map[T]struct{}
-	mTyp := abi.TypeOf(m)
-	var hasher func(unsafe.Pointer, uintptr) uintptr
-	if goexperiment.SwissMap {
-		hasher = (*abi.SwissMapType)(unsafe.Pointer(mTyp)).Hasher
-	} else {
-		hasher = (*abi.OldMapType)(unsafe.Pointer(mTyp)).Hasher
-	}
 	if goarch.PtrSize == 8 {
-		return uint64(hasher(abi.NoEscape(unsafe.Pointer(&v)), uintptr(s)))
+		return uint64(runtime_efaceHash(v, uintptr(s)))
 	}
-	lo := hasher(abi.NoEscape(unsafe.Pointer(&v)), uintptr(s))
-	hi := hasher(abi.NoEscape(unsafe.Pointer(&v)), uintptr(s>>32))
+	lo := runtime_efaceHash(v, uintptr(s))
+	hi := runtime_efaceHash(v, uintptr(s>>32))
 	return uint64(hi)<<32 | uint64(lo)
 }
 

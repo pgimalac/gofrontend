@@ -299,8 +299,13 @@ func Comparable[T comparable](seed Seed, v T) uint64 {
 //
 //	if hasNonStringPointers(T) { abi.Escape(v) }
 //
-// Implemented as a compiler intrinsic.
-func escapeForHash[T comparable](v T) { panic("intrinsic") }
+// Implemented as a compiler intrinsic on the gc toolchain.  gccgo does not
+// implement the intrinsic and does not need it: comparableHash hashes v by
+// value (via the runtime type hasher over &v within a single synchronous
+// call), so it never retains an address across a possible stack move.  A no-op
+// therefore preserves both correctness and the zero-alloc guarantee that
+// Comparable requires.
+func escapeForHash[T comparable](v T) {}
 
 // WriteComparable adds x to the data hashed by h.
 func WriteComparable[T comparable](h *Hash, x T) {
